@@ -151,3 +151,31 @@ Entry format:
 - No admin-only routes exist yet to exercise `requirePermission` against a real request (expected — the admin settings/staff UI is Week 2+ scope per `week1_excecution_prompt.md`'s explicit exclusions). The middleware and permission mapping are unit-tested in isolation instead.
 
 ---
+
+## 2026-08-25 — HANDOFF: Razorpay config research done, not yet implemented — Day 4 next
+
+**Branch/commit:** `dev2` @ `6f8c17b` (pre-Day-4 patch) is pushed and clean. One uncommitted change on top: `razorpay` added to `apps/api/package.json` (package installed, nothing built with it yet) — committing that alongside this entry so nothing is lost mid-session.
+
+**State of the repo right now (read this before doing anything else):**
+- Days 1–3 (foundation, auth, catalogue+cart) — done, verified, pushed.
+- Pre-Day-4 patch (`project_planning/pre-day-4-patch.md`) — done, verified, pushed as `6f8c17b`: `GstSlab` table + seed, `ShippingRule`/`PricingSetting` audited (already correct, untouched), RBAC replaced with the 4 ADR-024 roles (`customer`/`super_admin`/`order_processing_staff`/`product_management_staff`), `apps/api/src/config/permissions.ts` + `requirePermission()` middleware, seeded admin migrated to `SUPER_ADMIN`. Full report is two journal entries up.
+- **Razorpay config — started, not finished.** The user asked to "search and implement razorpay configurations" ahead of Day 4 (real API keys to be provided later — `.env`'s `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`/`RAZORPAY_WEBHOOK_SECRET` stay stub values for now, that's expected and fine, `env.ts` already has them as optional). Session ended on usage limit before implementation — **only the npm package is installed, no code written.**
+
+**Research already done — use this instead of re-researching (saves the next session a WebFetch round-trip):**
+- Package: `razorpay` (npm, v2.9.8, already in `apps/api/package.json` — official Node SDK, ships its own `.d.ts`, no `@types/razorpay` needed).
+- Client: `new Razorpay({ key_id: env.RAZORPAY_KEY_ID, key_secret: env.RAZORPAY_KEY_SECRET })`.
+- Create order (ADR-014): `instance.orders.create({ amount, currency: "INR", receipt })` → returns `Promise<Orders.RazorpayOrder>` when called without a callback. **`amount` is in paise** (subunits) — matches this codebase's Int-paise convention exactly, no conversion needed.
+- Client-redirect verification (NOT authoritative — ADR-014 says never trust this alone): `Razorpay.validatePaymentVerification({ order_id, payment_id }, signature, secret)` from `razorpay/dist/utils/razorpay-utils` — HMACs `order_id|payment_id` with SHA-256 against `key_secret` (not the webhook secret).
+- **Webhook verification (the authoritative one)**: `Razorpay.validateWebhookSignature(rawBody, signature, secret)` — HMACs the **raw request body string** (not parsed JSON) against `RAZORPAY_WEBHOOK_SECRET`, compares to the `X-Razorpay-Signature` header. **Important implementation gotcha found during research: the webhook route MUST use `express.raw()` for its body parser, not the global `express.json()` already mounted in `app.ts`** — signature verification will silently fail if the body has already been JSON-parsed/re-serialized, because the HMAC is computed over the exact bytes Razorpay sent. Mount `express.raw({ type: "application/json" })` on that one route specifically before `validateWebhookSignature` runs.
+
+**What's NOT done yet (next session's first task):**
+- `apps/api/src/modules/payments/infrastructure/services/razorpay.service.ts` — wrap `createOrder()`/`verifyPaymentSignature()`/`verifyWebhookSignature()` around the calls above, following the same shape as `auth`'s `BcryptService`/`JwtService` (plain class, no Prisma access — this service doesn't touch `Payment`/`WebhookEvent` itself, the checkout/webhook use-cases will).
+- Wire it into `payments.module.ts`'s composition root (still no HTTP routes — those need Day 4's `Order` model/checkout flow to exist first; `payments` stays a placeholder router until Day 5 per the original plan, this config work was just pulled forward).
+- Unit tests for the two verification methods using real `crypto.createHmac` in the test (no network/real keys needed) — same pattern as Day 3's `resolve-effective-rate.test.ts`.
+- Run full Definition of Done verification (typecheck/lint/boundaries/tests/build) before committing.
+
+**Then: Day 4 itself** (`week1_excecution_prompt.md`) — checkout page, checkout endpoint with `SELECT ... FOR UPDATE` inventory reservation (ADR-015, the concurrency-critical part — verify with two near-simultaneous checkouts on a stock=1 item, only one should succeed), order creation with a full price/tax/shipping snapshot, GST via the now-live `GstSlab` slabs, shipping fee/threshold via `ShippingRule`, order state machine (`PENDING_PAYMENT → ...`). Coupons explicitly skipped this week. Confirmed ready in the prior session — no blockers, both settings tables and RBAC are in place and correctly read live (never hardcoded).
+
+**Environment note for whoever continues this:** local Postgres/Redis are running natively (not Docker — this machine doesn't have Docker installed), ports 5433/6380 per `.env`. `woobe_dev` and `woobe_test` are both migrated current as of the pre-Day-4 patch. `apps/api`/`apps/web`/`apps/admin` dev servers were running on 4000/3000/3001 in the previous session's shell — they won't survive a new session, restart with `pnpm --filter <pkg> run dev` (remember to `rm -rf apps/web/.next apps/admin/.next` first if a `pnpm run build` was run in between, it collides with the dev server's cache — bit us twice this session).
+
+---
