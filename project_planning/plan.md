@@ -81,6 +81,15 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 **Decision:** Custom auth for launch — JWT (short-lived access token + rotating refresh token, refresh token in httpOnly secure cookie) with bcrypt password hashing. Not Auth0, despite the plugin being installed — avoids per-MAU cost at ecommerce scale and keeps auth logic in-repo where the rest of the RBAC/session rules already live.
 **Forward compatibility:** Auth credentials live in their own table (`auth_credentials`, keyed to `user_id`, with a `method` column) rather than a password column on `User` directly. This means mobile OTP login (the planned future addition) is an additive new row type later, not a schema migration that touches the `User` table.
 
+### ADR-019: Frontend Data Access Pattern
+**Decision:** `apps/web` and `apps/admin` never import `packages/database` or query Postgres directly — not even from Next.js Server Components/Server Actions as a performance shortcut. All data access, including SSR, goes through `apps/api` over HTTP.
+**Rationale:** Keeps every business rule (pricing, stock, tax, RBAC) enforced in exactly one place — the frontend, including its server-rendering process, is still a client relative to the API. Also keeps ADR-010's module-extraction seam intact: if the frontend could read Prisma directly, extracting a module later means hunting down scattered direct DB reads across the frontend too, not just the API.
+**Consequence:** SSR adds one internal network hop (Next.js server → API) instead of an in-process DB call. Negligible at single-region scale; if it ever matters, the fix is a read-through cache at the API layer (ADR-017), not a hole in the boundary.
+
+### ADR-020: Shared Validation & Type Contracts
+**Decision:** `packages/validation` holds one Zod schema per request shape (register, checkout, etc.), used on **both** sides — `apps/web` forms validate client-side with the same schema `apps/api` uses server-side (via a `validate` middleware). TypeScript types are derived from the schemas (`z.infer<typeof Schema>`) in `packages/types` rather than hand-written twice.
+**Rationale:** Directly targets the "build backend and frontend together to minimize API bugs" goal — a changed field becomes a compile error everywhere it's used, not a silent runtime mismatch discovered in QA.
+
 ---
 
 ## 4. Order, Return & Refund State Machines (finalized)
