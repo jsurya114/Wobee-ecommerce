@@ -11,13 +11,16 @@
     "test": "echo \"no component tests yet — added alongside Day 2 pages\" && exit 0"
   },
   "dependencies": {
+    "@hookform/resolvers": "^3.9.1",
     "@woobe/types": "workspace:*",
     "@woobe/ui": "workspace:*",
     "@woobe/utils": "workspace:*",
     "@woobe/validation": "workspace:*",
     "next": "^15.1.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.54.2",
+    "sonner": "^1.7.1"
   },
   "devDependencies": {
     "@woobe/config": "workspace:*",

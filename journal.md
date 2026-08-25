@@ -45,6 +45,45 @@ Entry format:
 - CI workflow written but not yet exercised by a real GitHub Actions run — verify on first push.
 - `pg_trgm` GIN search index deferred to Day 3 (see schema TODO).
 - `package.json#prisma` config is deprecated as of this Prisma version (v6.19) in favor of `prisma.config.ts` — not migrated, not urgent, Prisma 7 isn't out yet.
-- **This work is not yet committed** — leaving that for an explicit go-ahead (see chat).
+
+**Update:** committed and pushed to `dev1` as `519829e` (see Day 2 entry below).
+
+---
+
+## 2026-08-25 — Week 1 Day 2: Auth (API + UI together)
+
+**Branch/commit:** `dev1` (not yet committed — pending go-ahead, see chat)
+
+**What changed:**
+- **Schema**: added `RefreshToken` model (`packages/database/prisma/schema.prisma`, migration `20260825105515_add_refresh_tokens`). ADR-018's "rotating refresh token" implemented as a DB-backed **opaque** token (crypto-random, sha256-hashed at rest), not a second JWT — this is what makes logout and reuse-detection real instead of "wait out the expiry."
+- **`apps/api` auth module — fully implemented** (domain/application/infrastructure/interface, replacing Day 1's `501` stubs):
+  - `register` / `login` / `refresh` / `logout` / `me` (new — protected, used by the frontend to restore a session).
+  - Access token: short-lived JWT (15m default), verified by signature only, sent via `Authorization: Bearer`.
+  - Refresh token: opaque, httpOnly + signed cookie, scoped to `/api/v1/auth`, **rotated on every refresh** (old row revoked, new row issued) and **reuse-detected** — presenting an already-revoked token revokes every session for that user (covered by an integration test).
+  - Login timing-equalized between "no such user" and "wrong password" (same error, same rough latency via a dummy bcrypt compare) — prevents account-enumeration via response content or timing.
+  - Deactivated-account check on both login and refresh.
+  - `RBAC` middleware (`auth-guard.ts`, `rbac-guard.ts`) — deliberately duplicates a 2-line JWT verify instead of importing the auth module's `JwtService`, to keep ADR-010's boundary intact (this middleware protects every module's routes, not just auth's).
+- **Correctness fix caught before it shipped**: Express 4 doesn't catch rejected promises from async route handlers — an unhandled use-case error would have bypassed `error-handler.ts` entirely. Added `middleware/async-handler.ts`, wrapped every async route.
+- **Bug caught by writing the integration tests, not by inspection**: `packages/validation`'s `registerSchema` rejected a *blank* (not omitted) phone field — exactly what an untouched HTML input submits — because `""` doesn't match `.optional()`'s "field absent" case, only Zod's own `undefined`. Fixed with an explicit `"" -> undefined` transform; regression test added.
+- **Integration tests** (`apps/api/src/modules/auth/auth.integration.test.ts`, 8 tests) against a **real** `woobe_test` Postgres database (migrated once via `prisma migrate deploy`, see below) — register, duplicate-email conflict, login, wrong-password (enumeration-safe), `/me` protected route, full refresh+logout lifecycle, and refresh-token reuse detection. All pass.
+- **`packages/ui` primitives** (Button, Input, Label, `FormField`, `cn()` via clsx+tailwind-merge+cva) — first real primitives, styled with Day 1's design tokens. Deliberately not using Base UI yet (ADR-022) — nothing built so far needs accessible primitive *behavior* (focus trap, listbox), just styled HTML elements.
+- **`apps/web` auth feature**: `lib/api-client.ts` (the sole HTTP boundary to `apps/api`, ADR-019), `features/auth/{api,hooks,components}` — `AuthProvider`/`useAuth` (access token in memory only, never localStorage; silent `/auth/refresh` on mount to restore a session across reloads), `LoginForm`/`RegisterForm` (react-hook-form + Zod resolver against the *same* schemas apps/api validates with), `AccountView` (the protected-route proof), `SiteHeader` (minimal nav for manual testing — not the real mobile nav, that's Day 3+).
+- **Environment**: Next.js only auto-loads `.env*` from an app's own directory, not the monorepo root — added `apps/web/.env.local` and `apps/admin/.env.local` (+ `.env.example` siblings) for `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_ADMIN_API_URL`.
+- **Verified in a real browser** (chrome-devtools-mcp, 375px mobile viewport, not just desktop per plan.md §5's Definition of Done): register → lands on `/account` → **hard reload** → session restored from the httpOnly cookie alone → logout → `/account` now redirects to `/login` (deep-link genuinely blocked, not just hidden client-side) → wrong-password login shows the real server-driven error message. Zero console errors/warnings throughout. Screenshots not retained; re-run via chrome-devtools-mcp against `localhost:3000` to reproduce.
+- Fixed a nondeterministic UI race caught during that browser pass: `AccountView`'s logout handler was racing its own `router.push("/")` against the auth-guard `useEffect`'s `router.replace("/login")` — same underlying security property either way, but two navigations competing on microtask timing is worth removing regardless. Now single-path via the guard.
+
+**Why:** Per `week1_excecution_prompt.md` Day 2 — auth is the foundation every other Week 1 day depends on (checkout, orders, etc. all need a real user). Built API+UI together per the plan's explicit instruction, so the contract was validated against real client code immediately, not integrated at the end.
+
+**Definition of Done, checked against plan.md §5:**
+- Zero TypeScript errors (9/9 projects), zero ESLint warnings (9/9), zero module-boundary violations (verified firing on a real violation, not just passing).
+- Unit tests: password/schema edge cases. Integration tests: full transactional auth flow, including both mandatory-style concurrency-adjacent cases for this module (duplicate email race handled at the DB constraint, not just the pre-check; refresh-token reuse detection).
+- Mobile viewport (375px) verified via chrome-devtools-mcp — done above, not skipped.
+- No secrets/PII in logs — nothing new logged besides the existing bootstrap/error lines from Day 1.
+
+**Follow-ups / known gaps:**
+- `RefreshToken` rows are never pruned — expired/revoked rows accumulate forever. Fine at Week 1 scale; a cleanup job is a Week 4 observability/ops concern, not urgent now.
+- No rate limiting on `/login` or `/register` yet (brute-force / registration-spam protection) — `ARCHITECTURE.md` §3.4 lists a `rate-limiter` middleware using Redis; not built this week, flagging so it isn't forgotten before production.
+- `SiteHeader` is a manual-testing stand-in, not the real mobile bottom nav (design plan §10) — expected to be replaced, not extended, when Day 3's cart/wishlist give it something real to link to.
+- Two manually-created browser-test accounts were cleaned up from `woobe_dev` after verification; the automated integration suite cleans up after itself via its `test.woobe.internal` email pattern.
 
 ---

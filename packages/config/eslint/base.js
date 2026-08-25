@@ -17,6 +17,9 @@ module.exports = [
       "**/node_modules/**",
       "**/generated/**",
       "**/coverage/**",
+      // Next.js's own auto-generated file — explicitly "should not be edited",
+      // and it self-regenerates a triple-slash reference our rules would flag.
+      "**/next-env.d.ts",
     ],
   },
   {

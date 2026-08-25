@@ -1,5 +1,11 @@
-import { prisma } from "@woobe/database";
-import type { CreateUserInput, AuthRepositoryPort } from "../../application/ports/auth-repository.port";
+import { AuthMethod, Prisma, prisma } from "@woobe/database";
+import { ConflictError } from "../../../../shared/errors";
+import type {
+  AuthRepositoryPort,
+  CreateUserInput,
+  RefreshTokenRecord,
+  UserWithPasswordHash,
+} from "../../application/ports/auth-repository.port";
 import type { UserEntity } from "../../domain/entities/user.entity";
 
 /**
@@ -12,19 +18,98 @@ export class AuthRepository implements AuthRepositoryPort {
     return user ? toEntity(user) : null;
   }
 
-  async createUserWithPassword(_input: CreateUserInput): Promise<UserEntity> {
-    // TODO (Day 2): prisma.user.create({ data: { email, name, phone,
-    // authCredentials: { create: { method: 'PASSWORD', passwordHash } } } })
-    throw new Error("Not implemented — Week 1 Day 2");
+  async findUserById(id: string): Promise<UserEntity | null> {
+    const user = await prisma.user.findUnique({ where: { id } });
+    return user ? toEntity(user) : null;
+  }
+
+  async findUserWithPasswordHashByEmail(email: string): Promise<UserWithPasswordHash | null> {
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { authCredentials: { where: { method: AuthMethod.PASSWORD } } },
+    });
+    if (!user) return null;
+    return {
+      user: toEntity(user),
+      passwordHash: user.authCredentials[0]?.passwordHash ?? null,
+    };
+  }
+
+  async createUserWithPassword(input: CreateUserInput): Promise<UserEntity> {
+    try {
+      const user = await prisma.user.create({
+        data: {
+          email: input.email,
+          name: input.name,
+          phone: input.phone,
+          authCredentials: {
+            create: { method: AuthMethod.PASSWORD, passwordHash: input.passwordHash },
+          },
+        },
+      });
+      return toEntity(user);
+    } catch (error) {
+      // P2002 (unique constraint) — the use-case's own findUserByEmail check is
+      // TOCTOU-racy under concurrent registration; the DB constraint is the real guard.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictError("An account with this email already exists");
+      }
+      throw error;
+    }
+  }
+
+  async createRefreshToken(params: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<RefreshTokenRecord> {
+    const row = await prisma.refreshToken.create({ data: params });
+    return toRefreshTokenRecord(row);
+  }
+
+  async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
+    const row = await prisma.refreshToken.findUnique({ where: { tokenHash } });
+    return row ? toRefreshTokenRecord(row) : null;
+  }
+
+  async revokeRefreshToken(id: string): Promise<void> {
+    await prisma.refreshToken.updateMany({
+      where: { id, revokedAt: null }, // idempotent — no-op if already revoked
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  async revokeAllRefreshTokensForUser(userId: string): Promise<void> {
+    await prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
   }
 }
 
-function toEntity(user: { id: string; email: string; phone: string | null; name: string; role: string }): UserEntity {
+function toEntity(user: {
+  id: string;
+  email: string;
+  phone: string | null;
+  name: string;
+  role: string;
+  isActive: boolean;
+}): UserEntity {
   return {
     id: user.id,
     email: user.email,
     phone: user.phone,
     name: user.name,
     role: user.role as UserEntity["role"],
+    isActive: user.isActive,
   };
+}
+
+function toRefreshTokenRecord(row: {
+  id: string;
+  userId: string;
+  expiresAt: Date;
+  revokedAt: Date | null;
+}): RefreshTokenRecord {
+  return { id: row.id, userId: row.userId, expiresAt: row.expiresAt, revokedAt: row.revokedAt };
 }

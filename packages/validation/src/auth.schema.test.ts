@@ -32,6 +32,29 @@ describe("registerSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("treats a blank phone field (what an untouched HTML input submits) as omitted, not invalid", () => {
+    const result = registerSchema.safeParse({
+      name: "Asha Rao",
+      email: "asha@example.com",
+      password: "Passw0rd",
+      phone: "",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.phone).toBeUndefined();
+    }
+  });
+
+  it("accepts a valid Indian phone number", () => {
+    const result = registerSchema.safeParse({
+      name: "Asha Rao",
+      email: "asha@example.com",
+      password: "Passw0rd",
+      phone: "9876543210",
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("loginSchema", () => {

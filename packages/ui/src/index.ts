@@ -1,4 +1,11 @@
 export * from "./tokens";
-// Primitives (Button, Input, Card, ...) land here from Day 2 onward, generated
-// via shadcn/ui on Base UI primitives (ADR-022) as real pages need them —
-// intentionally not front-loaded on Day 1. See ARCHITECTURE.md §4.1.
+export * from "./lib/cn";
+export * from "./primitives/Button";
+export * from "./primitives/Input";
+export * from "./primitives/Label";
+export * from "./components/FormField";
+// More primitives (Card, Dialog, Select, Carousel, ...) land as real pages
+// need them (ADR-022) — Day 2 only needed the auth-form basics above.
+// None of these use Base UI yet; that's only needed once something requires
+// real accessible primitive *behavior* (Dialog focus-trap, Select listbox),
+// which Button/Input/Label don't.
