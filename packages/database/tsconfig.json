@@ -1,0 +1,9 @@
+{
+  "extends": "@woobe/config/typescript/node.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["src", "prisma"],
+  "exclude": ["generated"]
+}

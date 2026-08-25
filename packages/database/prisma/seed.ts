@@ -1,0 +1,287 @@
+import bcrypt from "bcryptjs";
+import { AuthMethod, PrismaClient, Role } from "../generated/client";
+
+const prisma = new PrismaClient();
+
+/** Mirrors packages/utils' calculateWeightBasedPricePaise — duplicated here
+ * (not imported) so the seed script has zero workspace dependencies beyond
+ * @prisma/client, keeping `pnpm --filter @woobe/database run seed` fast and
+ * self-contained. */
+function priceForWeight(weightGrams: number, ratePerKgPaise: number): number {
+  return Math.round((weightGrams * ratePerKgPaise) / 1000);
+}
+
+// Placeholder — see DECISIONS_PENDING.md #3. Real catalogue pricing pending client input.
+const DEFAULT_RATE_PER_KG_PAISE = 120_000; // ₹1,200/kg
+
+async function main() {
+  console.log("Seeding Woobe database...");
+
+  // ── Warehouse (ADR-015: single warehouse at launch) ──
+  const warehouse = await prisma.warehouse.upsert({
+    where: { code: "WH-MAIN" },
+    update: {},
+    create: {
+      code: "WH-MAIN",
+      name: "Woobe Main Warehouse",
+      line1: "Plot 42, Industrial Layout",
+      city: "Bengaluru",
+      state: "Karnataka",
+      pincode: "560058",
+    },
+  });
+
+  // ── Pricing & shipping settings ──
+  await prisma.pricingSetting.create({
+    data: { defaultRatePerKgPaise: DEFAULT_RATE_PER_KG_PAISE },
+  });
+
+  await prisma.shippingRule.create({
+    data: {
+      minWeightGramsForCheckout: 1000,
+      freeDeliveryThresholdGrams: 1500,
+      standardFeePaise: 5_000, // ₹50 — placeholder, see DECISIONS_PENDING.md #2
+    },
+  });
+
+  // ── Admin user (ADR-018) ──
+  const adminPasswordHash = await bcrypt.hash("Admin@12345", 12);
+  await prisma.user.upsert({
+    where: { email: "admin@woobe.in" },
+    update: {},
+    create: {
+      email: "admin@woobe.in",
+      name: "Woobe Admin",
+      role: Role.ADMIN,
+      authCredentials: {
+        create: { method: AuthMethod.PASSWORD, passwordHash: adminPasswordHash },
+      },
+    },
+  });
+  console.log("  Admin user: admin@woobe.in / Admin@12345 (dev only — never a real password)");
+
+  // ── Categories ──
+  const categoryDefs = [
+    { name: "Tops", slug: "tops" },
+    { name: "Dresses", slug: "dresses" },
+    { name: "Bottoms", slug: "bottoms" },
+    { name: "Ethnic Wear", slug: "ethnic-wear" },
+    { name: "Accessories", slug: "accessories" },
+  ];
+  const categories: Record<string, { id: string }> = {};
+  for (const c of categoryDefs) {
+    categories[c.slug] = await prisma.category.upsert({
+      where: { slug: c.slug },
+      update: {},
+      create: c,
+    });
+  }
+
+  // ── Collections ──
+  const newDrops = await prisma.collection.upsert({
+    where: { slug: "new-drops" },
+    update: {},
+    create: { name: "New Drops", slug: "new-drops", description: "Freshly landed this week" },
+  });
+  const mostLoved = await prisma.collection.upsert({
+    where: { slug: "most-loved" },
+    update: {},
+    create: { name: "Most Loved", slug: "most-loved", description: "Customer favourites" },
+  });
+
+  // ── Demo products (8-10, with variants + stock) ──
+  type VariantDef = { color: string; size: string; weightGrams: number; stock: number };
+  type ProductDef = {
+    name: string;
+    slug: string;
+    description: string;
+    categorySlug: string;
+    collections: string[];
+    variants: VariantDef[];
+  };
+
+  const productDefs: ProductDef[] = [
+    {
+      name: "Floral Wrap Dress",
+      slug: "floral-wrap-dress",
+      description: "Lightweight floral wrap dress with a flattering tie waist.",
+      categorySlug: "dresses",
+      collections: ["new-drops"],
+      variants: [
+        { color: "Rose", size: "S", weightGrams: 320, stock: 25 },
+        { color: "Rose", size: "M", weightGrams: 340, stock: 30 },
+        { color: "Sage", size: "M", weightGrams: 340, stock: 18 },
+      ],
+    },
+    {
+      name: "Linen Co-ord Set",
+      slug: "linen-coord-set",
+      description: "Breathable linen top and trouser co-ord set, perfect for warm days.",
+      categorySlug: "tops",
+      collections: ["new-drops", "most-loved"],
+      variants: [
+        { color: "Ivory", size: "S", weightGrams: 480, stock: 20 },
+        { color: "Ivory", size: "M", weightGrams: 500, stock: 22 },
+        { color: "Terracotta", size: "M", weightGrams: 500, stock: 15 },
+      ],
+    },
+    {
+      name: "Denim Jacket",
+      slug: "denim-jacket",
+      description: "Classic cropped denim jacket with contrast stitching.",
+      categorySlug: "tops",
+      collections: ["most-loved"],
+      variants: [
+        { color: "Indigo", size: "M", weightGrams: 620, stock: 20 },
+        { color: "Indigo", size: "L", weightGrams: 650, stock: 16 },
+      ],
+    },
+    {
+      name: "Silk Scarf",
+      slug: "silk-scarf",
+      description: "Hand-finished mulberry silk scarf with a hand-rolled edge.",
+      categorySlug: "accessories",
+      collections: ["new-drops"],
+      variants: [
+        { color: "Blush", size: "One Size", weightGrams: 60, stock: 40 },
+        { color: "Charcoal", size: "One Size", weightGrams: 60, stock: 35 },
+      ],
+    },
+    {
+      name: "Cotton Kurta",
+      slug: "cotton-kurta",
+      description: "Hand block-printed cotton kurta, breathable everyday ethnic wear.",
+      categorySlug: "ethnic-wear",
+      collections: ["most-loved"],
+      variants: [
+        { color: "Mustard", size: "S", weightGrams: 280, stock: 24 },
+        { color: "Mustard", size: "M", weightGrams: 300, stock: 28 },
+        { color: "Teal", size: "M", weightGrams: 300, stock: 20 },
+      ],
+    },
+    {
+      name: "Pleated Midi Skirt",
+      slug: "pleated-midi-skirt",
+      description: "Fluid pleated midi skirt that moves with you.",
+      categorySlug: "bottoms",
+      collections: ["new-drops"],
+      variants: [
+        { color: "Dusty Rose", size: "S", weightGrams: 260, stock: 18 },
+        { color: "Dusty Rose", size: "M", weightGrams: 280, stock: 22 },
+      ],
+    },
+    {
+      name: "Embroidered Top",
+      slug: "embroidered-top",
+      description: "Delicately embroidered cotton top with a relaxed silhouette.",
+      categorySlug: "tops",
+      collections: [],
+      variants: [
+        { color: "White", size: "S", weightGrams: 220, stock: 20 },
+        { color: "White", size: "M", weightGrams: 230, stock: 20 },
+      ],
+    },
+    {
+      name: "Palazzo Pants",
+      slug: "palazzo-pants",
+      description: "Wide-leg palazzo pants in flowy rayon.",
+      categorySlug: "bottoms",
+      collections: ["most-loved"],
+      variants: [
+        { color: "Olive", size: "M", weightGrams: 310, stock: 24 },
+        { color: "Olive", size: "L", weightGrams: 330, stock: 18 },
+      ],
+    },
+    {
+      name: "Woven Tote Bag",
+      slug: "woven-tote-bag",
+      description: "Hand-woven jute tote with a leather-trimmed handle.",
+      categorySlug: "accessories",
+      collections: ["new-drops"],
+      variants: [{ color: "Natural", size: "One Size", weightGrams: 380, stock: 30 }],
+    },
+    {
+      name: "Statement Earrings",
+      slug: "statement-earrings",
+      description: "Handcrafted brass statement earrings with a matte finish.",
+      categorySlug: "accessories",
+      collections: [],
+      variants: [
+        { color: "Gold", size: "One Size", weightGrams: 25, stock: 50 },
+        { color: "Silver", size: "One Size", weightGrams: 25, stock: 45 },
+      ],
+    },
+  ];
+
+  for (const p of productDefs) {
+    const variantPrices = p.variants.map((v) => priceForWeight(v.weightGrams, DEFAULT_RATE_PER_KG_PAISE));
+    const minPrice = Math.min(...variantPrices);
+
+    const product = await prisma.product.upsert({
+      where: { slug: p.slug },
+      update: {},
+      create: {
+        name: p.name,
+        slug: p.slug,
+        description: p.description,
+        categoryId: categories[p.categorySlug]!.id,
+        minPricePaiseCache: minPrice,
+        images: {
+          create: [
+            {
+              url: `https://placehold.co/800x1000?text=${encodeURIComponent(p.name)}`,
+              altText: p.name,
+              sortOrder: 0,
+            },
+          ],
+        },
+        collections: {
+          create: p.collections.map((slug) => ({
+            collection: { connect: { id: slug === "new-drops" ? newDrops.id : mostLoved.id } },
+          })),
+        },
+      },
+    });
+
+    for (const v of p.variants) {
+      const sku = `${p.slug}-${v.color}-${v.size}`.toUpperCase().replace(/\s+/g, "-");
+      const effectivePrice = priceForWeight(v.weightGrams, DEFAULT_RATE_PER_KG_PAISE);
+
+      const variant = await prisma.productVariant.upsert({
+        where: { sku },
+        update: {},
+        create: {
+          productId: product.id,
+          sku,
+          color: v.color,
+          size: v.size,
+          weightGrams: v.weightGrams,
+          effectivePricePaiseCache: effectivePrice,
+        },
+      });
+
+      await prisma.inventory.upsert({
+        where: { variantId_warehouseId: { variantId: variant.id, warehouseId: warehouse.id } },
+        update: { quantityAvailable: v.stock },
+        create: {
+          variantId: variant.id,
+          warehouseId: warehouse.id,
+          quantityAvailable: v.stock,
+          quantityReserved: 0,
+        },
+      });
+    }
+  }
+
+  console.log(`  Seeded ${productDefs.length} products with variants + inventory.`);
+  console.log("Seed complete.");
+}
+
+main()
+  .catch((e) => {
+    console.error("Seed failed:", e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

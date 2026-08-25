@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: woobe
+          POSTGRES_PASSWORD: woobe_dev_password
+          POSTGRES_DB: woobe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U woobe -d woobe_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://woobe:woobe_dev_password@localhost:5432/woobe_test?schema=public
+      SHADOW_DATABASE_URL: postgresql://woobe:woobe_dev_password@localhost:5432/woobe_shadow?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      COOKIE_SECRET: ci-cookie-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — needed to diff new migrations against origin/main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ADR-013: destructive migrations require an explicit, human-reviewed flag.
+      - name: Check for unreviewed destructive migrations
+        run: pnpm run check:migrations
+
+      - name: Generate Prisma client
+        run: pnpm run db:generate
+
+      - name: Deploy migrations to the test database
+        run: pnpm run db:migrate:deploy
+
+      - name: Create shadow database
+        run: PGPASSWORD=woobe_dev_password psql -h localhost -U woobe -d postgres -c "CREATE DATABASE woobe_shadow;"
+
+      # ADR-013: schema.prisma must match the checked-in migration history — catches drift.
+      - name: Check schema matches migration history
+        run: pnpm --filter @woobe/database run migrate:diff:check
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      # ADR-010: only a module's own infrastructure/ files may import Prisma.
+      - name: Module boundary check
+        run: pnpm run boundaries:check
+
+      - name: Unit + integration tests
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build

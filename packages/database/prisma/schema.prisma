@@ -1,0 +1,675 @@
+// Woobe — Prisma schema. Full domain model per project_planning/plan.md §3
+// and ARCHITECTURE.md. Modeled for ALL domains from Day 1 even though several
+// (returns, refunds, reviews, coupons, notifications) aren't used until
+// Week 2-4 — cheap to include now, expensive to retrofit later.
+//
+// Hard rules baked into this file (see DEVELOPMENT_RULES.md):
+//  - Money is always Int paise. Weight is always Int grams. Never Float.
+//  - Only a module's own infrastructure/repositories file may import the
+//    Prisma models it owns (ADR-010) — enforced by dependency-cruiser in CI,
+//    not by anything in this file itself.
+//  - Product/variant price is NEVER a plain stored source-of-truth column —
+//    see the comment on ProductVariant below for the one deliberate exception
+//    (a denormalized cache, not an input).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+/// Extensible — mobile OTP login (planned future addition) is an additive
+/// new value + row here, not a migration touching User (ADR-018).
+enum AuthMethod {
+  PASSWORD
+  OTP
+}
+
+/// Order.status lifecycle — plan.md §4. Unchanged from the original brief.
+enum OrderStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  PAYMENT_FAILED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+/// Return is its own entity (item-level), not folded into Order.status —
+/// plan.md §4 correction: returns are frequently partial.
+enum ReturnStatus {
+  RETURN_REQUESTED
+  RETURN_APPROVED
+  RETURN_REJECTED
+  REFUND_INITIATED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  RAZORPAY
+  COD
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum RefundStatus {
+  INITIATED
+  COMPLETED
+  FAILED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FLAT
+}
+
+enum CartStatus {
+  ACTIVE
+  MERGED
+  CONVERTED
+  ABANDONED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Identity & Access — auth module, ADR-018
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String?  @unique
+  name      String
+  role      Role     @default(CUSTOMER)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authCredentials   AuthCredential[]
+  addresses         Address[]
+  cart              Cart?
+  wishlist          Wishlist?
+  orders            Order[]
+  reviews           Review[]
+  couponRedemptions CouponRedemption[]
+
+  @@map("users")
+}
+
+/// Auth credentials live in their own table, keyed to userId with a method
+/// column, rather than a password column on User directly (ADR-018).
+model AuthCredential {
+  id           String     @id @default(uuid())
+  userId       String
+  method       AuthMethod
+  passwordHash String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, method])
+  @@map("auth_credentials")
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  fullName  String
+  phone     String
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Inventory & Warehouse — ADR-015
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Single warehouse at launch (one seeded row). Inventory below is keyed by
+/// (variantId, warehouseId), so a second warehouse later is an additive row,
+/// not a schema rewrite.
+model Warehouse {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  line1     String
+  city      String
+  state     String
+  pincode   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  inventory Inventory[]
+
+  @@map("warehouses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Catalogue — products, categories, collections
+// ─────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  parentId  String?
+  imageUrl  String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  parent   Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryToCategory")
+  products Product[]
+
+  @@map("categories")
+}
+
+model Collection {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  products ProductCollection[]
+
+  @@map("collections")
+}
+
+model ProductCollection {
+  productId    String
+  collectionId String
+
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@id([productId, collectionId])
+  @@map("product_collections")
+}
+
+/// minPricePaiseCache: a DENORMALIZED CACHE for listing/filter sort only —
+/// recomputed server-side by the `pricing` module whenever a variant's
+/// weight/rate changes (min of that product's variants' effective price).
+/// This is a display/index optimization (ADR-012's "composite index on
+/// category_id, price"), NOT a source of truth: checkout/cart pricing always
+/// recomputes live from weight x current rate inside the transaction
+/// (DEVELOPMENT_RULES.md #1) and never reads this column.
+model Product {
+  id                 String   @id @default(uuid())
+  name               String
+  slug               String   @unique
+  description        String?
+  brand              String?
+  categoryId         String
+  isActive           Boolean  @default(true)
+  minPricePaiseCache Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  category      Category            @relation(fields: [categoryId], references: [id])
+  variants      ProductVariant[]
+  images        ProductImage[]
+  collections   ProductCollection[]
+  reviews       Review[]
+  wishlistItems WishlistItem[]
+
+  // TODO (Day 3, ADR-012): pg_trgm GIN index on `name` for fuzzy search once
+  // the catalogue-search query path is actually built — deferred rather than
+  // guessed at on Day 1. See journal.md.
+  @@index([categoryId])
+  @@index([categoryId, minPricePaiseCache])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String @id @default(uuid())
+  productId String
+  url       String
+  altText   String
+  sortOrder Int    @default(0)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+/// Weight-based pricing is the core Woobe mechanic (plan.md §6): price is
+/// DERIVED (weightGrams * effective rate/kg / 1000) by the `pricing`
+/// module's pure domain function at read/checkout time — never stored as a
+/// literal price input. ratePerKgOverridePaise lets admin override the
+/// PricingSetting default for this specific variant (ADR-017).
+/// effectivePricePaiseCache mirrors that derivation for listing/sort display
+/// only, same rule as Product.minPricePaiseCache above.
+model ProductVariant {
+  id                        String   @id @default(uuid())
+  productId                 String
+  sku                       String   @unique
+  color                     String
+  size                      String
+  weightGrams                Int
+  ratePerKgOverridePaise      Int?
+  effectivePricePaiseCache    Int      @default(0)
+  isActive                  Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventory     Inventory[]
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  wishlistItems WishlistItem[]
+
+  @@unique([productId, color, size])
+  @@index([productId])
+  @@map("product_variants")
+}
+
+/// Keyed by (variantId, warehouseId) — single seeded warehouse at launch
+/// (ADR-015). Reservation on checkout takes a `SELECT ... FOR UPDATE` on
+/// this row inside the checkout transaction; released on payment
+/// failure/timeout via a BullMQ delayed job (Day 4/5).
+model Inventory {
+  id                String   @id @default(uuid())
+  variantId         String
+  warehouseId       String
+  quantityAvailable Int      @default(0)
+  quantityReserved  Int      @default(0)
+  updatedAt         DateTime @updatedAt
+
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id])
+
+  @@unique([variantId, warehouseId])
+  @@map("inventory")
+}
+
+/// Admin-configurable default rate/kg. Effective-dated rows — latest
+/// effectiveFrom <= now() wins. Cached for *display* in Redis (ADR-017);
+/// this table is always the source of truth, especially at checkout.
+model PricingSetting {
+  id                    String   @id @default(uuid())
+  defaultRatePerKgPaise Int
+  effectiveFrom         DateTime @default(now())
+  createdAt             DateTime @default(now())
+
+  @@map("pricing_settings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cart & Wishlist — ADR-011
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Cart.id IS the cart_id issued in the signed httpOnly cookie (ADR-011).
+/// userId is null for a guest cart, set on login/merge (union items, prefer
+/// higher quantity on conflict, then re-validated against live stock).
+model Cart {
+  id        String     @id @default(uuid())
+  userId    String?    @unique
+  status    CartStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user  User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items CartItem[]
+
+  @@map("carts")
+}
+
+/// No price/subtotal columns here on purpose — weight, price, and subtotal
+/// are recalculated server-side on every read from live Product/Variant/
+/// PricingSetting state (ADR-011), never stored per line item pre-checkout.
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  variantId String
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart    Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@unique([cartId, variantId])
+  @@map("cart_items")
+}
+
+model Wishlist {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items WishlistItem[]
+
+  @@map("wishlists")
+}
+
+model WishlistItem {
+  id         String   @id @default(uuid())
+  wishlistId String
+  productId  String
+  variantId  String?
+  createdAt  DateTime @default(now())
+
+  wishlist Wishlist        @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant  ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@unique([wishlistId, productId])
+  @@map("wishlist_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Coupons — modeled now, deferred to Week 2+ (explicitly skipped Week 1)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Coupon {
+  id                String     @id @default(uuid())
+  code              String     @unique
+  type              CouponType
+  value             Int
+  minCartValuePaise Int?
+  maxDiscountPaise  Int?
+  usageLimit        Int?
+  perUserLimit      Int?
+  validFrom         DateTime
+  validTo           DateTime
+  isActive          Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+
+  redemptions CouponRedemption[]
+
+  @@map("coupons")
+}
+
+/// orderId is unique — at most one coupon redemption per order. This unique
+/// constraint is also the concurrency guard: two near-simultaneous requests
+/// to apply a coupon to the same order can't both succeed (mandatory
+/// concurrency test per plan.md §5).
+model CouponRedemption {
+  id        String   @id @default(uuid())
+  couponId  String
+  userId    String
+  orderId   String   @unique
+  createdAt DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+  order  Order  @relation(fields: [orderId], references: [id])
+
+  @@map("coupon_redemptions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Shipping — ADR-021
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Admin-configurable weight-based shipping thresholds. See
+/// DECISIONS_PENDING.md #2 for the standardFeePaise placeholder value.
+model ShippingRule {
+  id                         String   @id @default(uuid())
+  minWeightGramsForCheckout  Int      @default(1000)
+  freeDeliveryThresholdGrams Int      @default(1500)
+  standardFeePaise           Int
+  effectiveFrom              DateTime @default(now())
+  createdAt                  DateTime @default(now())
+
+  @@map("shipping_rules")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Orders — state machine per plan.md §4
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Every money/weight/tax field here is a SNAPSHOT taken at order-creation
+/// time, independent of current product/pricing state (plan.md §6) — an
+/// admin changing a product's rate tomorrow must never change what this
+/// order shows or owes.
+model Order {
+  id          String      @id @default(uuid())
+  orderNumber String      @unique
+  userId      String?
+  status      OrderStatus @default(PENDING_PAYMENT)
+  addressId   String?
+
+  contactName      String
+  contactPhone     String
+  contactEmail     String
+  shippingSnapshot Json
+
+  subtotalPaise    Int
+  discountPaise    Int @default(0)
+  shippingFeePaise Int
+  taxPaise         Int
+  totalPaise       Int
+  totalWeightGrams Int
+
+  paymentMethod PaymentMethod
+
+  /// Denormalized for admin filtering only — the real state lives on Return (plan.md §4).
+  hasActiveReturn   Boolean @default(false)
+  exchangeOfOrderId String?
+
+  placedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user             User?             @relation(fields: [userId], references: [id])
+  address          Address?          @relation(fields: [addressId], references: [id])
+  exchangeOfOrder  Order?            @relation("OrderExchange", fields: [exchangeOfOrderId], references: [id])
+  exchangeOrders   Order[]           @relation("OrderExchange")
+  items            OrderItem[]
+  payments         Payment[]
+  returns          Return[]
+  refunds          Refund[]
+  couponRedemption CouponRedemption?
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+/// Full price/tax snapshot per line item — never recomputed from live
+/// product state later (plan.md §6).
+model OrderItem {
+  id                  String @id @default(uuid())
+  orderId             String
+  variantId           String
+  productNameSnapshot String
+  skuSnapshot         String
+  color               String
+  size                String
+  weightGrams         Int
+  unitRatePerKgPaise  Int
+  unitPricePaise      Int
+  quantity            Int
+  lineTotalPaise      Int
+  taxAmountPaise      Int
+
+  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  returnItems ReturnItem[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Payments — ADR-014
+// ─────────────────────────────────────────────────────────────────────────
+
+model Payment {
+  id                String        @id @default(uuid())
+  orderId           String
+  provider          PaymentMethod
+  status            PaymentStatus @default(CREATED)
+  amountPaise       Int
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+/// Dedupes retried webhook deliveries for BOTH payment capture (ADR-014) and
+/// refund confirmation (plan.md §4) via one (provider, eventId) unique
+/// constraint — the "mandatory concurrency test: duplicate webhook" targets
+/// this table directly.
+model WebhookEvent {
+  id          String    @id @default(uuid())
+  provider    String
+  eventType   String
+  eventId     String
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([provider, eventId])
+  @@map("webhook_events")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Returns / Refunds — item-level, separate from Order.status (plan.md §4)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Return {
+  id          String       @id @default(uuid())
+  orderId     String
+  status      ReturnStatus @default(RETURN_REQUESTED)
+  reason      String
+  requestedAt DateTime     @default(now())
+  resolvedAt  DateTime?
+
+  order   Order        @relation(fields: [orderId], references: [id])
+  items   ReturnItem[]
+  refunds Refund[]
+
+  @@index([orderId])
+  @@map("returns")
+}
+
+model ReturnItem {
+  id           String  @id @default(uuid())
+  returnId     String
+  orderItemId  String
+  quantity     Int
+  reasonDetail String?
+
+  return    Return    @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+
+  @@map("return_items")
+}
+
+/// Exchanges resolve to a new Order (Order.exchangeOfOrderId) instead of a
+/// Refund — see Order model above. returnId is nullable for a direct
+/// admin-initiated refund not tied to a return flow (plan.md §6 contingency:
+/// "ship a manual/admin-only refund path" if Week 3 runs long).
+model Refund {
+  id               String        @id @default(uuid())
+  returnId         String?
+  orderId          String
+  provider         PaymentMethod
+  status           RefundStatus  @default(INITIATED)
+  amountPaise      Int
+  providerRefundId String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  return Return? @relation(fields: [returnId], references: [id])
+  order  Order   @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@map("refunds")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Reviews — modeled now, deferred to Week 2+
+// ─────────────────────────────────────────────────────────────────────────
+
+model Review {
+  id         String   @id @default(uuid())
+  productId  String
+  userId     String
+  rating     Int
+  title      String?
+  body       String?
+  isApproved Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Notifications — modeled now, only core transactional jobs used Week 1 Day 5
+// ─────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String              @id @default(uuid())
+  userId    String?
+  type      String
+  channel   NotificationChannel
+  payload   Json
+  status    NotificationStatus  @default(PENDING)
+  createdAt DateTime            @default(now())
+  sentAt    DateTime?
+
+  @@index([userId])
+  @@map("notifications")
+}

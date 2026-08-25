@@ -1,0 +1,30 @@
+{
+  "name": "woobe-ecommerce",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.23.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "boundaries:check": "pnpm --filter @woobe/api run boundaries:check",
+    "check:migrations": "node scripts/check-destructive-migration.mjs",
+    "db:generate": "pnpm --filter @woobe/database run generate",
+    "db:migrate": "pnpm --filter @woobe/database run migrate:dev",
+    "db:migrate:deploy": "pnpm --filter @woobe/database run migrate:deploy",
+    "db:seed": "pnpm --filter @woobe/database run seed",
+    "db:studio": "pnpm --filter @woobe/database run studio",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2"
+  }
+}
