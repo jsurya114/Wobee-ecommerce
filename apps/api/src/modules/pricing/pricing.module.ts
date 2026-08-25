@@ -1,12 +1,13 @@
+// Composition root for the pricing module (ARCHITECTURE.md §3.2). No HTTP
+// surface yet — Week 1 doesn't need admin-editable rates, so this module's
+// only consumers this week are other modules calling
+// `calculateEffectivePriceUseCase` in-process (products, cart).
 import { Router } from "express";
+import { CalculateEffectivePriceUseCase } from "./application/use-cases/calculate-effective-price.use-case";
+import { PricingRepository } from "./infrastructure/repositories/pricing.repository";
 
-/**
- * pricing module — placeholder composition root.
- * Owns (ADR-010): PricingSetting.
- * Built out: Week 1 Day 3. The weight -> price formula itself is a pure
- * function in this module's domain layer (see packages/utils/src/weight.ts
- * for the reference implementation used to seed demo data) — no I/O, unit
- * tested directly, callable only through this module's application layer
- * (DEVELOPMENT_RULES.md #1).
- */
+const pricingRepository = new PricingRepository();
+
+export const calculateEffectivePriceUseCase = new CalculateEffectivePriceUseCase(pricingRepository);
+
 export const router = Router();

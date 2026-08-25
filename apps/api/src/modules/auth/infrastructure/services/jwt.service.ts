@@ -14,17 +14,7 @@ export class JwtService {
     });
   }
 
-  signRefreshToken(payload: AccessTokenPayload): string {
-    return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
-      expiresIn: env.JWT_REFRESH_TOKEN_TTL as jwt.SignOptions["expiresIn"],
-    });
-  }
-
   verifyAccessToken(token: string): AccessTokenPayload {
     return jwt.verify(token, env.JWT_ACCESS_SECRET) as AccessTokenPayload;
-  }
-
-  verifyRefreshToken(token: string): AccessTokenPayload {
-    return jwt.verify(token, env.JWT_REFRESH_SECRET) as AccessTokenPayload;
   }
 }
