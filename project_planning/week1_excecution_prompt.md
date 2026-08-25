@@ -1,96 +1,78 @@
-# Woobe — Week 1 Execution Plan (Foundation)
+# Woobe — Week 1 Execution Plan (Walking Skeleton: Login → Checkout)
 
-You are continuing as Senior Software Architect and Technical Lead on Woobe. The architecture is approved (`ARCHITECTURE.md`, `PLAN.md`, ADR-001 through ADR-018). **This document is your Week 1 task list — implement it module by module, in order. Do not skip ahead to Week 2 scope (catalogue, pricing, cart) under any circumstance.**
+You are continuing as Senior Software Architect and Technical Lead on Woobe. Architecture is approved (`ARCHITECTURE.md`, `PLAN.md`, ADR-001–018).
 
-Stop after each module and report before starting the next: files created, tests passing, any deviation from spec and why.
+**Week 1 goal:** one working, demo-able vertical slice — register/login → browse seeded products → cart → checkout → pay (Razorpay test mode or COD) → order confirmed in the database. Not full-scope Week 2–4 features. Build backend and UI for each step together, same session, so API contracts and client code are validated against each other immediately rather than integrated at the end.
 
----
+**Non-negotiable even at prototype speed:** server-side price/tax calculation, inventory row-locking on reservation, payment webhook signature verification + idempotency. These are correctness rules, not polish — cutting them now creates bugs (oversold stock, duplicate charges) that are far more expensive to fix later than to build right today.
 
-## Module A — Monorepo & Tooling Foundation
+**Explicitly deferred to Week 2+:** returns, refunds, reviews, wishlist, coupons, admin product-management UI (seed script only this week), full SEO, observability, full notification system, catalogue search refinement.
 
-- Initialize pnpm workspace: `apps/{web,admin,api}`, `packages/{database,types,validation,ui,config,utils}`
-- Root-level `tsconfig.base.json`, shared ESLint + Prettier config in `packages/config`
-- **Module boundary enforcement (ADR-010):** configure `dependency-cruiser` (or `eslint-plugin-boundaries`) so `apps/api/src/modules/<x>` can only import Prisma models it owns — wire this into CI in Module C, not just locally
-- `docker-compose.yml` for local Postgres + Redis
-- `.env.example` covering every secret the architecture needs (DB URL, Redis URL, JWT secret, Razorpay key/secret/webhook secret, S3/Cloudinary creds, Cloudflare) — no real values
-- `.gitignore` (never commit `.env`, credentials, keys)
-- Confirm git branch strategy (`main`, `develop`, `feature/*`, `fix/*`, `hotfix/*`) and commit convention are documented (already in `DEVELOPMENT_RULES.md` — verify, don't recreate)
-
-**Done when:** `pnpm install` succeeds at root, empty apps/packages boot without errors, lint runs clean, boundary-check tool is installed and configured (rules will bite once Module D adds real modules).
+Stop after each day and report before continuing. Do not silently expand scope back to the original Week 2–4 breakdown.
 
 ---
 
-## Module B — Database Schema (`packages/database`)
+## Day 1 — Foundation
 
-Full Prisma schema, **all domains represented now**, even if only `auth` has business logic this week:
+- pnpm workspace: `apps/{web,admin,api}`, `packages/{database,types,validation,ui,config,utils}`
+- Full Prisma schema per `PLAN.md` §3 (all domains modeled now — cheap to include, expensive to retrofit), money as `Int` paise, weight as `Int` grams
+- Module boundary lint rule (ADR-010) wired into `apps/api/src/modules/*`
+- Seed script: one warehouse (ADR-015), one admin user, default ₹/kg rate, **8–10 demo products with variants and stock** (enough to actually shop from)
+- Basic CI: lint, typecheck, test, `prisma migrate diff` check (ADR-013)
+- `docker-compose.yml` (Postgres + Redis), `.env.example`, `.gitignore`
 
-`User`, `AuthCredential` (per ADR-018 — `method` column, not a password field on `User`), `Product`, `ProductVariant`, `Category`, `Collection`, `Warehouse` (single seeded row per ADR-015), `Inventory` (`variant_id`, `warehouse_id`, `quantity_available`, `quantity_reserved`), `Cart`, `CartItem` (per ADR-011), `Wishlist`, `Coupon`, `Order`, `OrderItem` (price-snapshot fields: `product_name`, `weight_grams`, `rate_per_kg`, `unit_price`, `quantity`, `discount`, `tax` — per original brief §6), `Payment` (`razorpay_order_id`, `razorpay_payment_id`, `razorpay_signature` per ADR-014), `PaymentWebhookEvent` (unique constraint on `provider` + `event_id`), `Shipment`, `Return`, `ReturnItem`, `Refund` (separate from `Order.status` — per §4 correction, item-level, `order_id` FK), `Review`, `Notification`, `AdminAuditLog`.
-
-Rules that apply to every table, not just some:
-- Money fields: `Int` (paise), never `Float`/`Decimal` shortcuts
-- Weight: `Int` (grams)
-- Every table gets `created_at`/`updated_at`
-- `warehouse_id` present on `Inventory` even with only one seeded warehouse row (ADR-015 — additive later, not a rewrite)
-
-Initial migration + a seed script that creates: one warehouse row, one default admin user, one default ₹/kg rate setting.
-
-**Done when:** `prisma migrate dev` runs clean, seed script populates the three rows above, `prisma studio` shows every table listed.
+**Done when:** `pnpm install` + `prisma migrate dev` + seed script all succeed; demo products are queryable in `prisma studio`.
 
 ---
 
-## Module C — CI Pipeline (ADR-013)
+## Day 2 — Auth (API + UI together) — ADR-018
 
-GitHub Actions workflow on every PR: lint → typecheck → unit + integration tests → `prisma migrate diff` check (fails the build on a destructive migration unless a human has explicitly acknowledged it — never auto-apply). Wire in the Module A boundary-check tool as a required step.
+- `AuthCredential` table (`method: 'password'`, extensible for OTP later)
+- API: register, login, refresh, logout — bcrypt + JWT access/refresh, refresh token in httpOnly secure cookie
+- RBAC middleware (`customer`/`admin`)
+- UI: register + login pages in `apps/web`, wired to the endpoints above — real forms, real validation via `packages/validation`, real error states, not placeholders
+- One protected route (e.g. "My Account" stub) to prove the cookie/JWT flow works in an actual browser, not just in tests
 
-**Done when:** a deliberately broken PR (lint error, then a destructive migration) fails the pipeline for the right reason each time.
-
----
-
-## Module D — Auth Module (`apps/api/src/modules/auth`) — ADR-018
-
-- `AuthCredential` table, `method: 'password'` for now (leaves room for `'otp'` later without touching `User`)
-- bcrypt password hashing (cost factor documented, not just defaulted)
-- JWT access token (short-lived) + rotating refresh token in an httpOnly, secure, `SameSite=strict` cookie
-- Endpoints: register, login, refresh, logout
-- Basic RBAC: `customer` / `admin` roles, middleware to guard admin routes
-- Unit tests: password hashing, token issuance/verification/expiry, refresh rotation
-- Integration test: full register → login → access protected route → refresh → logout flow
-
-**Done when:** the Definition of Done checklist in `PLAN.md` §5 passes for this module specifically — zero TS errors, zero boundary violations, tests green, `security-guidance` plugin clean on the diff.
+**Done when:** a person can register, log in, land on the protected route, refresh, and log out — in the browser.
 
 ---
 
-## Module E — Shared Packages
+## Day 3 — Catalogue + Cart (API + UI together) — ADR-011
 
-- `packages/types` — `Money` (paise-based), `Weight` (grams-based), and core domain DTOs used across modules
-- `packages/validation` — Zod schemas, starting with auth (register/login payloads); structure it so each future module adds its own schema file here
-- `packages/utils` — pure, unit-tested conversion helpers: grams↔kg, paise↔rupees. These get used everywhere pricing touches the UI, so they need tests now, not "later"
-- `packages/ui` — base design tokens (color, type scale, spacing) for a premium fashion aesthetic, plus primitive components (Button, Input, Card) built mobile-first. Use the `frontend-design` plugin for this — don't hand-roll generic defaults.
+- API: product listing (basic filters — category only, skip advanced search/sort for now), product detail
+- UI: listing page, product detail page (variant selection, weight-based price display)
+- API: cart (add/update/remove item), server-side recalculation of weight → price → subtotal on every read, guest `cart_id` cookie + merge-on-login with stock revalidation (ADR-011)
+- UI: cart page showing product, variant, weight, rate, price, subtotal — matching original brief §"Cart" fields
 
-**Done when:** `packages/utils`'s money/weight helpers have 100% branch coverage on rounding edge cases (this is the one place a silent bug becomes a pricing bug everywhere downstream).
-
----
-
-## Module F — Base Mobile-First Layout
-
-- `apps/web`: responsive shell (header, mobile nav/drawer, footer) built from `packages/ui` tokens, 375px viewport as the design baseline, not an afterthought
-- `apps/admin`: minimal admin shell (sidebar nav, auth-gated)
-- No real pages yet beyond a placeholder home route — this is shell + design system, not Week 2's catalogue UI
-
-**Done when:** `chrome-devtools-mcp` confirms both shells render correctly at 375px and at desktop width, no console errors.
+**Done when:** a guest can browse, add items to cart, and see a cart total that was computed server-side (verify by tampering with a client value and confirming the server ignores it).
 
 ---
 
-## Module G — ADR Cleanup
+## Day 4 — Checkout, Inventory, Order Creation (API + UI together)
 
-Split ADR-010 through ADR-018 out of `PLAN.md` into individual `docs/adr/ADR-0NN-<slug>.md` files, matching the `Context / Decision / Alternatives / Consequences` format already used for ADR-001–009. Keep `PLAN.md` as the narrative summary; the individual ADR files become the source of truth per file, consistent with the original doc structure requirement.
+- UI: checkout page — guest or logged-in, mobile number, email, address, pincode, state
+- API: checkout endpoint — inventory reservation via `SELECT ... FOR UPDATE` inside the checkout transaction (ADR-015, correctness non-negotiable), order creation with price/tax snapshot (original brief §6), GST calculated with a placeholder rate explicitly flagged in `DECISIONS_PENDING.md` as needing client/accounting confirmation, order state machine (`PENDING_PAYMENT` → ...)
+- Coupons: skip entirely this week (deferred, not stubbed)
 
-**Done when:** every ADR from 001–018 exists as its own file under `docs/adr/`, same format, no gaps in numbering.
+**Done when:** a checkout attempt correctly reserves stock (verify: two near-simultaneous checkouts on a stock=1 item — only one succeeds), and the order row has a full price/tax snapshot independent of current product state.
 
 ---
 
-## Week 1 Order of Execution
+## Day 5 — Payments (Razorpay test mode + COD) + Order Confirmation
 
-Day 1 → Module A · Day 2 → Module B · Day 3 → Module C + Module G · Day 4 → Module D · Day 5 → Module E + F, then a full Week 1 review against `PLAN.md` §5's Definition of Done.
+- Razorpay: Orders API integration, Razorpay Checkout on the client, webhook handler verifying `X-Razorpay-Signature`, unique constraint on `(provider, event_id)` for dedup (ADR-014) — order moves to `CONFIRMED` only after webhook-verified capture, never from the client redirect alone
+- COD: order moves straight to `CONFIRMED` at checkout, no gateway step, clearly marked `payment_method: COD`
+- UI: order confirmation page, minimal "My Orders" list (status only, no returns/refunds UI yet)
 
-**Stop at the end of Day 5.** Report status against every module above before Week 2 (catalogue, pricing, cart) begins.
+**Done when (Week 1 Definition of Done — full slice):**
+- A person can complete: register → login → browse seeded products → add to cart → checkout → pay via Razorpay **test mode** → see a confirmed order
+- Same flow works end-to-end with COD instead of Razorpay
+- Duplicate webhook delivery does not double-confirm or double-charge an order (test this explicitly — resend the same webhook payload)
+- Concurrent checkout on a stock=1 item — only one order succeeds, the other gets a clean out-of-stock response
+- Zero TypeScript errors, zero module-boundary violations, `security-guidance` plugin clean on the diff
+
+---
+
+## Explicitly Out of Scope This Week
+
+Returns/refunds, reviews, wishlist, coupons, admin product-management UI, SEO (sitemap/structured data/OG), observability/logging infra, full notification system, search/filter refinement beyond basic category filtering, multi-warehouse logic. These resume in the original Week 2–4 breakdown once the walking skeleton is confirmed working.
