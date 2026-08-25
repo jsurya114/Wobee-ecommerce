@@ -27,7 +27,7 @@ type PaymentStage = "idle" | "confirming-cod" | "awaiting-razorpay" | "confirmin
  * ever actually confirms the order).
  */
 export function OrderConfirmation({ orderId }: { orderId: string }) {
-  const { accessToken } = useAuth();
+  const { accessToken, status: authStatus } = useAuth();
   const [order, setOrder] = useState<OrderView | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [stage, setStage] = useState<PaymentStage>("idle");
@@ -53,8 +53,14 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   }, [orderId, accessToken]);
 
   useEffect(() => {
+    // Wait for AuthProvider's silent-refresh to settle first (same guard
+    // CartProvider uses) — an account-owned order fetched before that
+    // resolves looks exactly like a guest request and correctly 404s
+    // (GetOrderUseCase's ownership check), which otherwise gets
+    // permanently mistaken for "this order doesn't exist".
+    if (authStatus === "loading") return;
     void refetch();
-  }, [refetch]);
+  }, [refetch, authStatus]);
 
   // COD confirms itself, once, as soon as the order is known to be pending.
   useEffect(() => {

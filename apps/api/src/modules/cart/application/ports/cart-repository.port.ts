@@ -20,7 +20,11 @@ export interface CartItemRecord {
 export interface CartRepositoryPort {
   findActiveCartByUserId(userId: string): Promise<CartRecord | null>;
   findActiveCartById(cartId: string): Promise<CartRecord | null>;
+  /** Any status, not just ACTIVE — `Cart.userId` is DB-unique (one cart row ever per user), so this is how GetOrCreateCartUseCase finds a past (e.g. CONVERTED) cart to reactivate instead of trying to INSERT a second row and violating that constraint. */
+  findCartByUserId(userId: string): Promise<CartRecord | null>;
   createCart(params: { userId?: string }): Promise<CartRecord>;
+  /** Resets a non-ACTIVE cart (CONVERTED after a past checkout) back to ACTIVE for a new shopping session, clearing its old items — those already live on the Order/OrderItem snapshot, not meant to reappear in a fresh cart. */
+  reactivateCart(cartId: string): Promise<CartRecord>;
   markCartMerged(cartId: string): Promise<void>;
   /**
    * ADR-015: called from inside orders' checkout Unit-of-Work transaction

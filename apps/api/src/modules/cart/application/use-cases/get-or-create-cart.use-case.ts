@@ -22,8 +22,19 @@ export class GetOrCreateCartUseCase {
 
   async execute(input: GetOrCreateCartInput): Promise<GetOrCreateCartResult> {
     if (input.userId) {
-      const existing = await this.cartRepository.findActiveCartByUserId(input.userId);
-      const cart = existing ?? (await this.cartRepository.createCart({ userId: input.userId }));
+      const existingActive = await this.cartRepository.findActiveCartByUserId(input.userId);
+      if (existingActive) {
+        return { cartId: existingActive.id, isGuest: false };
+      }
+
+      // `Cart.userId` is DB-unique — a user who already has a past (e.g.
+      // CONVERTED, after a completed checkout) cart row can't get a second
+      // one via createCart(), that would violate the constraint. Reactivate
+      // the existing row for a fresh session instead of inserting a new one.
+      const existingAny = await this.cartRepository.findCartByUserId(input.userId);
+      const cart = existingAny
+        ? await this.cartRepository.reactivateCart(existingAny.id)
+        : await this.cartRepository.createCart({ userId: input.userId });
       return { cartId: cart.id, isGuest: false };
     }
 

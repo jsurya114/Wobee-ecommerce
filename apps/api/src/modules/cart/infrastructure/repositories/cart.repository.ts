@@ -21,8 +21,21 @@ export class CartRepository implements CartRepositoryPort {
     return cart && cart.status === CartStatus.ACTIVE ? toRecord(cart) : null;
   }
 
+  async findCartByUserId(userId: string): Promise<CartRecord | null> {
+    const cart = await prisma.cart.findUnique({ where: { userId } });
+    return cart ? toRecord(cart) : null;
+  }
+
   async createCart(params: { userId?: string }): Promise<CartRecord> {
     const cart = await prisma.cart.create({ data: { userId: params.userId } });
+    return toRecord(cart);
+  }
+
+  async reactivateCart(cartId: string): Promise<CartRecord> {
+    // Clear first: the old items already live on the completed order's
+    // snapshot (OrderItem), not meant to reappear in the reactivated cart.
+    await prisma.cartItem.deleteMany({ where: { cartId } });
+    const cart = await prisma.cart.update({ where: { id: cartId }, data: { status: CartStatus.ACTIVE } });
     return toRecord(cart);
   }
 
