@@ -117,6 +117,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   authCredentials   AuthCredential[]
+  refreshTokens     RefreshToken[]
   addresses         Address[]
   cart              Cart?
   wishlist          Wishlist?
@@ -125,6 +126,27 @@ model User {
   couponRedemptions CouponRedemption[]
 
   @@map("users")
+}
+
+/// ADR-018's "rotating refresh token" implemented as a DB-backed opaque
+/// token (not a second JWT) so logout and reuse-detection are real, not
+/// just a clock waiting out an expiry: the raw token lives only in the
+/// httpOnly cookie; only its sha256 hash is ever stored. On refresh, the
+/// presented row is revoked and a new one issued (rotation); presenting an
+/// already-revoked token is treated as token theft — see
+/// RefreshTokenUseCase — and revokes every session for that user.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 /// Auth credentials live in their own table, keyed to userId with a method

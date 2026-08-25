@@ -12,10 +12,19 @@ const indianPhone = z
   .string()
   .regex(/^(\+91)?[6-9]\d{9}$/, "Enter a valid 10-digit Indian mobile number");
 
+// A blank HTML input submits "" (not undefined) for an untouched optional
+// field — without this, "" would fail indianPhone's regex and block
+// registration for anyone who leaves phone empty. "" is treated the same as
+// omitted; anything else must be a valid number.
+const optionalIndianPhone = z
+  .union([z.literal(""), indianPhone])
+  .optional()
+  .transform((val) => (val === "" ? undefined : val));
+
 export const registerSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters").max(100),
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
-  phone: indianPhone.optional(),
+  phone: optionalIndianPhone,
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")

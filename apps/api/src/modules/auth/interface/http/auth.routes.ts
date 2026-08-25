@@ -1,14 +1,36 @@
 import { loginSchema, registerSchema } from "@woobe/validation";
 import { Router } from "express";
+import { asyncHandler } from "../../../../middleware/async-handler";
+import { authGuard } from "../../../../middleware/auth-guard";
 import { validate } from "../../../../middleware/validate";
-import { AuthController } from "./auth.controller";
+import type { AuthController } from "./auth.controller";
 
-const router = Router();
-const controller = new AuthController();
+export function createAuthRouter(controller: AuthController): Router {
+  const router = Router();
 
-router.post("/register", validate(registerSchema), (req, res) => controller.register(req, res));
-router.post("/login", validate(loginSchema), (req, res) => controller.login(req, res));
-router.post("/refresh", (req, res) => controller.refresh(req, res));
-router.post("/logout", (req, res) => controller.logout(req, res));
+  router.post(
+    "/register",
+    validate(registerSchema),
+    asyncHandler((req, res) => controller.register(req, res)),
+  );
+  router.post(
+    "/login",
+    validate(loginSchema),
+    asyncHandler((req, res) => controller.login(req, res)),
+  );
+  router.post(
+    "/refresh",
+    asyncHandler((req, res) => controller.refresh(req, res)),
+  );
+  router.post(
+    "/logout",
+    asyncHandler((req, res) => controller.logout(req, res)),
+  );
+  router.get(
+    "/me",
+    authGuard,
+    asyncHandler((req, res) => controller.me(req, res)),
+  );
 
-export { router };
+  return router;
+}

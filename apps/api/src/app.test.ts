@@ -21,18 +21,14 @@ describe("unknown route", () => {
 });
 
 describe("POST /api/v1/auth/register", () => {
-  it("rejects an invalid payload with 400 before reaching the (stubbed) controller", async () => {
+  // Deliberately DB-independent — validates the middleware chain wiring
+  // (route -> validate() -> controller) without touching Postgres. The real
+  // register/login/refresh/logout flow is covered against the actual test
+  // database in modules/auth/auth.integration.test.ts.
+  it("rejects an invalid payload with 400 before reaching the controller", async () => {
     const app = createApp();
     const res = await request(app).post("/api/v1/auth/register").send({ email: "not-an-email" });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("VALIDATION_ERROR");
-  });
-
-  it("accepts a valid payload and reaches the Day 2 stub", async () => {
-    const app = createApp();
-    const res = await request(app)
-      .post("/api/v1/auth/register")
-      .send({ name: "Asha Rao", email: "asha@example.com", password: "Passw0rd" });
-    expect(res.status).toBe(501);
   });
 });

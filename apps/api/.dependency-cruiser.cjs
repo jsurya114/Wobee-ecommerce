@@ -27,11 +27,14 @@ module.exports = {
       // Scoped to apps/api's own src/ so this doesn't also (mis)flag edges
       // entirely inside packages/database itself (e.g. its generated client's
       // internal requires) — those aren't part of this app's module system.
-      // src/server.ts is exempted: it calls prisma.$disconnect() during
-      // graceful shutdown only, never queries a model — bootstrap, not a module.
+      // Exemptions: src/server.ts calls prisma.$disconnect() during graceful
+      // shutdown only, never queries a model (bootstrap, not a module); test
+      // files legitimately need direct DB access for fixture setup/teardown
+      // — they're validating the system as a whole, not part of the
+      // module's own runtime call graph.
       from: {
         path: "^src/",
-        pathNot: "^(src/modules/[^/]+/infrastructure/|src/server\\.ts$)",
+        pathNot: "^(src/modules/[^/]+/infrastructure/|src/server\\.ts$)|\\.test\\.ts$",
       },
       // dependency-cruiser matches `to.path` against the RESOLVED path, not the
       // import specifier — @woobe/database resolves through the pnpm workspace

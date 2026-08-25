@@ -1,7 +1,14 @@
 import type { ReactNode } from "react";
+import { SiteHeader } from "@/features/auth/components/SiteHeader";
 
-// Pass-through for now — header/nav/footer land alongside Day 2-3 pages
-// (see project_planning/woobe_ui_design_plan.md §10 for the mobile nav spec).
+// Real header/nav (mobile bottom nav per woobe_ui_design_plan.md §10) lands
+// Day 3+ alongside cart/wishlist. SiteHeader here is a minimal stand-in
+// scoped to Day 2's auth flow only.
 export default function StorefrontLayout({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      <SiteHeader />
+      {children}
+    </>
+  );
 }

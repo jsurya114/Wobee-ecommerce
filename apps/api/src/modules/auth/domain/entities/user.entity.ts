@@ -4,6 +4,7 @@ export interface UserEntity {
   phone: string | null;
   name: string;
   role: "CUSTOMER" | "ADMIN";
+  isActive: boolean;
 }
-// TODO (Day 2): add domain behavior here if a use-case needs it
-// (e.g. canPlaceOrder()) — keep this framework/Prisma-free either way.
+// TODO: add domain behavior here if a use-case needs it (e.g. canPlaceOrder())
+// — keep this framework/Prisma-free either way.
