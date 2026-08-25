@@ -43,12 +43,42 @@ export function CartPageContent() {
             <dt className="text-text-secondary">Total weight</dt>
             <dd className="text-text-primary">{formatGrams(cart.totalWeightGrams)}</dd>
           </div>
+          <div className="flex justify-between">
+            <dt className="text-text-secondary">Shipping</dt>
+            <dd className="text-text-primary">
+              {cart.shipping.isFreeDelivery ? "Free" : formatPaiseAsInr(cart.shipping.shippingFeePaise)}
+            </dd>
+          </div>
         </dl>
         <div className="mt-4 flex justify-between border-t border-border pt-4 font-body text-base font-medium">
           <span className="text-text-primary">Total</span>
-          <span className="text-text-primary">{formatPaiseAsInr(cart.totalPaise)}</span>
+          <span className="text-text-primary">
+            {formatPaiseAsInr(cart.totalPaise + (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise))}
+          </span>
         </div>
-        <p className="mt-3 font-body text-xs text-text-secondary">Shipping and checkout land Day 4.</p>
+
+        {/* ADR-021 minimum-order / free-delivery progress — same numbers checkout enforces server-side, just surfaced here for the customer. */}
+        {!cart.shipping.meetsMinimum ? (
+          <p className="mt-3 rounded-control bg-primary-tint p-3 font-body text-xs text-text-secondary">
+            Add {formatGrams(cart.shipping.gramsToMinimum)} more to your bag to check out.
+          </p>
+        ) : !cart.shipping.isFreeDelivery ? (
+          <p className="mt-3 rounded-control bg-primary-tint p-3 font-body text-xs text-text-secondary">
+            Add {formatGrams(cart.shipping.gramsToFreeDelivery)} more for free delivery.
+          </p>
+        ) : null}
+
+        <Link
+          href="/checkout"
+          aria-disabled={!cart.shipping.meetsMinimum}
+          className={`mt-4 flex h-11 w-full items-center justify-center rounded-control px-5 font-body text-base font-medium transition-colors ${
+            cart.shipping.meetsMinimum
+              ? "bg-primary text-white hover:bg-primary-hover"
+              : "pointer-events-none bg-border text-text-secondary"
+          }`}
+        >
+          Checkout
+        </Link>
       </aside>
     </div>
   );

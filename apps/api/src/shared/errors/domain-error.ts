@@ -45,3 +45,9 @@ export class ConflictError extends DomainError {
   readonly code = "CONFLICT";
   readonly httpStatus = 409;
 }
+
+/** A well-formed request that violates a business rule (ADR-021's checkout weight minimum), distinct from Zod-level shape validation (ValidationError, 400). */
+export class UnprocessableEntityError extends DomainError {
+  readonly code = "UNPROCESSABLE_ENTITY";
+  readonly httpStatus = 422;
+}

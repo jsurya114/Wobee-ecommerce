@@ -22,6 +22,12 @@ export interface CartRepositoryPort {
   findActiveCartById(cartId: string): Promise<CartRecord | null>;
   createCart(params: { userId?: string }): Promise<CartRecord>;
   markCartMerged(cartId: string): Promise<void>;
+  /**
+   * ADR-015: called from inside orders' checkout Unit-of-Work transaction
+   * (`tx` is that opaque handle — see orders/application/ports/transaction.port.ts)
+   * so "order created" and "cart converted" commit or roll back together.
+   */
+  markCartConverted(cartId: string, tx: unknown): Promise<void>;
 
   findItems(cartId: string): Promise<CartItemRecord[]>;
   findItem(cartId: string, itemId: string): Promise<CartItemRecord | null>;

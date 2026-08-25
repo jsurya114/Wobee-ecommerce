@@ -1,5 +1,8 @@
-import { CartStatus, prisma } from "@woobe/database";
+import { CartStatus, Prisma, prisma } from "@woobe/database";
 import type { CartItemRecord, CartRecord, CartRepositoryPort } from "../../application/ports/cart-repository.port";
+
+/** The only shape `markCartConverted`'s opaque `tx` handle is ever cast to — see that method's own comment on the port. */
+type PrismaTx = Prisma.TransactionClient;
 
 /**
  * ADR-010: the ONLY file in the cart module allowed to import
@@ -25,6 +28,11 @@ export class CartRepository implements CartRepositoryPort {
 
   async markCartMerged(cartId: string): Promise<void> {
     await prisma.cart.update({ where: { id: cartId }, data: { status: CartStatus.MERGED } });
+  }
+
+  async markCartConverted(cartId: string, tx: unknown): Promise<void> {
+    const client = tx as PrismaTx;
+    await client.cart.update({ where: { id: cartId }, data: { status: CartStatus.CONVERTED } });
   }
 
   async findItems(cartId: string): Promise<CartItemRecord[]> {

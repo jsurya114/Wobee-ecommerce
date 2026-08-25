@@ -6,6 +6,7 @@ export interface CartLine {
   productSlug: string;
   productName: string;
   image: string | null;
+  sku: string;
   color: string;
   size: string;
   weightGrams: number;
@@ -17,12 +18,22 @@ export interface CartLine {
   isAvailable: boolean;
 }
 
+/** ADR-021 checkout-blocking + free-delivery progress, server-computed (Week 1 Day 4). */
+export interface ShippingProgress {
+  meetsMinimum: boolean;
+  isFreeDelivery: boolean;
+  shippingFeePaise: number;
+  gramsToMinimum: number;
+  gramsToFreeDelivery: number;
+}
+
 export interface CartView {
   cartId: string;
   items: CartLine[];
   itemCount: number;
   totalWeightGrams: number;
   totalPaise: number;
+  shipping: ShippingProgress;
 }
 
 /** Guest identity travels via the signed httpOnly cart_id cookie (ADR-011) — apiFetch always sends credentials, nothing else to pass here. */

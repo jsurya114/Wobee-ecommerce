@@ -1,11 +1,16 @@
 import { Router } from "express";
+import { EvaluateShippingUseCase } from "./application/use-cases/evaluate-shipping.use-case";
+import { ShippingRepository } from "./infrastructure/repositories/shipping.repository";
 
 /**
- * shipping module — placeholder composition root.
- * Owns (ADR-010): ShippingRule.
- * Built out: Week 1 Day 4. Weight-based minimum order threshold (1,000g) and
- * free-delivery threshold (1,500g) — ADR-021. Fee/threshold logic here;
- * checkout-blocking validation + progress data in the cart module. Cart
- * weight and shipping fee are never computed client-side.
+ * Composition root for the shipping module (ARCHITECTURE.md §3.2). No HTTP
+ * surface yet — this week's consumers (cart's progress display, orders'
+ * checkout) call `evaluateShippingUseCase` in-process. ADR-021's weight
+ * thresholds and fee are read live from ShippingRule here — never
+ * hardcoded, never computed client-side.
  */
+const shippingRepository = new ShippingRepository();
+
+export const evaluateShippingUseCase = new EvaluateShippingUseCase(shippingRepository);
+
 export const router = Router();

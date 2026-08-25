@@ -1,0 +1,51 @@
+import type { OrderStatus, PaymentMethod } from "@woobe/types";
+
+export interface OrderAddressSnapshot {
+  fullName: string;
+  phone: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+}
+
+export interface OrderItemEntity {
+  id: string;
+  variantId: string;
+  productNameSnapshot: string;
+  skuSnapshot: string;
+  color: string;
+  size: string;
+  weightGrams: number;
+  unitRatePerKgPaise: number;
+  unitPricePaise: number;
+  quantity: number;
+  lineTotalPaise: number;
+  taxAmountPaise: number;
+}
+
+/**
+ * Every money/weight/tax field is a SNAPSHOT taken at checkout time
+ * (plan.md §6, schema.prisma's own comment on the Order model) — never
+ * recomputed from current product/pricing/settings state after the fact.
+ */
+export interface OrderEntity {
+  id: string;
+  orderNumber: string;
+  userId: string | null;
+  status: OrderStatus;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  shippingSnapshot: OrderAddressSnapshot;
+  subtotalPaise: number;
+  discountPaise: number;
+  shippingFeePaise: number;
+  taxPaise: number;
+  totalPaise: number;
+  totalWeightGrams: number;
+  paymentMethod: PaymentMethod;
+  placedAt: Date;
+  items: OrderItemEntity[];
+}

@@ -2,6 +2,7 @@ import { computeCartTotals } from "../../domain/compute-cart-totals";
 import type { CartRepositoryPort } from "../ports/cart-repository.port";
 import type { InventoryReaderPort } from "../ports/inventory-reader.port";
 import type { PricingReaderPort } from "../ports/pricing-reader.port";
+import type { ShippingProgress, ShippingReaderPort } from "../ports/shipping-reader.port";
 import type { VariantCatalogPort } from "../ports/variant-catalog.port";
 
 export interface CartLineView {
@@ -10,6 +11,7 @@ export interface CartLineView {
   productSlug: string;
   productName: string;
   image: string | null;
+  sku: string;
   color: string;
   size: string;
   weightGrams: number;
@@ -27,6 +29,8 @@ export interface CartView {
   itemCount: number;
   totalWeightGrams: number;
   totalPaise: number;
+  /** ADR-021 checkout-blocking + free-delivery progress, always current — never computed client-side. Empty-cart totals (0g) resolve to "below minimum". */
+  shipping: ShippingProgress;
 }
 
 /**
@@ -43,12 +47,20 @@ export class GetCartUseCase {
     private readonly variantCatalog: VariantCatalogPort,
     private readonly pricingReader: PricingReaderPort,
     private readonly inventoryReader: InventoryReaderPort,
+    private readonly shippingReader: ShippingReaderPort,
   ) {}
 
   async execute(cartId: string): Promise<CartView> {
     const items = await this.cartRepository.findItems(cartId);
     if (items.length === 0) {
-      return { cartId, items: [], itemCount: 0, totalWeightGrams: 0, totalPaise: 0 };
+      return {
+        cartId,
+        items: [],
+        itemCount: 0,
+        totalWeightGrams: 0,
+        totalPaise: 0,
+        shipping: await this.shippingReader.evaluate(0),
+      };
     }
 
     const variantIds = items.map((item) => item.variantId);
@@ -82,6 +94,7 @@ export class GetCartUseCase {
         productSlug: variant.productSlug,
         productName: variant.productName,
         image: variant.image,
+        sku: variant.sku,
         color: variant.color,
         size: variant.size,
         weightGrams: variant.weightGrams,
@@ -95,7 +108,8 @@ export class GetCartUseCase {
     });
 
     const totals = computeCartTotals(lines.map((l) => ({ quantity: l.quantity, unitPricePaise: l.unitPricePaise, weightGrams: l.weightGrams })));
+    const shipping = await this.shippingReader.evaluate(totals.totalWeightGrams);
 
-    return { cartId, items: lines, ...totals };
+    return { cartId, items: lines, ...totals, shipping };
   }
 }
