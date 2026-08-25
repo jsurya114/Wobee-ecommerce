@@ -90,6 +90,21 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 **Decision:** `packages/validation` holds one Zod schema per request shape (register, checkout, etc.), used on **both** sides — `apps/web` forms validate client-side with the same schema `apps/api` uses server-side (via a `validate` middleware). TypeScript types are derived from the schemas (`z.infer<typeof Schema>`) in `packages/types` rather than hand-written twice.
 **Rationale:** Directly targets the "build backend and frontend together to minimize API bugs" goal — a changed field becomes a compile error everywhere it's used, not a silent runtime mismatch discovered in QA.
 
+### ADR-021: Weight-Based Shipping & Minimum Order Threshold
+**Decision:** Minimum cart weight of **1,000g (1kg)** required to checkout — below this, checkout is blocked and the cart/homepage UI shows a progress indicator toward the minimum. Free delivery applies at **1,500g (1.5kg)** and above; between 1,000g–1,499g, a standard shipping fee applies (exact fee structure — flat vs weight-tiered — flagged in `DECISIONS_PENDING.md`, same "needs client confirmation" treatment as GST rates).
+**Resolves:** an inconsistency between two reference mockups — one showed ₹999 value-based free shipping, the other showed the 1.5kg/1kg weight-based rule. Weight-based wins; it's consistent with Woobe's "fashion, by weight" pricing model end to end, value-based doesn't fit the brand mechanic.
+**Implementation:** lives in the `shipping` module (fee/threshold logic) and `cart` module (checkout-blocking validation + progress data) — both server-side. Cart weight and shipping fee are never computed client-side, same rule as price (§6, ADR pricing).
+
+### ADR-022: UI Component Library & Design System Stack
+**Decision:**
+- **shadcn/ui** (generated into `packages/ui`) as the component base, on **Base UI** primitives rather than Radix — Radix's maintenance pace has slowed since its acquisition by WorkOS; shadcn/ui now supports Base UI as an alternative primitive layer, and it's the more actively maintained option going into this build.
+- **Tailwind CSS** for styling — already implied by `frontend-design` plugin conventions.
+- **Motion** (the current name for what was Framer Motion — package is `motion`, imported from `motion/react`, not the old `framer-motion` name) for micro-interactions, scroll-reveal, and page transitions.
+- **shadcn/ui's Carousel** (Embla Carousel underneath) for product rails, hero slider, and image thumbnails.
+- **react-hook-form + Zod resolver** for forms — already required by ADR-020.
+- **sonner** for toasts, **lucide-react** for icons.
+**Rationale:** everything here is Tailwind-native and composes with the `packages/ui` token system (`ARCHITECTURE.md` §4.1) instead of fighting it — nothing here is a pre-styled/opinionated kit that would fight the custom rose/blush brand direction. Full design spec lives in `UI_DESIGN_PLAN.md`.
+
 ---
 
 ## 4. Order, Return & Refund State Machines (finalized)
