@@ -1,10 +1,11 @@
+import type { Role } from "@woobe/types";
 import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env";
 
 interface AccessTokenPayload {
   sub: string;
-  role: "CUSTOMER" | "ADMIN";
+  role: Role;
 }
 
 /**

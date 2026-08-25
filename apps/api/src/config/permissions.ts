@@ -1,0 +1,46 @@
+import type { Role } from "@woobe/types";
+
+/**
+ * ADR-024: permissions mapped to roles, not hardcoded per-role checks —
+ * adding a role later (e.g. the deliberately-not-built-now `accountant`
+ * role) is a config change here, not a rebuild of every route guard.
+ */
+export const PERMISSIONS = {
+  /** GST slabs, default ₹/kg rate, shipping thresholds/fee (ADR-023) — super_admin only. */
+  MANAGE_SETTINGS: "MANAGE_SETTINGS",
+  /** Product creation/editing, images, categories, per-product ₹/kg override, weight, measurements, stock/SKU. */
+  MANAGE_CATALOG: "MANAGE_CATALOG",
+  /** Stock/SKU levels — product_management_staff's side of inventory (distinct from checkout's reservation locking, ADR-015). */
+  MANAGE_INVENTORY: "MANAGE_INVENTORY",
+  /** Order confirmation, packing, shipping, tracking, cancellations, returns/refunds. */
+  MANAGE_ORDERS: "MANAGE_ORDERS",
+  /** Staff account/role management — super_admin only. */
+  MANAGE_STAFF: "MANAGE_STAFF",
+} as const;
+
+export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+/**
+ * ADR-024: NOT a linear hierarchy — order_processing_staff and
+ * product_management_staff have disjoint permission sets, neither is a
+ * subset of the other. `customer` gets no admin permissions at all
+ * (storefront only).
+ */
+export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
+  CUSTOMER: new Set(),
+  SUPER_ADMIN: new Set([
+    PERMISSIONS.MANAGE_SETTINGS,
+    PERMISSIONS.MANAGE_CATALOG,
+    PERMISSIONS.MANAGE_INVENTORY,
+    PERMISSIONS.MANAGE_ORDERS,
+    PERMISSIONS.MANAGE_STAFF,
+  ]),
+  // Explicitly no catalog/pricing/settings access (ADR-024).
+  ORDER_PROCESSING_STAFF: new Set([PERMISSIONS.MANAGE_ORDERS]),
+  // Explicitly no order/payment access, no business settings (ADR-024).
+  PRODUCT_MANAGEMENT_STAFF: new Set([PERMISSIONS.MANAGE_CATALOG, PERMISSIONS.MANAGE_INVENTORY]),
+};
+
+export function roleHasPermission(role: Role, permission: Permission): boolean {
+  return ROLE_PERMISSIONS[role].has(permission);
+}

@@ -1,3 +1,4 @@
+import type { Role } from "@woobe/types";
 import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env";
@@ -5,7 +6,7 @@ import { UnauthorizedError } from "../shared/errors";
 
 export interface AuthenticatedUser {
   id: string;
-  role: "CUSTOMER" | "ADMIN";
+  role: Role;
 }
 
 declare global {
@@ -19,7 +20,7 @@ declare global {
 
 interface AccessTokenPayload {
   sub: string;
-  role: "CUSTOMER" | "ADMIN";
+  role: Role;
 }
 
 /**

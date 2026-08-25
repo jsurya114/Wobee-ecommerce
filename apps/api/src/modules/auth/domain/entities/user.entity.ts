@@ -1,9 +1,11 @@
+import type { Role } from "@woobe/types";
+
 export interface UserEntity {
   id: string;
   email: string;
   phone: string | null;
   name: string;
-  role: "CUSTOMER" | "ADMIN";
+  role: Role;
   isActive: boolean;
 }
 // TODO: add domain behavior here if a use-case needs it (e.g. canPlaceOrder())

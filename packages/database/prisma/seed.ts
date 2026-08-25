@@ -44,15 +44,23 @@ async function main() {
     },
   });
 
+  // ── GST slabs (ADR-023) — tiered by per-piece price, matches India's
+  // GST structure effective since the September 2025 reform. ──
+  await prisma.gstSlab.create({ data: { maxPricePaise: 250_000, ratePercent: 5 } }); // <= ₹2,500
+  await prisma.gstSlab.create({ data: { maxPricePaise: null, ratePercent: 18 } }); // above ₹2,500, unbounded
+
   // ── Admin user (ADR-018) ──
   const adminPasswordHash = await bcrypt.hash("Admin@12345", 12);
   await prisma.user.upsert({
     where: { email: "admin@woobe.in" },
-    update: {},
+    // ADR-024 / PRE_DAY4_PATCH.md #3: migrates the already-seeded admin
+    // user (previously role: ADMIN) to SUPER_ADMIN on re-run, not just on
+    // first create — this is the data-migration step for existing rows.
+    update: { role: Role.SUPER_ADMIN },
     create: {
       email: "admin@woobe.in",
       name: "Woobe Admin",
-      role: Role.ADMIN,
+      role: Role.SUPER_ADMIN,
       authCredentials: {
         create: { method: AuthMethod.PASSWORD, passwordHash: adminPasswordHash },
       },

@@ -31,5 +31,10 @@ export type ReturnStatus = (typeof RETURN_STATUS)[number];
 export const PAYMENT_METHOD = ["RAZORPAY", "COD"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHOD)[number];
 
-export const ROLE = ["CUSTOMER", "ADMIN"] as const;
+/// ADR-024: the four contracted roles (quotation §6). `ADMIN` from Week 1
+/// Day 2 is retired here — the Prisma `Role` enum keeps it as an unused
+/// legacy value (Postgres can't cheaply drop an enum value in place), but
+/// this is the single source of truth every app-level role type derives
+/// from, and nothing issues `ADMIN` going forward.
+export const ROLE = ["CUSTOMER", "SUPER_ADMIN", "ORDER_PROCESSING_STAFF", "PRODUCT_MANAGEMENT_STAFF"] as const;
 export type Role = (typeof ROLE)[number];

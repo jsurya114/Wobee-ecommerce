@@ -91,9 +91,9 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 **Rationale:** Directly targets the "build backend and frontend together to minimize API bugs" goal — a changed field becomes a compile error everywhere it's used, not a silent runtime mismatch discovered in QA.
 
 ### ADR-021: Weight-Based Shipping & Minimum Order Threshold
-**Decision:** Minimum cart weight of **1,000g (1kg)** required to checkout — below this, checkout is blocked and the cart/homepage UI shows a progress indicator toward the minimum. Free delivery applies at **1,500g (1.5kg)** and above; between 1,000g–1,499g, a standard shipping fee applies (exact fee structure — flat vs weight-tiered — flagged in `DECISIONS_PENDING.md`, same "needs client confirmation" treatment as GST rates).
-**Resolves:** an inconsistency between two reference mockups — one showed ₹999 value-based free shipping, the other showed the 1.5kg/1kg weight-based rule. Weight-based wins; it's consistent with Woobe's "fashion, by weight" pricing model end to end, value-based doesn't fit the brand mechanic.
-**Implementation:** lives in the `shipping` module (fee/threshold logic) and `cart` module (checkout-blocking validation + progress data) — both server-side. Cart weight and shipping fee are never computed client-side, same rule as price (§6, ADR pricing).
+**Decision:** Checkout requires a minimum cart weight, and free delivery unlocks at a higher weight threshold — both **admin-configurable** (ADR-023), not hardcoded. Seeded defaults: 1,000g minimum to checkout, 1,500g free-delivery threshold, with a standard shipping fee applied between the two (fee amount also admin-configurable — see `DECISIONS_PENDING.md` for the seeded starting value).
+**Resolves:** an inconsistency between two reference mockups — one showed ₹999 value-based free shipping, the other showed a 1.5kg/1kg weight-based rule. Weight-based wins as the underlying mechanic; it's consistent with Woobe's "fashion, by weight" pricing model end to end.
+**Implementation:** thresholds and fee live in the `ShippingRule` settings row (`shipping` module), read live at checkout time — never hardcoded, never computed client-side. The `cart` module validates against current `ShippingRule` values.
 
 ### ADR-022: UI Component Library & Design System Stack
 **Decision:**
@@ -104,6 +104,29 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 - **react-hook-form + Zod resolver** for forms — already required by ADR-020.
 - **sonner** for toasts, **lucide-react** for icons.
 **Rationale:** everything here is Tailwind-native and composes with the `packages/ui` token system (`ARCHITECTURE.md` §4.1) instead of fighting it — nothing here is a pre-styled/opinionated kit that would fight the custom rose/blush brand direction. Full design spec lives in `UI_DESIGN_PLAN.md`.
+
+### ADR-023: Admin-Configurable Business Settings
+**Decision:** Operational parameters that legitimately change over time — default ₹/kg rate, GST tax slabs, minimum order weight, free-delivery threshold, standard shipping fee — are **runtime-editable by the super admin role**, not hardcoded constants, env vars, or seed values meant to be "swapped before launch." They live in the database (`PricingSetting`, `GstSlab`, `ShippingRule`) behind an admin-only settings API, with a corresponding admin UI page — so the business can adjust them without a code deploy.
+**Correction to earlier framing:** `DECISIONS_PENDING.md`'s original framing — confirm one value, hardcode it — undersold what these are. They're ongoing business levers, not one-time unknowns. Building them as static values now just means rebuilding this properly later.
+**Non-negotiable even though it's configurable:** every order still snapshots the exact tax rule/version, rate, and thresholds used at checkout time (§6, "Price Snapshot" — this requirement already existed, it just wasn't wired to a settings source yet). Changing a setting tomorrow must never alter what an existing order shows today. Settings are mutable; snapshots are not.
+**Seeded defaults (real-world-grounded, not arbitrary), editable from day one:**
+- GST: tiered — 5% for per-piece price ≤ ₹2,500, 18% above (matches India's current GST structure, effective since the September 2025 reform)
+- Default ₹/kg rate: ₹849/kg (matches the rate already shown in your own mockups)
+- Minimum order weight: 1,000g · Free delivery threshold: 1,500g (ADR-021)
+- Standard shipping fee (1,000g–1,499g band): ₹50 flat, pending your confirmation
+
+### ADR-024: Role-Based Admin Access
+**Correction from the previous draft:** the role list below is wrong — `accountant` and `support_staff` were invented, not contracted. The signed quotation (§6, "Role-Based Staff Access") already specifies the exact role split: **Super Admin, Order Processing Staff, Product Management Staff, Customer**. Building extra roles beyond this is scope the client isn't paying for. Fixed to match:
+
+**Decision:** Replace the binary `customer`/`admin` role from Day 2 with the four contracted roles, each mapped to a permission set — not a linear hierarchy (the two staff roles have different permissions, neither is a subset of the other):
+- `customer` — storefront only
+- `super_admin` — everything: business settings (ADR-023 — GST, pricing rate, shipping thresholds), staff/role management, full product/order/inventory access, all reports. Per standard RBAC practice, assign this to the smallest possible set of people (Gokul & Sabir themselves) — broad-permission roles should have the fewest holders, not the most.
+- `order_processing_staff` — order confirmation, packing, shipping, tracking, cancellations, returns and refunds. "Returns and refunds as permitted" (quotation's own phrasing) maps directly onto the Return/Refund state machine already in §4 — this role executes `RETURN_REQUESTED → RETURN_APPROVED → REFUND_INITIATED`, the state machine's approval step *is* the control, no separate monetary cap needed. Explicitly no catalog/pricing/settings access.
+- `product_management_staff` — product creation/editing, images/360°, categories, pricing (per-product ₹/kg override — distinct from the *default* rate, which stays a Super Admin setting per ADR-023), weight, measurements, stock/SKU. Explicitly no order/payment access, no business settings.
+
+**Implementation:** `role` enum on `User`, plus a small permission-mapping config (`role → Set<Permission>`, e.g. `MANAGE_SETTINGS`, `MANAGE_CATALOG`, `MANAGE_INVENTORY`, `MANAGE_ORDERS`, `MANAGE_STAFF`) that the RBAC middleware checks against — not a raw role-string comparison. This pattern (permissions mapped to roles, not hardcoded per-role checks) matches how e-commerce platforms actually handle this at scale — it's Shopify's own model — and means adding a role later is a config change, not a rebuild.
+**Deliberately not built now:** an `accountant` role (finance-only, read access to orders/payments/GST reports) is a genuinely common pattern at scale — Shopify explicitly supports granting accountants store access — but it's outside this contract's scope. Worth knowing it's a natural, low-effort future addition (one more entry in the permission-mapping config) if the client wants it later; not worth building speculatively now.
+**Retrofit note:** this replaces Day 2's already-shipped binary RBAC — see `PRE_DAY4_PATCH.md`.
 
 ---
 
@@ -184,4 +207,4 @@ Returns/exchange/refund flows (Return entity per §4, item-level), remaining Bul
 
 ## 8. Next Immediate Step
 
-Feed this plan + the original architecture brief to Claude Code as the implementation baseline, starting with Week 1. Do not let it skip ahead to checkout/payments code before the schema and auth foundation are in place — the whole point of sequencing by financial risk is that later weeks depend on earlier ones being correct.
+Feed this plan + the original architecture brief to Claude Code as the implementation baseline, starting with Week 1. Do not let it skip ahead to checkout/payments code before the schema and auth foundation are in place — the whole point of sequencing by financial risk is that later weeks depend on earlier ones being correct. 

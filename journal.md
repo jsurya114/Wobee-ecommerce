@@ -125,3 +125,29 @@ Entry format:
 - `SiteHeader` still isn't the real mobile bottom nav from `woobe_ui_design_plan.md` §10 — that needs wishlist (Week 2+) to be worth building as a single unit; extended minimally instead of replaced.
 
 ---
+
+## 2026-08-25 — Pre-Day-4 Patch: Settings Schema + RBAC (ADR-021/023/024)
+
+**Branch/commit:** `dev2` (not yet committed — see chat)
+
+**What changed** (per `project_planning/pre-day-4-patch.md`, three items):
+
+1. **Settings schema** — added `GstSlab` (`id`, `maxPricePaise` nullable/top-slab, `ratePercent`, `createdAt`), one additive migration (`20260825150106_add_gst_slabs`, pure `CREATE TABLE`), seeded per ADR-023 (5% ≤ ₹2,500, 18% above). Audited `ShippingRule` and `PricingSetting` per the patch's own escape hatch: both were **already correct** from Day 1 — `ShippingRule` already had `minWeightGramsForCheckout`/`freeDeliveryThresholdGrams` (equivalent to the patch's `minOrderWeightGrams` naming, just not identical), `PricingSetting` was already DB-backed. Left both alone rather than adding a duplicate/renamed column — see Deviations below.
+2. **Cart weight-threshold audit** — grepped `apps/api/src/modules/cart`, `apps/api/src/modules/shipping`, and `apps/web` for hardcoded `1000`/`1500` or a `WeightThresholdBanner`. Found neither. The `shipping` module is still Day 1's placeholder (`Built out: Week 1 Day 4`) and Day 3's cart module never implemented checkout-blocking at all — it was correctly deferred, not built with hardcoded values that needed fixing. **Zero code changes for this item.**
+3. **RBAC replacement** — `Role` enum extended (additive `ALTER TYPE ... ADD VALUE`, migration `20260825150147_extend_role_enum`) with `SUPER_ADMIN`/`ORDER_PROCESSING_STAFF`/`PRODUCT_MANAGEMENT_STAFF`; seeded admin user migrated to `SUPER_ADMIN` via the seed script's upsert `update` clause (so re-running seed is the data migration, not a one-off SQL statement). New `apps/api/src/config/permissions.ts` — `PERMISSIONS` map + `ROLE_PERMISSIONS: Record<Role, Set<Permission>>` per ADR-024 (customer: none; super_admin: all five; order_processing_staff: `MANAGE_ORDERS` only; product_management_staff: `MANAGE_CATALOG` + `MANAGE_INVENTORY` only — confirmed disjoint, neither a subset of the other), 4 new unit tests. `rbac-guard.ts`'s `requireRole` replaced with `requirePermission(...permissions)` (passes if the caller holds ANY of the listed permissions — same ergonomics as the old variadic `requireRole`); zero route-level changes needed since nothing used `requireRole` yet. Single source of truth for the `Role` TS type moved to `packages/types` (`ROLE` const updated to the four contracted roles) — every hand-rolled `"CUSTOMER" | "ADMIN"` union across `auth-guard.ts`, `optional-auth-guard.ts`, `jwt.service.ts`'s `AccessTokenPayload`, `user.entity.ts`, and `apps/web`'s `auth.client.ts` now imports `Role` from there instead.
+
+**Why:** Day 4 (checkout/GST/shipping) was designed against `GstSlab`/`ShippingRule` and ADR-024's role model — this patch is the small additive catch-up so Day 4 lands on the right foundation instead of needing its own schema/RBAC rework mid-stream.
+
+**Migration safety:** both new migrations are purely additive (`CREATE TABLE`, `ALTER TYPE ... ADD VALUE`) — neither matches `scripts/check-destructive-migration.mjs`'s patterns (DROP TABLE/COLUMN, TRUNCATE, column TYPE change), confirmed by manual inspection of both `migration.sql` files. No `--accept-data-loss` marker needed. Applied to `woobe_dev` and `woobe_test` (the auth integration suite's database).
+
+**Deviations from `pre-day-4-patch.md`, both deliberate:**
+- **Did not rename/duplicate `ShippingRule`'s existing columns** to match the patch's `minOrderWeightGrams` naming — `minWeightGramsForCheckout` already exists from Day 1 with identical semantics (seeded `1000`) and `freeDeliveryThresholdGrams` already existed too. Renaming would be a destructive column change for zero functional gain; adding a second, differently-named column with the same meaning would just create confusing duplicate settings. Applied the patch's own stated principle for `PricingSetting` ("if already correct, leave it alone") to `ShippingRule` as well.
+- **Kept `ADMIN` in the `Role` enum as an unused legacy value** rather than removing it to leave exactly the four contracted roles. Postgres can't cheaply drop an enum value without recreating the type (new type, migrate column via `USING`, drop old type) — meaningfully more invasive DDL for a Week-1 dev database with a single affected row. Nothing in the codebase issues `ADMIN` anymore (the TS-level `Role` union in `packages/types` no longer includes it, so it's unreachable from application code); the DB enum keeping a harmless extra value is the additive, expand-only choice consistent with the rest of this patch and with ADR-013's expand-contract migration discipline.
+
+**Verified against `plan.md` §5 Definition of Done:** zero TypeScript errors, zero ESLint warnings, zero module-boundary violations across all 9 workspace projects; 22/22 tests passing (4 new permission-mapping tests, all prior tests untouched and still green); `pnpm run build` clean for `apps/api`/`apps/web`/`apps/admin`; live smoke test — `admin@woobe.in` logs in, `/auth/me` and the login response both return `"role":"SUPER_ADMIN"`, JWT payload carries the new role correctly.
+
+**Follow-ups / known gaps:**
+- `ADMIN` remains a dead value in the Postgres `Role` enum (see Deviations) — worth a one-time cleanup migration if the team ever wants full enum purity, not urgent.
+- No admin-only routes exist yet to exercise `requirePermission` against a real request (expected — the admin settings/staff UI is Week 2+ scope per `week1_excecution_prompt.md`'s explicit exclusions). The middleware and permission mapping are unit-tested in isolation instead.
+
+---

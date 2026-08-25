@@ -26,9 +26,20 @@ datasource db {
 // Enums
 // ─────────────────────────────────────────────────────────────────────────
 
+/// ADR-024: the four contracted roles (quotation §6, "Role-Based Staff
+/// Access") — not a linear hierarchy, the two staff roles have disjoint
+/// permission sets (see apps/api/src/config/permissions.ts). ADMIN is kept
+/// as a legacy enum value only — Postgres can't cheaply drop an enum value
+/// in place, and this migration is additive-only like everything else in
+/// this patch (PRE_DAY4_PATCH.md); the seeded admin row is migrated to
+/// SUPER_ADMIN and nothing in the codebase issues ADMIN going forward
+/// (packages/types' Role union no longer includes it).
 enum Role {
   CUSTOMER
   ADMIN
+  SUPER_ADMIN
+  ORDER_PROCESSING_STAFF
+  PRODUCT_MANAGEMENT_STAFF
 }
 
 /// Extensible — mobile OTP login (planned future addition) is an additive
@@ -361,6 +372,21 @@ model PricingSetting {
   createdAt             DateTime @default(now())
 
   @@map("pricing_settings")
+}
+
+/// Admin-configurable GST slabs (ADR-023) — tiered by per-piece price.
+/// `maxPricePaise: null` marks the top, unbounded slab. Order creation
+/// picks the first slab (by ascending maxPricePaise, nulls last) whose
+/// maxPricePaise is null or >= the item's price, then snapshots the rate
+/// used onto the order — this table can change without altering any past
+/// order's GST (ADR-023's "settings are mutable, snapshots are not").
+model GstSlab {
+  id            String   @id @default(uuid())
+  maxPricePaise Int?
+  ratePercent   Int
+  createdAt     DateTime @default(now())
+
+  @@map("gst_slabs")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

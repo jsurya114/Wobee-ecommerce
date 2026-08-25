@@ -1,9 +1,10 @@
+import type { Role } from "@woobe/types";
 import jwt from "jsonwebtoken";
 import { env } from "../../../../config/env";
 
 export interface AccessTokenPayload {
   sub: string; // userId
-  role: "CUSTOMER" | "ADMIN";
+  role: Role;
 }
 
 /** ADR-018: short-lived access token + rotating refresh token (refresh token carried in an httpOnly secure cookie). */

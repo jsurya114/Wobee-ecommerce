@@ -1,3 +1,4 @@
+import type { Role } from "@woobe/types";
 import type { LoginInput, RegisterInput } from "@woobe/validation";
 import { apiFetch } from "@/lib/api-client";
 
@@ -5,7 +6,7 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
-  role: "CUSTOMER" | "ADMIN";
+  role: Role;
   phone: string | null;
 }
 
