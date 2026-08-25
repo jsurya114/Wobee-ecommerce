@@ -5,19 +5,19 @@ import { formatPaiseAsInr } from "@woobe/utils";
 import { checkoutSchema, type CheckoutInput } from "@woobe/validation";
 import { Button, FormField } from "@woobe/ui";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useCart } from "@/features/cart/hooks/useCart";
 import * as checkoutApi from "../api/checkout.client";
-import type { OrderView } from "../api/checkout.client";
 
 export function CheckoutForm() {
+  const router = useRouter();
   const { user, accessToken } = useAuth();
   const { cart, isLoading: isCartLoading } = useCart();
-  const [placedOrder, setPlacedOrder] = useState<OrderView | null>(null);
 
   const {
     register,
@@ -42,7 +42,11 @@ export function CheckoutForm() {
   const onSubmit = handleSubmit(async (data) => {
     try {
       const order = await checkoutApi.checkout(data, accessToken ?? undefined);
-      setPlacedOrder(order);
+      // The order lands at PENDING_PAYMENT regardless of method — the
+      // confirmation page drives it the rest of the way (COD confirms
+      // itself immediately; Razorpay opens Checkout and waits for the
+      // webhook-verified capture, ADR-014).
+      router.push(`/order-confirmation/${order.id}`);
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.fieldErrors) {
@@ -57,10 +61,6 @@ export function CheckoutForm() {
       toast.error("Something went wrong. Please try again.");
     }
   });
-
-  if (placedOrder) {
-    return <OrderPlacedSummary order={placedOrder} />;
-  }
 
   if (isCartLoading) {
     return <p className="py-16 text-center font-body text-sm text-text-secondary">Loading your bag…</p>;
@@ -148,9 +148,9 @@ export function CheckoutForm() {
         />
 
         <h2 className="mt-2 font-display text-lg text-text-primary">Payment method</h2>
-        {/* Both methods land on PENDING_PAYMENT this week (Week 1 Day 4) —
-            Razorpay's checkout flow and COD's immediate CONFIRMED transition
-            are Day 5 (ADR-014). Capturing the choice now is what Order.paymentMethod needs. */}
+        {/* The order always lands at PENDING_PAYMENT at checkout time; the
+            confirmation page (Week 1 Day 5) drives each method the rest of
+            the way — see the onSubmit comment above. */}
         <div className="flex flex-col gap-2 font-body text-sm text-text-primary">
           <label className="flex items-center gap-2">
             <input type="radio" value="COD" {...register("paymentMethod")} defaultChecked />
@@ -189,40 +189,6 @@ export function CheckoutForm() {
           Tax is calculated server-side and shown on your final order confirmation.
         </p>
       </aside>
-    </div>
-  );
-}
-
-/**
- * Inline success state, not a dedicated /order-confirmation/[id] route —
- * that page (plus a real "My Orders" list) is Week 1 Day 5 scope, built
- * alongside the payment confirmation flow this order snapshot feeds into.
- */
-function OrderPlacedSummary({ order }: { order: OrderView }) {
-  return (
-    <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-16 text-center">
-      <h2 className="font-display text-2xl text-text-primary">Order placed!</h2>
-      <p className="font-body text-sm text-text-secondary">
-        Order <span className="font-medium text-text-primary">{order.orderNumber}</span> — we&apos;ll email{" "}
-        {order.contactEmail} once it&apos;s confirmed.
-      </p>
-      <dl className="w-full rounded-card border border-border bg-surface p-4 text-left font-body text-sm">
-        <div className="flex justify-between">
-          <dt className="text-text-secondary">Payment method</dt>
-          <dd className="text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-text-secondary">Status</dt>
-          <dd className="text-text-primary">{order.status.replace(/_/g, " ").toLowerCase()}</dd>
-        </div>
-        <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
-          <dt className="text-text-primary">Total</dt>
-          <dd className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</dd>
-        </div>
-      </dl>
-      <Link href="/products" className="font-body text-sm text-primary hover:underline">
-        Continue shopping
-      </Link>
     </div>
   );
 }

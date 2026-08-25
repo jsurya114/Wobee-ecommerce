@@ -35,4 +35,20 @@ export interface InventoryRepositoryPort {
    * (the caller is expected to roll back the whole transaction on failure).
    */
   reserveForCheckout(items: { variantId: string; quantity: number }[], tx: unknown): Promise<ReservationOutcome>;
+
+  /**
+   * ADR-015's other half of the reservation lifecycle, added Week 1 Day 5
+   * alongside payment confirmation: a CONFIRMED order's reservation becomes
+   * a real deduction — both `quantityReserved` and `quantityAvailable` drop
+   * by the ordered amount. Row-locks first, same as reserveForCheckout, so
+   * this can't race a concurrent reservation attempt on the same variant.
+   */
+  finalizeReservation(items: { variantId: string; quantity: number }[], tx: unknown): Promise<void>;
+
+  /**
+   * The failure counterpart: a PAYMENT_FAILED order's held stock is
+   * released back to the available pool — only `quantityReserved` drops,
+   * `quantityAvailable` is untouched (nothing was ever actually sold).
+   */
+  releaseReservation(items: { variantId: string; quantity: number }[], tx: unknown): Promise<void>;
 }

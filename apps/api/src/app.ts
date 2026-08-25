@@ -3,6 +3,7 @@ import cors from "cors";
 import express, { type Application } from "express";
 import helmet from "helmet";
 import { env } from "./config/env";
+import { captureRawBody } from "./middleware/capture-raw-body";
 import { errorHandler } from "./middleware/error-handler";
 import { notFoundHandler } from "./middleware/not-found";
 import { requestId } from "./middleware/request-id";
@@ -18,7 +19,10 @@ export function createApp(): Application {
       credentials: true, // refresh token travels in an httpOnly cookie (ADR-018)
     }),
   );
-  app.use(express.json());
+  // `verify` captures req.rawBody alongside the normal parsed req.body —
+  // see capture-raw-body.ts for why this replaces a route-specific
+  // express.raw() for the Razorpay webhook route (ADR-014).
+  app.use(express.json({ verify: captureRawBody }));
   app.use(cookieParser(env.COOKIE_SECRET));
   app.use(requestId);
 

@@ -34,6 +34,9 @@ export function SiteHeader() {
             <Link href="/account" className="text-text-primary hover:text-primary">
               {user.name}
             </Link>
+            <Link href="/account/orders" className="text-text-primary hover:text-primary">
+              My orders
+            </Link>
             <button type="button" onClick={() => void logout()} className="text-text-secondary hover:text-primary">
               Log out
             </button>

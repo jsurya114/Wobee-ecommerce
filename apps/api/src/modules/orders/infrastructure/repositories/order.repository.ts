@@ -1,7 +1,11 @@
-import { Prisma } from "@woobe/database";
-import type { OrderEntity, OrderAddressSnapshot } from "../../domain/entities/order.entity";
+import { Prisma, prisma } from "@woobe/database";
+import type { OrderEntity, OrderAddressSnapshot, OrderSummaryEntity } from "../../domain/entities/order.entity";
 import { OrderNumberCollisionError } from "../../domain/errors/order-number-collision.error";
-import type { CreateOrderInput, OrderRepositoryPort } from "../../application/ports/order-repository.port";
+import type {
+  CreateOrderInput,
+  OrderRepositoryPort,
+  TransitionOrderStatusResult,
+} from "../../application/ports/order-repository.port";
 
 /** The only shape `createWithItems`'s opaque `tx` handle is ever cast to — see OrderRepositoryPort's own comment. */
 type PrismaTx = Prisma.TransactionClient;
@@ -64,6 +68,51 @@ export class OrderRepository implements OrderRepositoryPort {
       }
       throw error;
     }
+  }
+
+  async findById(orderId: string): Promise<OrderEntity | null> {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+    return order ? toEntity(order) : null;
+  }
+
+  async findSummariesByUserId(userId: string): Promise<OrderSummaryEntity[]> {
+    const orders = await prisma.order.findMany({
+      where: { userId },
+      orderBy: { placedAt: "desc" },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        paymentMethod: true,
+        totalPaise: true,
+        placedAt: true,
+        _count: { select: { items: true } },
+      },
+    });
+    return orders.map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentMethod: order.paymentMethod,
+      totalPaise: order.totalPaise,
+      itemCount: order._count.items,
+      placedAt: order.placedAt,
+    }));
+  }
+
+  async transitionStatus(
+    orderId: string,
+    from: OrderEntity["status"],
+    to: OrderEntity["status"],
+    tx: unknown,
+  ): Promise<TransitionOrderStatusResult> {
+    const client = tx as PrismaTx;
+    // WHERE id AND status=from — 0 rows affected means it wasn't in `from`
+    // any more (already transitioned by an earlier, possibly duplicate,
+    // call), not an error the caller needs to handle specially.
+    const { count } = await client.order.updateMany({ where: { id: orderId, status: from }, data: { status: to } });
+    const order = await client.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
+    return { changed: count > 0, order: toEntity(order) };
   }
 }
 

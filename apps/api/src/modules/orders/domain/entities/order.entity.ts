@@ -49,3 +49,14 @@ export interface OrderEntity {
   placedAt: Date;
   items: OrderItemEntity[];
 }
+
+/** Lighter shape for "My Orders" list views — status/total only, no line-item detail (week1_excecution_prompt.md Day 5: "status only, no returns/refunds UI yet"). */
+export interface OrderSummaryEntity {
+  id: string;
+  orderNumber: string;
+  status: OrderEntity["status"];
+  paymentMethod: PaymentMethod;
+  totalPaise: number;
+  itemCount: number;
+  placedAt: Date;
+}

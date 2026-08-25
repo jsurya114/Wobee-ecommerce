@@ -10,7 +10,7 @@ export default function HomePage() {
       <p className="font-display text-3xl text-primary">Woobe</p>
       <p className="font-body text-sm text-text-secondary">Fashion, by weight.</p>
       <p className="max-w-sm font-body text-base text-text-primary">
-        Browse the catalogue, add pieces to your bag — checkout lands Day 4.
+        Browse the catalogue, add pieces to your bag, and check out — pay online or cash on delivery.
       </p>
       <Link href="/products" className="mt-2 rounded-control bg-primary px-5 py-2.5 font-body text-white hover:bg-primary-hover">
         Shop now

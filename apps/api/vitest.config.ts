@@ -11,6 +11,13 @@ export default defineConfig({
       JWT_ACCESS_SECRET: "test-access-secret",
       JWT_REFRESH_SECRET: "test-refresh-secret",
       COOKIE_SECRET: "test-cookie-secret",
+      // Not real Razorpay credentials (see DECISIONS_PENDING.md #4) — just
+      // enough for RazorpayService.verifyWebhookSignature's HMAC check to
+      // run in tests. RAZORPAY_KEY_ID/KEY_SECRET stay unset: no test here
+      // creates a real Razorpay order (that needs the network), so
+      // RazorpayService.createOrder's "not configured" guard is what's
+      // actually exercised for that path.
+      RAZORPAY_WEBHOOK_SECRET: "test-webhook-secret",
     },
   },
 });
