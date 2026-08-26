@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useCart } from "@/features/cart/hooks/useCart";
+import { MOBILE_BOTTOM_NAV_HEIGHT_REM } from "@/lib/layout-constants";
 
 /**
  * Sticky mobile bottom nav (woobe_ui_design_plan.md §10) — honestly scoped
@@ -39,7 +40,15 @@ export function BottomNav() {
     <nav
       aria-label="Primary"
       className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface/95 backdrop-blur md:hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{
+        // border-box: padding eats into `height`, so grow the box by the
+        // safe-area inset first, then carve that same amount back out as
+        // padding — content area stays a constant MOBILE_BOTTOM_NAV_HEIGHT_REM
+        // tall, and the total rendered height (what fixed siblings offset
+        // against) is exactly what ABOVE_MOBILE_BOTTOM_NAV_STYLE expects.
+        height: `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom))`,
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
     >
       {items.map((item) => {
         const Icon = item.icon;
@@ -48,7 +57,7 @@ export function BottomNav() {
             key={item.label}
             href={item.href}
             aria-current={item.isActive ? "page" : undefined}
-            className={`relative flex flex-1 flex-col items-center gap-1 px-2 py-2.5 font-body text-[11px] transition-colors ${
+            className={`relative flex flex-1 flex-col items-center justify-center gap-1 px-2 font-body text-[11px] transition-colors ${
               item.isActive ? "text-primary" : "text-text-secondary hover:text-text-primary"
             }`}
           >

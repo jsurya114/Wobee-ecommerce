@@ -268,3 +268,76 @@ Entry format:
 - The Razorpay "retry a failed/pending payment" flow (`PAYMENT_FAILED → PENDING_PAYMENT` in plan.md §4's state diagram) isn't built — `OrderConfirmation`'s "Try payment again" button re-attempts from the same `PENDING_PAYMENT` state via `payWithRazorpay`'s own retry path, but there's no UI/API path back from an already-`PAYMENT_FAILED` order. Not called for by this week's plan; worth knowing before Week 2.
 
 ---
+
+## 2026-08-25 — Week 1 Completion Audit: 2 corrective fixes, verified end-to-end
+
+**Branch/commit:** `dev1`, commit `4ff22c064f69623f9ba33a9861466ccf85413d5e` — pushed to `origin/dev1`.
+
+**What changed:** an independent, live-browser re-verification of every Week 1 day (Days 1–5), not a re-read of this journal's own claims. Found and fixed two real bugs; everything else audited clean.
+
+1. **Cart reactivation / duplicate-cart 500.** `GetOrCreateCartUseCase`'s `userId` branch only ever checked for an *active* cart; a logged-in user whose cart had already `CONVERTED` (i.e. anyone who had ever completed a checkout) had no active cart, but also couldn't get a fresh one because `createCart` hit the schema's one-cart-per-user constraint against their old, converted row — every `GET /cart` after a first order 500'd. Fixed by adding `CartRepositoryPort.findCartByUserId` (any status) and `reactivateCart` (clears old items, flips status back to `ACTIVE`) — a returning customer now gets their old cart row reactivated empty rather than a doomed insert. New regression test: `cart.integration.test.ts` (register → checkout → `GET /cart` / `POST /cart/merge` / add-item all still work post-conversion).
+2. **Order-confirmation authentication race.** `OrderConfirmation`'s initial fetch fired before `AuthProvider`'s silent-refresh resolved; a logged-in user's own order, fetched while `authStatus === "loading"`, looked exactly like a guest request to `GetOrderUseCase`'s ownership check and 404'd permanently (no retry). Fixed by gating the fetch effect on `authStatus !== "loading"` — same guard `CartProvider` already used for the identical class of race.
+
+**Why:** the user's audit prompt required independent, live verification (browser walkthrough + full test suite, not trust in prior journal entries) before Week 1 could be called done, and explicitly allowed only minimal corrective fixes for verification failures — no new features, no refactors, no Week 2 work.
+
+**Verified, not just fixed:** full suite green (typecheck/lint/boundaries/tests/build) plus a live `chrome-devtools-mcp` walkthrough of register → browse → cart → checkout → COD confirm → reorder. Razorpay's real-keys/webhook-tunnel gap (flagged in the Day 5 entry above) was correctly classified as **blocked** (external dependency, not a code defect) per the audit's own instructions, not counted as a failure.
+
+**Follow-ups / known gaps:** none new — this entry only fixes what it found, all pre-existing gaps listed in the Day 4/5 entries above still stand.
+
+---
+
+## 2026-08-25/26 — UI redesign pass: mobile-first, feminine editorial restyle (ADR-022)
+
+**Branch/commit:** `dev1` — uncommitted (styling work, paused for review before Week 1 is called finished; see chat).
+
+**What changed:** Week 1's functional slice was verified working (see the audit entry above) but the UI itself was still bare — `packages/ui` had only `Button`/`Input`/`Label`/`FormField`, pages were plain-Tailwind, no cards/motion/skeletons, a cramped single mobile header doing both branding and navigation. The user asked for the pages to be professionally styled — mobile-first, feminine editorial tone — before Week 1 is considered finished. Two scope calls made with the user up front: (1) a focused, real-data-only homepage rather than the full design doc's blueprint (skipping sections that need content that doesn't exist yet — UGC photos, video, "Shop by Vibe," "Build Your Look" — flagged Week 2+ in the design doc itself); (2) adopt real `@base-ui/react` + `motion` + `embla-carousel-react` now (ADR-022), hand-authored on top of Base UI in `packages/ui/src/primitives` rather than shadcn's own CLI/scaffolding (which assumes a monorepo layout this repo doesn't have).
+
+- **New dependencies:** `@base-ui/react`, `lucide-react`, `@woobe/utils` added to `packages/ui`; `motion`, `embla-carousel-react`, `lucide-react` added to `apps/web`.
+- **New primitives** (`packages/ui/src/primitives/`): `Card`/`CardHeader`/`CardTitle`/`CardContent`, `Badge` (neutral/success/error/outline), `Spinner`, `Skeleton`, `RadioGroup`/`RadioGroupItem` (wraps Base UI's real `Radio`/`RadioGroup`, bridged into react-hook-form via `Controller` since it's a controlled component, not a native input). `Button` now also exports `buttonVariants` for styling non-`<button>` elements (this Button has no `asChild`/Slot support).
+- **New composed components** (`packages/ui/src/components/`): `PriceTag` (price + optional weight/rate-per-kg line), `ProgressBar` (wraps Base UI's `Progress`, powers the cart's two-stage weight-threshold banner from data the API already returned — `cart.shipping.meetsMinimum/isFreeDelivery/gramsToMinimum/gramsToFreeDelivery` — no new API fields needed).
+- **Navigation restructured** to fix the audit-flagged cramped mobile header: `SiteHeader` is now a slim logo + cart-shortcut bar; a new sticky `BottomNav` (`md:hidden`) carries the real mobile navigation (Home/Shop/Bag/Account — honestly 4 tabs, not the design doc's 5, since Search and Wishlist aren't built features). Desktop keeps `SiteHeader`'s horizontal nav at `md:` and up.
+- **Every storefront page restyled** on the new primitives: homepage (`Hero`/`TrustStrip`/`CategoryTiles`/`ProductRail`, with `Reveal`'s Motion-based scroll-in respecting `prefers-reduced-motion`), PLP (`ProductGrid`/`CategoryFilter`), PDP (`ProductDetail`/`ProductPurchasePanel`, including a `position:fixed` mobile buy bar), cart (`WeightThresholdBanner`, `CartLineItem`), checkout (`CheckoutForm`'s `Card`-sectioned layout + `RadioGroup` payment method), order confirmation, my orders, login/register/account.
+- **Explicitly out of scope, stated not silently skipped:** wishlist hearts, search, a size-chart dialog, image gallery/zoom, "Build Your Look," UGC/video sections, `apps/admin` styling — no backend/data exists for any of these yet.
+
+**Why:** functional-but-unstyled was correct for proving Week 1's flows worked, but not what the user wants shipped as "Week 1 done" — the explicit ask was a professional, mobile-first, feminine-editorial pass before moving to Week 2.
+
+**Verified:** typecheck/lint clean on both `apps/web` and `packages/ui`; live `chrome-devtools-mcp` walkthrough at 375px through every redesigned page; `apps/api`'s own test suite re-run untouched (frontend-only pass, confirmed no backend contract changed).
+
+**Follow-ups / known gaps:** not yet committed — paused for the user's review. See the two follow-on entries below for bugs found *after* this pass (both while dogfooding the new pages, not part of this entry's own verification).
+
+---
+
+## 2026-08-26 — Desktop nav icons + PDP quantity stepper
+
+**Branch/commit:** `dev1` — uncommitted, same pending styling work as the entry above.
+
+**What changed:**
+1. **`SiteHeader`'s desktop nav (`md:` and up) gained icons** (`Store`/`ShoppingBag`/`User`/`Package`/`LogIn`/`LogOut`/`UserPlus`, all `lucide-react`) next to each text label — Shop, Bag, account name, My orders, Log out, Log in, Register. The mobile `BottomNav` already used an icon+label pattern (`Home`/`Store`/`ShoppingBag`/`User`); the desktop text-only nav was the one place that didn't match it. Purely additive — no layout/behavior change, verified at 1024px/1440px in both logged-in and logged-out states.
+2. **A quantity stepper (`-`/count/`+`) added to the product detail page**, next to "Add to bag" in both its placements (desktop inline row, mobile sticky buy bar) — previously `ProductPurchasePanel` always added exactly 1 unit regardless of what the shopper wanted. Clamped to the selected variant's `availableQuantity` (same clamping `CartLineItem`'s existing stepper already does), resets to 1 on color/size change and after a successful add. `useCart().addItem` already accepted a `quantity` param — this was a UI gap, not an API gap.
+
+**Why:** both were user-requested UI gaps found by using the redesigned pages, not planned scope from the design doc.
+
+**Verified:** typecheck/lint clean; live click-through (increment → add to bag → cart shows the correct merged quantity) at 1024px and 375px.
+
+**Follow-ups / known gaps:** none.
+
+---
+
+## 2026-08-26 — Mobile responsiveness fixes: sticky-bar/BottomNav gap, category-row overflow bug
+
+**Branch/commit:** `dev1` — uncommitted, same pending styling work as the two entries above.
+
+**What changed:** the user reported gaps/clipping on real mobile devices (screenshot) that hadn't shown up in `chrome-devtools-mcp`'s viewport emulation. Two real bugs found and fixed, plus a full page-by-page mobile re-sweep confirming nothing else was wrong.
+
+1. **A visible gap between the PDP's mobile sticky buy bar and `BottomNav`, on real devices only.** `ProductPurchasePanel`'s buy bar was pinned with a hardcoded `bottom-20` (5rem), a guess at `BottomNav`'s height that didn't actually match it (measured: nav ≈65.5px, guess assumed 80px) — leaving an ~15px sliver of exposed page background between the two fixed bars, worse again on notched/home-indicator devices where `BottomNav`'s `env(safe-area-inset-bottom)` padding grows the nav taller still (that padding was already silently doing nothing in emulation, and everywhere else, because the app never set `viewport-fit=cover`, without which `env(safe-area-inset-*)` always resolves to `0`). Fixed properly rather than re-guessing a bigger magic number:
+   - Added `apps/web/app/layout.tsx`'s `export const viewport = { viewportFit: "cover", ... }` so the safe-area env vars actually resolve on real devices.
+   - Added a single shared source of truth, `apps/web/src/lib/layout-constants.ts` (`MOBILE_BOTTOM_NAV_HEIGHT_REM`, `ABOVE_MOBILE_BOTTOM_NAV_STYLE`), so the two components can never drift apart again. `BottomNav` now sets its own height to `calc(4.25rem + env(safe-area-inset-bottom))` (border-box, with the safe-area amount carved back out as padding so its visible content area stays a constant height); the PDP buy bar now offsets `bottom: calc(4.25rem + env(safe-area-inset-bottom))` from the same constant — the two always sit flush regardless of device safe-area.
+2. **Homepage "Shop by category" row clipped its first tile on mobile, unrecoverably.** The horizontally-scrollable tile row used `justify-center`; centering a flex row that overflows its container is a known CSS trap — the browser centers the overflow symmetrically on both sides, but `scrollLeft` can't go negative, so the portion of the first item pushed off the left edge is permanently unreachable by scrolling (not just off-screen — actually unrecoverable). Fixed with `justify-[safe_center]` (CSS Box Alignment's `safe` keyword), which centers only when content fits and falls back to start-alignment the moment it overflows — mobile now scrolls to reveal every tile from the true start; desktop (where the row doesn't overflow) still looks centered.
+
+**Why:** both bugs were invisible in `chrome-devtools-mcp`'s viewport emulation — it doesn't emulate a nonzero `safe-area-inset-bottom`, and the category-row clipping is only ~15px, easy to miss without a real screenshot. Found by direct `getBoundingClientRect()` measurement of the fixed elements (not just eyeballing screenshots) once the user's real-device screenshot flagged something was off, then fixed at the root cause rather than nudging pixel values.
+
+**Verified:** typecheck/lint clean. Re-swept every storefront page (home, PLP, PDP, cart, checkout, order-confirmation, my-orders, login, register, account) at 375px after the fix — confirmed zero horizontal document overflow anywhere, and confirmed (via precise bounding-rect math, not just a screenshot glance) that no in-flow page content sits behind either fixed bar on cart/checkout/PDP. Also re-confirmed the *previous* "not responsive in laptop view" report from earlier this session was a stale Next.js dev-server CSS cache after a long hot-reload session (fixed by clearing `apps/web/.next` and restarting) — not a code defect, no source changes were needed for that one.
+
+**Follow-ups / known gaps:** none found. All of this session's UI-redesign work (this entry plus the three above it) is still uncommitted, pending the user's review.
+
+---

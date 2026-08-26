@@ -18,7 +18,16 @@ export function CategoryTiles({ categories }: { categories: Category[] }) {
   return (
     <section className="px-4 py-10 sm:px-6">
       <h2 className="mb-5 text-center font-display text-2xl text-text-primary">Shop by category</h2>
-      <div className="mx-auto flex max-w-4xl justify-center gap-4 overflow-x-auto pb-1 sm:gap-6 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/*
+        `justify-[safe_center]`, not `justify-center`: centering an
+        overflowing flex row makes the overflow on one side permanently
+        unreachable by scroll (scrollLeft can't go negative) — the row's
+        first tile gets clipped with no way to scroll back to it. `safe`
+        (CSS Box Alignment) falls back to start-alignment whenever content
+        overflows, so mobile scrolls to reveal every tile and desktop (no
+        overflow there) still gets the centered look.
+      */}
+      <div className="mx-auto flex max-w-4xl justify-[safe_center] gap-4 overflow-x-auto pb-1 sm:gap-6 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {categories.map((category, i) => (
           <Link key={category.id} href={`/products?category=${encodeURIComponent(category.slug)}`} className="group flex shrink-0 flex-col items-center gap-2">
             <span

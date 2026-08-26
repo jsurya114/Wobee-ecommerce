@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@woobe/ui";
-import { ShoppingBag } from "lucide-react";
+import { LogIn, LogOut, Package, ShoppingBag, Store, User, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useCart } from "@/features/cart/hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
@@ -24,34 +24,45 @@ export function SiteHeader() {
           Woobe
         </Link>
 
-        {/* Desktop nav — mirrors BottomNav's destinations plus login/register/logout, which the bottom nav folds into its Account tab. */}
+        {/* Desktop nav — mirrors BottomNav's destinations (and its icon+label pattern) plus login/register/logout, which the bottom nav folds into its Account tab. */}
         <nav className="hidden items-center gap-6 font-body text-sm md:flex">
-          <Link href="/products" className="text-text-primary transition-colors hover:text-primary">
+          <Link href="/products" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+            <Store className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             Shop
           </Link>
-          <Link href="/cart" className="text-text-primary transition-colors hover:text-primary">
+          <Link href="/cart" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+            <ShoppingBag className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             Bag{cart && cart.itemCount > 0 ? ` (${cart.itemCount})` : ""}
           </Link>
           {status === "loading" ? (
             <span className="text-text-secondary">…</span>
           ) : status === "authenticated" && user ? (
             <>
-              <Link href="/account" className="text-text-primary transition-colors hover:text-primary">
+              <Link href="/account" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+                <User className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
                 {user.name}
               </Link>
-              <Link href="/account/orders" className="text-text-primary transition-colors hover:text-primary">
+              <Link href="/account/orders" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+                <Package className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
                 My orders
               </Link>
-              <button type="button" onClick={() => void logout()} className="cursor-pointer text-text-secondary transition-colors hover:text-primary">
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="flex cursor-pointer items-center gap-1.5 text-text-secondary transition-colors hover:text-primary"
+              >
+                <LogOut className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
                 Log out
               </button>
             </>
           ) : (
             <>
-              <Link href="/login" className="text-text-primary transition-colors hover:text-primary">
+              <Link href="/login" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+                <LogIn className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
                 Log in
               </Link>
-              <Link href="/register" className="text-text-primary transition-colors hover:text-primary">
+              <Link href="/register" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+                <UserPlus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
                 Register
               </Link>
             </>
