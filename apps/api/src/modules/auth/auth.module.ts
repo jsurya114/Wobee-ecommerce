@@ -19,11 +19,12 @@ const bcryptService = new BcryptService();
 const jwtService = new JwtService();
 const refreshTokenService = new RefreshTokenService();
 
-const registerUserUseCase = new RegisterUserUseCase(authRepository, bcryptService, jwtService, refreshTokenService);
-const loginUserUseCase = new LoginUserUseCase(authRepository, bcryptService, jwtService, refreshTokenService);
-const refreshTokenUseCase = new RefreshTokenUseCase(authRepository, jwtService, refreshTokenService);
-const logoutUserUseCase = new LogoutUserUseCase(authRepository, refreshTokenService);
-const getCurrentUserUseCase = new GetCurrentUserUseCase(authRepository);
+/** Exported for cross-module use — the admin module (ADR-025) reuses these directly for staff login, same pattern as orders/payments' own exports. */
+export const registerUserUseCase = new RegisterUserUseCase(authRepository, bcryptService, jwtService, refreshTokenService);
+export const loginUserUseCase = new LoginUserUseCase(authRepository, bcryptService, jwtService, refreshTokenService);
+export const refreshTokenUseCase = new RefreshTokenUseCase(authRepository, jwtService, refreshTokenService);
+export const logoutUserUseCase = new LogoutUserUseCase(authRepository, refreshTokenService);
+export const getCurrentUserUseCase = new GetCurrentUserUseCase(authRepository);
 
 const authController = new AuthController(
   registerUserUseCase,
