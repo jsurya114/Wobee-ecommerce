@@ -31,6 +31,9 @@ export type ReturnStatus = (typeof RETURN_STATUS)[number];
 export const PAYMENT_METHOD = ["RAZORPAY", "COD"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHOD)[number];
 
+export const REFUND_STATUS = ["INITIATED", "COMPLETED", "FAILED"] as const;
+export type RefundStatus = (typeof REFUND_STATUS)[number];
+
 /// ADR-024: the four contracted roles (quotation §6). `ADMIN` from Week 1
 /// Day 2 is retired here — the Prisma `Role` enum keeps it as an unused
 /// legacy value (Postgres can't cheaply drop an enum value in place), but
