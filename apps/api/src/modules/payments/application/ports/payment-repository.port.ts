@@ -23,4 +23,6 @@ export interface PaymentRepositoryPort {
   findByOrderId(orderId: string): Promise<PaymentEntity | null>;
   findByRazorpayOrderId(razorpayOrderId: string): Promise<PaymentEntity | null>;
   update(id: string, input: UpdatePaymentInput, tx: unknown): Promise<PaymentEntity>;
+  /** The only write path to `status: "REFUNDED"` (ADR-025's split-ownership-by-transition-type — refunds' own module calls this rather than writing Payment directly). */
+  markRefunded(paymentId: string, tx?: unknown): Promise<void>;
 }

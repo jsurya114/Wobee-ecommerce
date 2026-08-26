@@ -51,6 +51,11 @@ export class PaymentRepository implements PaymentRepositoryPort {
     });
     return toEntity(payment);
   }
+
+  async markRefunded(paymentId: string, tx?: unknown): Promise<void> {
+    const client = (tx as PrismaTx | undefined) ?? prisma;
+    await client.payment.update({ where: { id: paymentId }, data: { status: "REFUNDED" } });
+  }
 }
 
 function toEntity(payment: {

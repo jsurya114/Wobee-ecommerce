@@ -10,7 +10,9 @@ import type { InventoryFinalizationPort } from "./application/ports/inventory-fi
 import type { OrderPort } from "./application/ports/order-port";
 import { ConfirmCodOrderUseCase } from "./application/use-cases/confirm-cod-order.use-case";
 import { CreateRazorpayOrderUseCase } from "./application/use-cases/create-razorpay-order.use-case";
+import { GetPaymentForOrderUseCase } from "./application/use-cases/get-payment-for-order.use-case";
 import { HandleRazorpayWebhookUseCase } from "./application/use-cases/handle-razorpay-webhook.use-case";
+import { MarkPaymentRefundedUseCase } from "./application/use-cases/mark-payment-refunded.use-case";
 import { PaymentRepository } from "./infrastructure/repositories/payment.repository";
 import { PrismaTransactionRunner } from "./infrastructure/repositories/transaction.repository";
 import { WebhookEventRepository } from "./infrastructure/repositories/webhook-event.repository";
@@ -43,6 +45,10 @@ const handleRazorpayWebhookUseCase = new HandleRazorpayWebhookUseCase(
   inventoryFinalization,
   transactionRunner,
 );
+
+/** Exported for cross-module use — `refunds` (ADR-025) reads/writes Payment only through these two, never directly. */
+export const getPaymentForOrderUseCase = new GetPaymentForOrderUseCase(paymentRepository);
+export const markPaymentRefundedUseCase = new MarkPaymentRefundedUseCase(paymentRepository);
 
 const paymentsController = new PaymentsController(createRazorpayOrderUseCase, confirmCodOrderUseCase, handleRazorpayWebhookUseCase);
 
