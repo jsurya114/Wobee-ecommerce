@@ -72,6 +72,16 @@ describe("IssueRefundForCancelledOrderUseCase", () => {
     });
   });
 
+  it("still reports success when the gateway refund and COMPLETED row succeed but markRefunded fails afterward", async () => {
+    const { useCase, paymentRefundWriter, refundRepository } = buildUseCase({
+      payment: { id: "p1", provider: "RAZORPAY", status: "CAPTURED", amountPaise: 1000, razorpayPaymentId: "pay_abc" },
+    });
+    paymentRefundWriter.markRefunded = vi.fn().mockRejectedValue(new Error("db blip"));
+    const result = await useCase.execute("order-1");
+    expect(result).toEqual({ refundIssued: true, refundId: "refund-db-1" });
+    expect(refundRepository.create).toHaveBeenCalledTimes(1);
+  });
+
   it("is idempotent — skips the gateway entirely when a Refund row already exists for the order", async () => {
     const { useCase, gateway } = buildUseCase({
       payment: { id: "p1", provider: "RAZORPAY", status: "CAPTURED", amountPaise: 1000, razorpayPaymentId: "pay_abc" },

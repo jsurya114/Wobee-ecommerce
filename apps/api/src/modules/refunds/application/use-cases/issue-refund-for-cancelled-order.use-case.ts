@@ -1,3 +1,4 @@
+import type { RefundEntity } from "../../domain/entities/refund.entity";
 import type { PaymentReaderPort } from "../ports/payment-reader.port";
 import type { PaymentRefundWriterPort } from "../ports/payment-refund-writer.port";
 import type { RazorpayRefundGatewayPort } from "../ports/razorpay-refund-gateway.port";
@@ -45,18 +46,20 @@ export class IssueRefundForCancelledOrderUseCase {
       return { refundIssued: false, reason: "not-applicable" };
     }
 
+    let created: RefundEntity;
     try {
       const refund = await this.gateway.refundPayment(payment.razorpayPaymentId, payment.amountPaise);
-      const created = await this.refundRepository.create({
+      created = await this.refundRepository.create({
         orderId,
         provider: "RAZORPAY",
         status: "COMPLETED",
         amountPaise: payment.amountPaise,
         providerRefundId: refund.id,
       });
-      await this.paymentRefundWriter.markRefunded(payment.id);
-      return { refundIssued: true, refundId: created.id };
     } catch {
+      // Only the gateway call and the COMPLETED-row write land here: a
+      // failure at either point means no refund actually happened (or we
+      // can't prove one did), so recording a FAILED row is accurate.
       await this.refundRepository.create({
         orderId,
         provider: "RAZORPAY",
@@ -65,5 +68,21 @@ export class IssueRefundForCancelledOrderUseCase {
       });
       return { refundIssued: false, reason: "gateway-error" };
     }
+
+    // The refund has genuinely happened and is durably recorded as
+    // COMPLETED above — nothing past this point may relabel it as failed
+    // or write a second Refund row. markRefunded is a separate,
+    // best-effort bookkeeping step on the Payment side: if it throws (e.g.
+    // a transient DB error), that's a narrower, separately recoverable
+    // problem than misreporting a successful refund as failed, so it must
+    // not affect the result we return here.
+    try {
+      await this.paymentRefundWriter.markRefunded(payment.id);
+    } catch {
+      // Swallowed deliberately — see comment above. The Payment row may be
+      // left stale (not marked REFUNDED), which is an acceptable, narrower
+      // gap versus a duplicate FAILED Refund row shadowing this COMPLETED one.
+    }
+    return { refundIssued: true, refundId: created.id };
   }
 }
