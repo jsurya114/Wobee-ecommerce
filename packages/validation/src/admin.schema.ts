@@ -12,3 +12,11 @@ export const cancelOrderSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 export type CancelOrderInput = z.infer<typeof cancelOrderSchema>;
+
+export const listOrdersQuerySchema = z.object({
+  status: z.enum(["PENDING_PAYMENT", "CONFIRMED", "PAYMENT_FAILED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]).optional(),
+  search: z.string().trim().min(1).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20),
+});
+export type ListOrdersQuery = z.infer<typeof listOrdersQuerySchema>;
