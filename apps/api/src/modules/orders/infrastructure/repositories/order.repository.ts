@@ -5,6 +5,8 @@ import type {
   CreateOrderInput,
   OrderRepositoryPort,
   TransitionOrderStatusResult,
+  ListOrdersFilter,
+  ListOrdersResult,
 } from "../../application/ports/order-repository.port";
 
 /** The only shape `createWithItems`'s opaque `tx` handle is ever cast to — see OrderRepositoryPort's own comment. */
@@ -105,14 +107,67 @@ export class OrderRepository implements OrderRepositoryPort {
     from: OrderEntity["status"],
     to: OrderEntity["status"],
     tx: unknown,
+    extraFields?: Partial<
+      Pick<OrderEntity, "trackingNumber" | "carrier" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
+    >,
   ): Promise<TransitionOrderStatusResult> {
     const client = tx as PrismaTx;
-    // WHERE id AND status=from — 0 rows affected means it wasn't in `from`
-    // any more (already transitioned by an earlier, possibly duplicate,
-    // call), not an error the caller needs to handle specially.
-    const { count } = await client.order.updateMany({ where: { id: orderId, status: from }, data: { status: to } });
+    const { count } = await client.order.updateMany({
+      where: { id: orderId, status: from },
+      data: { status: to, ...extraFields },
+    });
     const order = await client.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
     return { changed: count > 0, order: toEntity(order) };
+  }
+
+  async findAllPaginated(filter: ListOrdersFilter): Promise<ListOrdersResult> {
+    const where: Prisma.OrderWhereInput = {
+      ...(filter.status ? { status: filter.status } : {}),
+      ...(filter.search
+        ? {
+            OR: [
+              { orderNumber: { contains: filter.search, mode: "insensitive" } },
+              { contactEmail: { contains: filter.search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        orderBy: { placedAt: "desc" },
+        skip: (filter.page - 1) * filter.pageSize,
+        take: filter.pageSize,
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          paymentMethod: true,
+          contactName: true,
+          contactEmail: true,
+          totalPaise: true,
+          placedAt: true,
+          _count: { select: { items: true } },
+        },
+      }),
+      prisma.order.count({ where }),
+    ]);
+
+    return {
+      items: orders.map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        paymentMethod: order.paymentMethod,
+        contactName: order.contactName,
+        contactEmail: order.contactEmail,
+        totalPaise: order.totalPaise,
+        itemCount: order._count.items,
+        placedAt: order.placedAt,
+      })),
+      total,
+    };
   }
 }
 
@@ -136,6 +191,12 @@ function toEntity(order: OrderWithItems): OrderEntity {
     totalWeightGrams: order.totalWeightGrams,
     paymentMethod: order.paymentMethod,
     placedAt: order.placedAt,
+    trackingNumber: order.trackingNumber,
+    carrier: order.carrier,
+    shippedAt: order.shippedAt,
+    deliveredAt: order.deliveredAt,
+    cancelledAt: order.cancelledAt,
+    cancellationReason: order.cancellationReason,
     items: order.items.map((item) => ({
       id: item.id,
       variantId: item.variantId,

@@ -1,4 +1,4 @@
-import type { OrderEntity, OrderSummaryEntity } from "../../domain/entities/order.entity";
+import type { OrderEntity, OrderSummaryEntity, AdminOrderSummaryEntity } from "../../domain/entities/order.entity";
 
 export interface CreateOrderItemInput {
   variantId: string;
@@ -37,6 +37,18 @@ export interface TransitionOrderStatusResult {
   order: OrderEntity;
 }
 
+export interface ListOrdersFilter {
+  status?: OrderEntity["status"];
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface ListOrdersResult {
+  items: AdminOrderSummaryEntity[];
+  total: number;
+}
+
 /**
  * application depends on this interface, not on Prisma directly — the
  * infrastructure layer implements it (ARCHITECTURE.md §3.1).
@@ -53,5 +65,15 @@ export interface OrderRepositoryPort {
    * `changed: false` (not an error) is exactly the "duplicate webhook
    * delivery, already processed" case (ADR-014's mandatory dedup test).
    */
-  transitionStatus(orderId: string, from: OrderEntity["status"], to: OrderEntity["status"], tx: unknown): Promise<TransitionOrderStatusResult>;
+  transitionStatus(
+    orderId: string,
+    from: OrderEntity["status"],
+    to: OrderEntity["status"],
+    tx: unknown,
+    extraFields?: Partial<
+      Pick<OrderEntity, "trackingNumber" | "carrier" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
+    >,
+  ): Promise<TransitionOrderStatusResult>;
+  /** Admin order list (ADR-025's admin order view) — no userId filter, unlike findSummariesByUserId. */
+  findAllPaginated(filter: ListOrdersFilter): Promise<ListOrdersResult>;
 }

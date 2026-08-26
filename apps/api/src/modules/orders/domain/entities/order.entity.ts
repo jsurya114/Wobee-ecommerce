@@ -47,6 +47,12 @@ export interface OrderEntity {
   totalWeightGrams: number;
   paymentMethod: PaymentMethod;
   placedAt: Date;
+  trackingNumber: string | null;
+  carrier: string | null;
+  shippedAt: Date | null;
+  deliveredAt: Date | null;
+  cancelledAt: Date | null;
+  cancellationReason: string | null;
   items: OrderItemEntity[];
 }
 
@@ -56,6 +62,19 @@ export interface OrderSummaryEntity {
   orderNumber: string;
   status: OrderEntity["status"];
   paymentMethod: PaymentMethod;
+  totalPaise: number;
+  itemCount: number;
+  placedAt: Date;
+}
+
+/** Admin order-list row — unlike OrderSummaryEntity (customer's own "My Orders"), includes contact info for search/display and is never scoped by userId. */
+export interface AdminOrderSummaryEntity {
+  id: string;
+  orderNumber: string;
+  status: OrderEntity["status"];
+  paymentMethod: PaymentMethod;
+  contactName: string;
+  contactEmail: string;
   totalPaise: number;
   itemCount: number;
   placedAt: Date;
