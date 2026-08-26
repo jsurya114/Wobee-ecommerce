@@ -8,14 +8,19 @@
 // markOrderPaymentFailedUseCase, both exported below), never by writing to
 // the Order table themselves.
 import { getCartUseCase, getOrCreateCartUseCase, markCartConvertedUseCase } from "../cart/cart.module";
-import { reserveInventoryForCheckoutUseCase } from "../inventory/inventory.module";
+import { recordAuditLogUseCase } from "../audit/audit.module";
+import { releaseReservationUseCase, reserveInventoryForCheckoutUseCase } from "../inventory/inventory.module";
 import { calculateGstUseCase } from "../pricing/pricing.module";
+import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
 import { evaluateShippingUseCase } from "../shipping/shipping.module";
+import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
 import type { CartReaderPort } from "./application/ports/cart-reader.port";
 import type { CartResolverPort } from "./application/ports/cart-resolver.port";
 import type { CartWriterPort } from "./application/ports/cart-writer.port";
 import type { GstReaderPort } from "./application/ports/gst-reader.port";
+import type { InventoryReleasePort } from "./application/ports/inventory-release.port";
 import type { InventoryReservationPort } from "./application/ports/inventory-reservation.port";
+import type { RefundIssuerPort } from "./application/ports/refund-issuer.port";
 import type { ShippingReaderPort } from "./application/ports/shipping-reader.port";
 import { CheckoutUseCase } from "./application/use-cases/checkout.use-case";
 import { ConfirmOrderUseCase } from "./application/use-cases/confirm-order.use-case";
@@ -41,6 +46,9 @@ const gstReader: GstReaderPort = { calculateMany: (lines) => calculateGstUseCase
 const inventoryReservation: InventoryReservationPort = {
   reserveForCheckout: (items, tx) => reserveInventoryForCheckoutUseCase.execute(items, tx),
 };
+const inventoryRelease: InventoryReleasePort = { release: (items, tx) => releaseReservationUseCase.execute(items, tx) };
+const refundIssuer: RefundIssuerPort = { issueRefundIfNeeded: (orderId) => issueRefundForCancelledOrderUseCase.execute(orderId) };
+const auditLogger: AuditLoggerPort = { log: (entry, tx) => recordAuditLogUseCase.execute(entry, tx) };
 
 const checkoutUseCase = new CheckoutUseCase(
   cartResolver,
