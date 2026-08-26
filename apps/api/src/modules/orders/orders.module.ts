@@ -22,12 +22,18 @@ import type { InventoryReleasePort } from "./application/ports/inventory-release
 import type { InventoryReservationPort } from "./application/ports/inventory-reservation.port";
 import type { RefundIssuerPort } from "./application/ports/refund-issuer.port";
 import type { ShippingReaderPort } from "./application/ports/shipping-reader.port";
+import { CancelOrderUseCase } from "./application/use-cases/cancel-order.use-case";
 import { CheckoutUseCase } from "./application/use-cases/checkout.use-case";
 import { ConfirmOrderUseCase } from "./application/use-cases/confirm-order.use-case";
+import { DeliverOrderUseCase } from "./application/use-cases/deliver-order.use-case";
+import { GetOrderForAdminUseCase } from "./application/use-cases/get-order-for-admin.use-case";
 import { GetOrderForPaymentUseCase } from "./application/use-cases/get-order-for-payment.use-case";
 import { GetOrderUseCase } from "./application/use-cases/get-order.use-case";
 import { ListMyOrdersUseCase } from "./application/use-cases/list-my-orders.use-case";
+import { ListOrdersUseCase } from "./application/use-cases/list-orders.use-case";
 import { MarkOrderPaymentFailedUseCase } from "./application/use-cases/mark-order-payment-failed.use-case";
+import { ShipOrderUseCase } from "./application/use-cases/ship-order.use-case";
+import { StartProcessingOrderUseCase } from "./application/use-cases/start-processing-order.use-case";
 import { OrderRepository } from "./infrastructure/repositories/order.repository";
 import { PrismaTransactionRunner } from "./infrastructure/repositories/transaction.repository";
 import { OrderNumberGeneratorService } from "./infrastructure/services/order-number-generator.service";
@@ -68,6 +74,14 @@ const listMyOrdersUseCase = new ListMyOrdersUseCase(orderRepository);
 export const confirmOrderUseCase = new ConfirmOrderUseCase(orderRepository);
 export const markOrderPaymentFailedUseCase = new MarkOrderPaymentFailedUseCase(orderRepository);
 export const getOrderForPaymentUseCase = new GetOrderForPaymentUseCase(orderRepository);
+
+/** Exported for cross-module use — `admin`'s HTTP layer (ADR-025) calls these directly, same pattern as payments' Day 5 exports above. */
+export const startProcessingOrderUseCase = new StartProcessingOrderUseCase(orderRepository, auditLogger, transactionRunner);
+export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner);
+export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner);
+export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRelease, refundIssuer, auditLogger, transactionRunner);
+export const listOrdersUseCase = new ListOrdersUseCase(orderRepository);
+export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository);
 
 const ordersController = new OrdersController(checkoutUseCase, getOrderUseCase, listMyOrdersUseCase);
 
