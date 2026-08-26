@@ -1,5 +1,6 @@
 import type { Router } from "express";
 import { router as adminRouter } from "./admin/admin.module";
+import { router as auditRouter } from "./audit/audit.module";
 import { router as authRouter } from "./auth/auth.module";
 import { router as cartRouter } from "./cart/cart.module";
 import { router as categoriesRouter } from "./categories/categories.module";
@@ -40,4 +41,5 @@ export const moduleRouters: { path: string; router: Router }[] = [
   { path: "/refunds", router: refundsRouter },
   { path: "/notifications", router: notificationsRouter },
   { path: "/admin", router: adminRouter },
+  { path: "/audit", router: auditRouter },
 ];
