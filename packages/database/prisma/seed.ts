@@ -68,6 +68,31 @@ async function main() {
   });
   console.log("  Admin user: admin@woobe.in / Admin@12345 (dev only — never a real password)");
 
+  // ── Staff demo accounts (ADR-024/025) — lets RBAC boundaries actually be
+  // exercised in the browser, not just verified by reading permissions.ts. ──
+  const staffPasswordHash = await bcrypt.hash("Staff@12345", 12);
+  await prisma.user.upsert({
+    where: { email: "orders@woobe.in" },
+    update: { role: Role.ORDER_PROCESSING_STAFF },
+    create: {
+      email: "orders@woobe.in",
+      name: "Order Processing Staff",
+      role: Role.ORDER_PROCESSING_STAFF,
+      authCredentials: { create: { method: AuthMethod.PASSWORD, passwordHash: staffPasswordHash } },
+    },
+  });
+  await prisma.user.upsert({
+    where: { email: "catalog@woobe.in" },
+    update: { role: Role.PRODUCT_MANAGEMENT_STAFF },
+    create: {
+      email: "catalog@woobe.in",
+      name: "Product Management Staff",
+      role: Role.PRODUCT_MANAGEMENT_STAFF,
+      authCredentials: { create: { method: AuthMethod.PASSWORD, passwordHash: staffPasswordHash } },
+    },
+  });
+  console.log("  Staff users: orders@woobe.in / catalog@woobe.in — password Staff@12345 (dev only)");
+
   // ── Categories ──
   const categoryDefs = [
     { name: "Tops", slug: "tops" },
