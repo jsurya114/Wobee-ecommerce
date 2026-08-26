@@ -1,6 +1,8 @@
 "use client";
 
 import { formatGrams, formatPaiseAsInr } from "@woobe/utils";
+import { PriceTag } from "@woobe/ui";
+import { Minus, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -34,29 +36,29 @@ export function CartLineItem({ line }: { line: CartLine }) {
   }
 
   return (
-    <div className="flex gap-4 border-b border-border py-4">
-      <Link href={`/products/${line.productSlug}`} className="h-24 w-20 shrink-0 overflow-hidden rounded-control bg-surface">
+    <div className="flex gap-4 border-b border-border py-5 last:border-b-0">
+      <Link href={`/products/${line.productSlug}`} className="h-28 w-24 shrink-0 overflow-hidden rounded-control bg-primary-tint/40">
         {line.image ? <img src={line.image} alt={line.productName} className="h-full w-full object-cover" /> : null}
       </Link>
 
-      <div className="flex flex-1 flex-col gap-1">
+      <div className="flex flex-1 flex-col gap-1.5">
         <div className="flex items-start justify-between gap-2">
           <div>
             <Link href={`/products/${line.productSlug}`} className="font-body text-sm font-medium text-text-primary hover:text-primary">
               {line.productName}
             </Link>
             <p className="font-body text-xs text-text-secondary">
-              {line.color} · {line.size} · {formatGrams(line.weightGrams)}
+              {line.color} · {line.size} · {formatGrams(line.weightGrams)} · {formatPaiseAsInr(line.ratePerKgPaise)}/kg
             </p>
-            <p className="font-body text-xs text-text-secondary">{formatPaiseAsInr(line.ratePerKgPaise)}/kg</p>
           </div>
           <button
             type="button"
             onClick={() => void handleRemove()}
             disabled={isUpdating}
-            className="font-body text-xs text-text-secondary hover:text-error disabled:opacity-50"
+            aria-label="Remove item"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-secondary transition-colors hover:bg-error/10 hover:text-error disabled:opacity-50"
           >
-            Remove
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -66,29 +68,29 @@ export function CartLineItem({ line }: { line: CartLine }) {
           </p>
         ) : null}
 
-        <div className="mt-1 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="mt-1 flex items-end justify-between">
+          <div className="flex items-center gap-1 rounded-pill border border-border">
             <button
               type="button"
               onClick={() => void changeQuantity(line.quantity - 1)}
               disabled={isUpdating || line.quantity <= 1}
-              className="h-8 w-8 rounded-control border border-border font-body text-sm text-text-primary disabled:opacity-40"
+              className="flex h-9 w-9 items-center justify-center text-text-primary transition-colors disabled:opacity-40"
               aria-label="Decrease quantity"
             >
-              −
+              <Minus className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
-            <span className="w-6 text-center font-body text-sm text-text-primary">{line.quantity}</span>
+            <span className="w-5 text-center font-body text-sm text-text-primary">{line.quantity}</span>
             <button
               type="button"
               onClick={() => void changeQuantity(line.quantity + 1)}
               disabled={isUpdating || line.quantity >= line.availableQuantity}
-              className="h-8 w-8 rounded-control border border-border font-body text-sm text-text-primary disabled:opacity-40"
+              className="flex h-9 w-9 items-center justify-center text-text-primary transition-colors disabled:opacity-40"
               aria-label="Increase quantity"
             >
-              +
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
-          <p className="font-body text-sm font-medium text-text-primary">{formatPaiseAsInr(line.subtotalPaise)}</p>
+          <PriceTag pricePaise={line.subtotalPaise} />
         </div>
       </div>
     </div>

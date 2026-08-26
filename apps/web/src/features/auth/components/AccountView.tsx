@@ -1,6 +1,8 @@
 "use client";
 
-import { Button } from "@woobe/ui";
+import { Button, Card } from "@woobe/ui";
+import { ChevronRight, Package } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
@@ -30,24 +32,42 @@ export function AccountView() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 px-6 py-12">
-      <h1 className="font-display text-2xl text-text-primary">My Account</h1>
-      <dl className="flex flex-col gap-3 rounded-card border border-border bg-surface p-4 shadow-card">
+    <main className="mx-auto flex max-w-md flex-col gap-6 px-6 py-10">
+      <div className="flex items-center gap-4">
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary-tint font-display text-xl text-primary">
+          {user.name.slice(0, 1).toUpperCase()}
+        </span>
         <div>
-          <dt className="font-body text-sm text-text-secondary">Name</dt>
-          <dd className="font-body text-base text-text-primary">{user.name}</dd>
+          <h1 className="font-display text-xl text-text-primary">{user.name}</h1>
+          <p className="font-body text-sm text-text-secondary">{user.email}</p>
+        </div>
+      </div>
+
+      <Card className="flex flex-col gap-3 p-5">
+        <div>
+          <p className="font-body text-xs text-text-secondary">Name</p>
+          <p className="font-body text-sm text-text-primary">{user.name}</p>
         </div>
         <div>
-          <dt className="font-body text-sm text-text-secondary">Email</dt>
-          <dd className="font-body text-base text-text-primary">{user.email}</dd>
+          <p className="font-body text-xs text-text-secondary">Email</p>
+          <p className="font-body text-sm text-text-primary">{user.email}</p>
         </div>
         {user.phone ? (
           <div>
-            <dt className="font-body text-sm text-text-secondary">Phone</dt>
-            <dd className="font-body text-base text-text-primary">{user.phone}</dd>
+            <p className="font-body text-xs text-text-secondary">Phone</p>
+            <p className="font-body text-sm text-text-primary">{user.phone}</p>
           </div>
         ) : null}
-      </dl>
+      </Card>
+
+      <Link href="/account/orders">
+        <Card className="flex items-center gap-3 p-4 transition-colors hover:border-primary">
+          <Package className="h-5 w-5 text-primary" aria-hidden="true" />
+          <span className="flex-1 font-body text-sm font-medium text-text-primary">My orders</span>
+          <ChevronRight className="h-4 w-4 text-text-secondary" aria-hidden="true" />
+        </Card>
+      </Link>
+
       <Button variant="secondary" onClick={() => void logout()}>
         Log out
       </Button>

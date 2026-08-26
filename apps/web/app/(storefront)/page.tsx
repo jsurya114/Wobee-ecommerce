@@ -1,20 +1,32 @@
-import Link from "next/link";
+import { listCategories } from "@/features/catalog/api/categories.client";
+import { listProducts } from "@/features/catalog/api/products.client";
+import { CategoryTiles } from "@/features/home/components/CategoryTiles";
+import { Hero } from "@/features/home/components/Hero";
+import { ProductRail } from "@/features/home/components/ProductRail";
+import { Reveal } from "@/features/home/components/Reveal";
+import { TrustStrip } from "@/features/home/components/TrustStrip";
 
-// Homepage placeholder — Week 1 walking-skeleton only. Real sections (hero,
-// New Drops, Shop by Vibe, ...) land per
-// project_planning/woobe_ui_design_plan.md §8 starting Week 2; this just
-// needs to get a person to the catalogue for now.
-export default function HomePage() {
+/**
+ * Focused, real-data homepage (woobe_ui_design_plan.md §8) — hero, trust
+ * strip, real categories, one real product rail. Sections needing content
+ * that doesn't exist yet (UGC photos, video, "Shop by Vibe," "Build Your
+ * Look") are deliberately not built with placeholder content — Week 2+
+ * scope per the doc's own notes, see the UI styling plan for the full
+ * reasoning.
+ */
+export default async function HomePage() {
+  const [{ categories }, { products }] = await Promise.all([listCategories(), listProducts({ limit: 8 })]);
+
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
-      <p className="font-display text-3xl text-primary">Woobe</p>
-      <p className="font-body text-sm text-text-secondary">Fashion, by weight.</p>
-      <p className="max-w-sm font-body text-base text-text-primary">
-        Browse the catalogue, add pieces to your bag, and check out — pay online or cash on delivery.
-      </p>
-      <Link href="/products" className="mt-2 rounded-control bg-primary px-5 py-2.5 font-body text-white hover:bg-primary-hover">
-        Shop now
-      </Link>
+    <main>
+      <Hero />
+      <TrustStrip />
+      <Reveal>
+        <CategoryTiles categories={categories} />
+      </Reveal>
+      <Reveal>
+        <ProductRail title="New drops" products={products} />
+      </Reveal>
     </main>
   );
 }

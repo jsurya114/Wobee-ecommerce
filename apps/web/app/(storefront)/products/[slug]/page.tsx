@@ -15,8 +15,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
+  // Extra bottom clearance on mobile — ProductPurchasePanel's own fixed sticky buy bar sits above BottomNav.
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+    <main className="mx-auto max-w-5xl px-4 pb-28 pt-8 sm:px-6 md:pb-8">
       <ProductDetail product={result.product} />
     </main>
   );

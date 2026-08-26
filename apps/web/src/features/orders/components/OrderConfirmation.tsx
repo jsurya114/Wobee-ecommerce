@@ -1,7 +1,9 @@
 "use client";
 
 import { formatPaiseAsInr } from "@woobe/utils";
-import { Button } from "@woobe/ui";
+import { Badge, Button, Card, Spinner } from "@woobe/ui";
+import { CheckCircle2, PackageX } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -124,27 +126,31 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   }
 
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-16 text-center">
+    <div className="mx-auto flex max-w-md flex-col items-center gap-5 py-16 text-center">
       <StatusHeading order={order} stage={stage} />
 
-      <dl className="w-full rounded-card border border-border bg-surface p-4 text-left font-body text-sm">
-        <div className="flex justify-between">
-          <dt className="text-text-secondary">Order</dt>
-          <dd className="text-text-primary">{order.orderNumber}</dd>
+      <Card className="w-full p-5 text-left">
+        <dl className="flex flex-col gap-2.5 font-body text-sm">
+          <div className="flex justify-between">
+            <dt className="text-text-secondary">Order</dt>
+            <dd className="text-text-primary">{order.orderNumber}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-text-secondary">Payment method</dt>
+            <dd className="text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd>
+          </div>
+          <div className="flex items-center justify-between">
+            <dt className="text-text-secondary">Status</dt>
+            <dd>
+              <StatusBadge status={order.status} />
+            </dd>
+          </div>
+        </dl>
+        <div className="mt-3 flex justify-between border-t border-border pt-3 font-body text-base font-medium">
+          <span className="text-text-primary">Total</span>
+          <span className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
         </div>
-        <div className="flex justify-between">
-          <dt className="text-text-secondary">Payment method</dt>
-          <dd className="text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-text-secondary">Status</dt>
-          <dd className="text-text-primary">{order.status.replace(/_/g, " ").toLowerCase()}</dd>
-        </div>
-        <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
-          <dt className="text-text-primary">Total</dt>
-          <dd className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</dd>
-        </div>
-      </dl>
+      </Card>
 
       {order.status === "PENDING_PAYMENT" && order.paymentMethod === "RAZORPAY" && stage !== "confirming-razorpay" ? (
         <Button onClick={() => void payWithRazorpay()} isLoading={stage === "awaiting-razorpay"}>
@@ -159,15 +165,47 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   );
 }
 
+function StatusBadge({ status }: { status: OrderView["status"] }) {
+  const label = status.replace(/_/g, " ").toLowerCase();
+  if (status === "CONFIRMED") return <Badge variant="success">{label}</Badge>;
+  if (status === "PAYMENT_FAILED") return <Badge variant="error">{label}</Badge>;
+  return <Badge variant="neutral">{label}</Badge>;
+}
+
 function StatusHeading({ order, stage }: { order: OrderView; stage: PaymentStage }) {
+  const shouldReduceMotion = useReducedMotion();
+  const iconProps = { className: "h-9 w-9", strokeWidth: 1.5, "aria-hidden": true } as const;
+
   if (order.status === "CONFIRMED") {
-    return <h1 className="font-display text-2xl text-text-primary">Order confirmed!</h1>;
+    const icon = <CheckCircle2 {...iconProps} className="h-9 w-9 text-success" />;
+    return (
+      <div className="flex flex-col items-center gap-3">
+        {shouldReduceMotion ? (
+          icon
+        ) : (
+          <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.3, ease: "easeOut" }}>
+            {icon}
+          </motion.div>
+        )}
+        <h1 className="font-display text-2xl text-text-primary">Order confirmed!</h1>
+      </div>
+    );
   }
   if (order.status === "PAYMENT_FAILED") {
-    return <h1 className="font-display text-2xl text-text-primary">Payment failed</h1>;
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <PackageX {...iconProps} className="h-9 w-9 text-error" />
+        <h1 className="font-display text-2xl text-text-primary">Payment failed</h1>
+      </div>
+    );
   }
   if (stage === "confirming-cod" || stage === "confirming-razorpay") {
-    return <h1 className="font-display text-2xl text-text-primary">Confirming your order…</h1>;
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <Spinner size="lg" />
+        <h1 className="font-display text-2xl text-text-primary">Confirming your order…</h1>
+      </div>
+    );
   }
   return <h1 className="font-display text-2xl text-text-primary">Order placed</h1>;
 }

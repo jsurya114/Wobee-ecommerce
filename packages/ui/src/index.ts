@@ -1,11 +1,17 @@
 export * from "./tokens";
 export * from "./lib/cn";
+export * from "./primitives/Badge";
 export * from "./primitives/Button";
+export * from "./primitives/Card";
 export * from "./primitives/Input";
 export * from "./primitives/Label";
+export * from "./primitives/RadioGroup";
+export * from "./primitives/Skeleton";
+export * from "./primitives/Spinner";
 export * from "./components/FormField";
-// More primitives (Card, Dialog, Select, Carousel, ...) land as real pages
-// need them (ADR-022) — Day 2 only needed the auth-form basics above.
-// None of these use Base UI yet; that's only needed once something requires
-// real accessible primitive *behavior* (Dialog focus-trap, Select listbox),
-// which Button/Input/Label don't.
+export * from "./components/PriceTag";
+export * from "./components/ProgressBar";
+// Dialog/Select/Carousel still not needed — nothing in the current page set
+// requires a modal/listbox (ADR-022's Base UI adoption, woobe_ui_design_plan.md
+// §6, landed with RadioGroup/Progress; the rest arrive when a real feature
+// needs that specific behavior, e.g. a size-chart modal).

@@ -3,11 +3,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { formatPaiseAsInr } from "@woobe/utils";
 import { checkoutSchema, type CheckoutInput } from "@woobe/validation";
-import { Button, FormField } from "@woobe/ui";
+import { Button, Card, CardContent, CardHeader, CardTitle, FormField, RadioGroup, RadioGroupItem } from "@woobe/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/features/auth/hooks/useAuth";
@@ -22,6 +22,7 @@ export function CheckoutForm() {
   const {
     register,
     handleSubmit,
+    control,
     setError,
     setValue,
     formState: { errors, isSubmitting },
@@ -93,102 +94,112 @@ export function CheckoutForm() {
   const estimatedTotal = cart.totalPaise + (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise);
 
   return (
-    <div className="grid gap-8 md:grid-cols-[1fr_320px]">
-      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-        <h2 className="font-display text-lg text-text-primary">Contact</h2>
-        <FormField
-          label="Email"
-          type="email"
-          autoComplete="email"
-          error={errors.contactEmail?.message}
-          {...register("contactEmail")}
-        />
-
-        <h2 className="mt-2 font-display text-lg text-text-primary">Shipping address</h2>
-        <FormField
-          label="Full name"
-          autoComplete="name"
-          error={errors.address?.fullName?.message}
-          {...register("address.fullName")}
-        />
-        <FormField
-          label="Phone"
-          type="tel"
-          autoComplete="tel"
-          error={errors.address?.phone?.message}
-          {...register("address.phone")}
-        />
-        <FormField
-          label="Address line 1"
-          autoComplete="address-line1"
-          error={errors.address?.line1?.message}
-          {...register("address.line1")}
-        />
-        <FormField
-          label="Address line 2 (optional)"
-          autoComplete="address-line2"
-          error={errors.address?.line2?.message}
-          {...register("address.line2")}
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="City" autoComplete="address-level2" error={errors.address?.city?.message} {...register("address.city")} />
+    <div className="grid gap-6 pb-4 md:grid-cols-[1fr_320px] md:gap-8 md:pb-0">
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-6">
+        <Card className="p-5">
+          <h2 className="mb-4 font-display text-lg text-text-primary">Contact</h2>
           <FormField
-            label="State"
-            autoComplete="address-level1"
-            error={errors.address?.state?.message}
-            {...register("address.state")}
+            label="Email"
+            type="email"
+            autoComplete="email"
+            error={errors.contactEmail?.message}
+            {...register("contactEmail")}
           />
-        </div>
-        <FormField
-          label="Pincode"
-          inputMode="numeric"
-          autoComplete="postal-code"
-          error={errors.address?.pincode?.message}
-          {...register("address.pincode")}
-        />
+        </Card>
 
-        <h2 className="mt-2 font-display text-lg text-text-primary">Payment method</h2>
-        {/* The order always lands at PENDING_PAYMENT at checkout time; the
-            confirmation page (Week 1 Day 5) drives each method the rest of
-            the way — see the onSubmit comment above. */}
-        <div className="flex flex-col gap-2 font-body text-sm text-text-primary">
-          <label className="flex items-center gap-2">
-            <input type="radio" value="COD" {...register("paymentMethod")} defaultChecked />
-            Cash on delivery
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="radio" value="RAZORPAY" {...register("paymentMethod")} />
-            Pay online (Razorpay)
-          </label>
-        </div>
+        <Card className="flex flex-col gap-4 p-5">
+          <h2 className="font-display text-lg text-text-primary">Shipping address</h2>
+          <FormField
+            label="Full name"
+            autoComplete="name"
+            error={errors.address?.fullName?.message}
+            {...register("address.fullName")}
+          />
+          <FormField
+            label="Phone"
+            type="tel"
+            autoComplete="tel"
+            error={errors.address?.phone?.message}
+            {...register("address.phone")}
+          />
+          <FormField
+            label="Address line 1"
+            autoComplete="address-line1"
+            error={errors.address?.line1?.message}
+            {...register("address.line1")}
+          />
+          <FormField
+            label="Address line 2 (optional)"
+            autoComplete="address-line2"
+            error={errors.address?.line2?.message}
+            {...register("address.line2")}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="City" autoComplete="address-level2" error={errors.address?.city?.message} {...register("address.city")} />
+            <FormField
+              label="State"
+              autoComplete="address-level1"
+              error={errors.address?.state?.message}
+              {...register("address.state")}
+            />
+          </div>
+          <FormField
+            label="Pincode"
+            inputMode="numeric"
+            autoComplete="postal-code"
+            error={errors.address?.pincode?.message}
+            {...register("address.pincode")}
+          />
+        </Card>
 
-        <Button type="submit" isLoading={isSubmitting} className="mt-2">
+        <Card className="p-5">
+          <h2 className="mb-4 font-display text-lg text-text-primary">Payment method</h2>
+          {/* The order always lands at PENDING_PAYMENT at checkout time; the
+              confirmation page drives each method the rest of the way — see
+              the onSubmit comment above. */}
+          <Controller
+            control={control}
+            name="paymentMethod"
+            render={({ field }) => (
+              <RadioGroup value={field.value} onValueChange={field.onChange} className="flex flex-col gap-2">
+                <RadioGroupItem value="COD" label="Cash on delivery" description="Pay when your order arrives" />
+                <RadioGroupItem value="RAZORPAY" label="Pay online" description="Card, UPI, or netbanking via Razorpay" />
+              </RadioGroup>
+            )}
+          />
+        </Card>
+
+        <Button type="submit" isLoading={isSubmitting} className="w-full">
           {isSubmitting ? "Placing order…" : `Place order — ${formatPaiseAsInr(estimatedTotal)}`}
         </Button>
       </form>
 
-      <aside className="h-fit rounded-card border border-border bg-surface p-6">
-        <h2 className="mb-4 font-display text-lg text-text-primary">Order summary</h2>
-        <dl className="flex flex-col gap-2 font-body text-sm">
-          <div className="flex justify-between">
-            <dt className="text-text-secondary">Items ({cart.itemCount})</dt>
-            <dd className="text-text-primary">{formatPaiseAsInr(cart.totalPaise)}</dd>
+      <Card className="h-fit p-6">
+        <CardHeader className="p-0">
+          <CardTitle className="mb-2">Order summary</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <dl className="flex flex-col gap-2 font-body text-sm">
+            <div className="flex justify-between">
+              <dt className="text-text-secondary">Items ({cart.itemCount})</dt>
+              <dd className="text-text-primary">{formatPaiseAsInr(cart.totalPaise)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-text-secondary">Shipping</dt>
+              <dd className="text-text-primary">
+                {cart.shipping.isFreeDelivery ? "Free" : formatPaiseAsInr(cart.shipping.shippingFeePaise)}
+              </dd>
+            </div>
+          </dl>
+          <div className="mt-4 flex justify-between border-t border-border pt-4 font-body text-base font-medium">
+            <span className="text-text-primary">Estimated total</span>
+            <span className="text-text-primary">{formatPaiseAsInr(estimatedTotal)}</span>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-text-secondary">Shipping</dt>
-            <dd className="text-text-primary">
-              {cart.shipping.isFreeDelivery ? "Free" : formatPaiseAsInr(cart.shipping.shippingFeePaise)}
-            </dd>
-          </div>
-        </dl>
-        <div className="mt-4 flex justify-between border-t border-border pt-4 font-body text-base font-medium">
-          <span className="text-text-primary">Estimated total</span>
-          <span className="text-text-primary">{formatPaiseAsInr(estimatedTotal)}</span>
-        </div>
-        <p className="mt-3 font-body text-xs text-text-secondary">
-          Tax is calculated server-side and shown on your final order confirmation.
-        </p>
-      </aside>
+          <p className="mt-3 font-body text-xs text-text-secondary">
+            Tax is calculated server-side and shown on your final order confirmation.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

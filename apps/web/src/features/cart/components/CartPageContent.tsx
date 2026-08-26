@@ -1,22 +1,42 @@
 "use client";
 
 import { formatGrams, formatPaiseAsInr } from "@woobe/utils";
+import { buttonVariants, Card, cn, Skeleton } from "@woobe/ui";
+import { ShoppingBag } from "lucide-react";
 import Link from "next/link";
 import { useCart } from "../hooks/useCart";
 import { CartLineItem } from "./CartLineItem";
+import { WeightThresholdBanner } from "./WeightThresholdBanner";
 
 export function CartPageContent() {
   const { cart, isLoading } = useCart();
 
   if (isLoading || !cart) {
-    return <p className="py-16 text-center font-body text-sm text-text-secondary">Loading your bag…</p>;
+    return (
+      <div className="grid gap-8 md:grid-cols-[1fr_320px]">
+        <div className="flex flex-col gap-5">
+          {[0, 1].map((i) => (
+            <div key={i} className="flex gap-4">
+              <Skeleton className="h-28 w-24 shrink-0" />
+              <div className="flex flex-1 flex-col gap-2 pt-1">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-1/2" />
+                <Skeleton className="mt-4 h-9 w-24" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-64" />
+      </div>
+    );
   }
 
   if (cart.items.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-4 py-16 text-center">
+      <div className="flex flex-col items-center gap-4 py-20 text-center">
+        <ShoppingBag className="h-10 w-10 text-text-secondary" strokeWidth={1.25} aria-hidden="true" />
         <p className="font-body text-sm text-text-secondary">Your bag is empty.</p>
-        <Link href="/products" className="font-body text-sm text-primary hover:underline">
+        <Link href="/products" className={buttonVariants()}>
           Continue shopping
         </Link>
       </div>
@@ -25,14 +45,14 @@ export function CartPageContent() {
 
   return (
     <div className="grid gap-8 md:grid-cols-[1fr_320px]">
-      <div>
+      <Card className="p-5">
         {cart.items.map((line) => (
           <CartLineItem key={line.itemId} line={line} />
         ))}
-      </div>
+      </Card>
 
       {/* Server-computed totals only — nothing here is derived from a client-held value (DEVELOPMENT_RULES.md #1). */}
-      <aside className="h-fit rounded-card border border-border bg-surface p-6">
+      <Card className="h-fit p-6">
         <h2 className="mb-4 font-display text-lg text-text-primary">Order summary</h2>
         <dl className="flex flex-col gap-2 font-body text-sm">
           <div className="flex justify-between">
@@ -57,29 +77,18 @@ export function CartPageContent() {
           </span>
         </div>
 
-        {/* ADR-021 minimum-order / free-delivery progress — same numbers checkout enforces server-side, just surfaced here for the customer. */}
-        {!cart.shipping.meetsMinimum ? (
-          <p className="mt-3 rounded-control bg-primary-tint p-3 font-body text-xs text-text-secondary">
-            Add {formatGrams(cart.shipping.gramsToMinimum)} more to your bag to check out.
-          </p>
-        ) : !cart.shipping.isFreeDelivery ? (
-          <p className="mt-3 rounded-control bg-primary-tint p-3 font-body text-xs text-text-secondary">
-            Add {formatGrams(cart.shipping.gramsToFreeDelivery)} more for free delivery.
-          </p>
-        ) : null}
+        <div className="mt-4">
+          <WeightThresholdBanner shipping={cart.shipping} totalWeightGrams={cart.totalWeightGrams} />
+        </div>
 
         <Link
           href="/checkout"
           aria-disabled={!cart.shipping.meetsMinimum}
-          className={`mt-4 flex h-11 w-full items-center justify-center rounded-control px-5 font-body text-base font-medium transition-colors ${
-            cart.shipping.meetsMinimum
-              ? "bg-primary text-white hover:bg-primary-hover"
-              : "pointer-events-none bg-border text-text-secondary"
-          }`}
+          className={cn(buttonVariants(), "mt-4 w-full", !cart.shipping.meetsMinimum && "pointer-events-none opacity-50")}
         >
           Checkout
         </Link>
-      </aside>
+      </Card>
     </div>
   );
 }
