@@ -19,6 +19,19 @@ const TEST_PREFIX = "admin-order-view-integration";
 const WEBHOOK_SECRET = "test-webhook-secret"; // matches vitest.config.ts
 const app = createApp();
 
+/**
+ * Normalizes the `set-cookie` response header into an array. Under this
+ * workspace's installed `@types/superagent`, `res.headers["set-cookie"]`
+ * types as `string | never[]` (sometimes just `string`), not `string[]` —
+ * even though at runtime Express/Node genuinely sends it as an array when
+ * there are multiple Set-Cookie headers. Same defensive-narrowing
+ * convention as auth.integration.test.ts's `extractCookieHeader`.
+ */
+function setCookieArray(header: string | string[] | undefined): string[] {
+  if (!header) return [];
+  return Array.isArray(header) ? header : [header];
+}
+
 let categoryId: string;
 let warehouseId: string;
 const createdProductIds: string[] = [];
@@ -150,7 +163,7 @@ describe("admin auth", () => {
     const res = await request(app).post("/api/v1/admin/auth/login").send({ email, password: "Passw0rd" });
 
     expect(res.status).toBe(403);
-    expect(res.headers["set-cookie"]?.join(";") ?? "").not.toContain("admin_refresh_token");
+    expect(setCookieArray(res.headers["set-cookie"]).join(";")).not.toContain("admin_refresh_token");
   });
 
   it("logs in a SUPER_ADMIN and issues an admin_refresh_token cookie (not refresh_token)", async () => {
@@ -165,7 +178,7 @@ describe("admin auth", () => {
     // actual intent: only the admin-scoped cookie is set, never the
     // customer-scoped one (see admin-refresh-cookie.ts's own comment that
     // it's "deliberately a SEPARATE cookie from the customer refresh_token").
-    const cookieNames = (res.headers["set-cookie"] ?? []).map((c) => c.split("=")[0]);
+    const cookieNames = setCookieArray(res.headers["set-cookie"]).map((c) => c.split("=")[0]);
     expect(cookieNames).toContain("admin_refresh_token");
     expect(cookieNames).not.toContain("refresh_token");
   });

@@ -7,10 +7,13 @@ import { OrderStatusActions } from "./OrderStatusActions";
 import { OrderTimeline } from "./OrderTimeline";
 
 export function OrderDetail({ orderId }: { orderId: string }) {
-  const { order, loading, startProcessing, ship, deliver, cancel, lastRefundIssued } = useAdminOrder(orderId);
+  const { order, loading, error, startProcessing, ship, deliver, cancel, lastRefundIssued } = useAdminOrder(orderId);
 
   if (loading) {
     return <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>;
+  }
+  if (error) {
+    return <p className="py-12 text-center font-body text-sm text-error">{error}</p>;
   }
   if (!order) {
     return <p className="py-12 text-center font-body text-sm text-text-secondary">Order not found.</p>;

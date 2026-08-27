@@ -10,13 +10,17 @@ export function useAdminOrder(orderId: string) {
   const { accessToken } = useAdminAuth();
   const [order, setOrder] = useState<AdminOrderView | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lastRefundIssued, setLastRefundIssued] = useState<boolean | null>(null);
 
   const refetch = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
+    setError(null);
     try {
       setOrder(await ordersApi.getOrder(orderId, accessToken));
+    } catch {
+      setError("Couldn't load this order.");
     } finally {
       setLoading(false);
     }
@@ -34,6 +38,7 @@ export function useAdminOrder(orderId: string) {
   return {
     order,
     loading,
+    error,
     lastRefundIssued,
     refetch,
     startProcessing: async () => {
