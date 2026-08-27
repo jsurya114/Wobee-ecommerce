@@ -1,9 +1,10 @@
 "use client";
 
 import { Badge } from "@woobe/ui";
-import { LogIn, LogOut, Package, ShoppingBag, Store, User, UserPlus } from "lucide-react";
+import { Heart, LogIn, LogOut, Package, ShoppingBag, Store, User, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useCart } from "@/features/cart/hooks/useCart";
+import { useWishlist } from "@/features/wishlist/hooks/useWishlist";
 import { useAuth } from "../hooks/useAuth";
 
 /**
@@ -16,6 +17,7 @@ import { useAuth } from "../hooks/useAuth";
 export function SiteHeader() {
   const { user, status, logout } = useAuth();
   const { cart } = useCart();
+  const { wishlist } = useWishlist();
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
@@ -29,6 +31,10 @@ export function SiteHeader() {
           <Link href="/products" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
             <Store className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             Shop
+          </Link>
+          <Link href="/wishlist" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+            <Heart className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+            Wishlist{wishlist && wishlist.itemCount > 0 ? ` (${wishlist.itemCount})` : ""}
           </Link>
           <Link href="/cart" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
             <ShoppingBag className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />

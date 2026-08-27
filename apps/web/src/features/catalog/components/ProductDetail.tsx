@@ -1,4 +1,5 @@
 import { Badge } from "@woobe/ui";
+import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import type { ProductDetail as ProductDetailData } from "../api/products.client";
 import { ProductPurchasePanel } from "./ProductPurchasePanel";
 
@@ -7,10 +8,11 @@ export function ProductDetail({ product }: { product: ProductDetailData }) {
 
   return (
     <div className="grid gap-8 md:grid-cols-2 md:gap-12">
-      <div className="aspect-[4/5] overflow-hidden rounded-card bg-primary-tint/40">
+      <div className="relative aspect-[4/5] overflow-hidden rounded-card bg-primary-tint/40">
         {primaryImage ? (
           <img src={primaryImage.url} alt={primaryImage.altText} className="h-full w-full object-cover" />
         ) : null}
+        <WishlistButton productId={product.id} className="absolute right-3 top-3" />
       </div>
 
       <div className="flex flex-col gap-6">

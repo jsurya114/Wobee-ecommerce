@@ -1,32 +1,37 @@
 "use client";
 
 import { Badge } from "@woobe/ui";
-import { Home, ShoppingBag, Store, User } from "lucide-react";
+import { Heart, Home, ShoppingBag, Store, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useCart } from "@/features/cart/hooks/useCart";
+import { useWishlist } from "@/features/wishlist/hooks/useWishlist";
 import { MOBILE_BOTTOM_NAV_HEIGHT_REM } from "@/lib/layout-constants";
 
 /**
- * Sticky mobile bottom nav (woobe_ui_design_plan.md §10) — honestly scoped
- * to 4 tabs, not the doc's full 5 (Search + Wishlist aren't built features
- * this week, so they don't get a tab). Fixes the cramped top-header nav
- * flagged in the Week 1 completion audit: SiteHeader now only carries the
- * logo + a cart shortcut, this carries the actual navigation on mobile.
- * `md:hidden` — desktop keeps SiteHeader's horizontal nav.
+ * Sticky mobile bottom nav (woobe_ui_design_plan.md §10) — 5 tabs now that
+ * Wishlist is a real feature (Week 2 Day 2; Search still isn't, so it stays
+ * a 5th-slot gap rather than forcing a 6th tab — search lives inline on
+ * /products instead). Fixes the cramped top-header nav flagged in the
+ * Week 1 completion audit: SiteHeader now only carries the logo + a cart
+ * shortcut, this carries the actual navigation on mobile. `md:hidden` —
+ * desktop keeps SiteHeader's horizontal nav.
  */
 export function BottomNav() {
   const pathname = usePathname();
   const { status } = useAuth();
   const { cart } = useCart();
+  const { wishlist } = useWishlist();
 
   const accountHref = status === "authenticated" ? "/account" : "/login";
   const itemCount = cart?.itemCount ?? 0;
+  const wishlistCount = wishlist?.itemCount ?? 0;
 
   const items = [
     { href: "/", label: "Home", icon: Home, isActive: pathname === "/" },
     { href: "/products", label: "Shop", icon: Store, isActive: pathname.startsWith("/products") },
+    { href: "/wishlist", label: "Wishlist", icon: Heart, isActive: pathname === "/wishlist", count: wishlistCount },
     { href: "/cart", label: "Bag", icon: ShoppingBag, isActive: pathname === "/cart", count: itemCount },
     {
       href: accountHref,
