@@ -9,6 +9,10 @@ export function createCollectionsRouter(controller: CollectionsController): Rout
     "/",
     asyncHandler((req, res) => controller.list(req, res)),
   );
+  router.get(
+    "/:slug",
+    asyncHandler((req, res) => controller.getBySlug(req, res)),
+  );
 
   return router;
 }

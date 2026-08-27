@@ -1,11 +1,13 @@
 // Composition root for the admin module (ARCHITECTURE.md §3.2). Thin
 // permission-gated HTTP gateway ONLY — no business logic, no Prisma access
-// of its own. Reuses auth's and orders' already-exported use-cases
-// directly, same pattern every other module's composition root uses
-// (ADR-025). Real content as of this change: staff auth + order
-// management. Product management, inventory, settings, and staff
-// management are Week 2-4 scope (architecture.md §6) — see apps/admin's
-// nav-config.ts for how those slot in without touching this file's shape.
+// of its own. Reuses auth's/orders'/collections' already-exported
+// use-cases directly, same pattern every other module's composition root
+// uses (ADR-025). Real content as of this change: staff auth + order
+// management + collection management (API only — apps/admin's UI for it is
+// deferred to Week 2 Day 7, see collections.module.ts's own doc comment).
+// Product/inventory management, settings, and staff management are Week
+// 2-4 scope (architecture.md §6) — see apps/admin's nav-config.ts for how
+// those slot in without touching this file's shape.
 import { Router } from "express";
 import {
   getCurrentUserUseCase,
@@ -14,6 +16,16 @@ import {
   refreshTokenUseCase,
 } from "../auth/auth.module";
 import { recordAuditLogUseCase } from "../audit/audit.module";
+import {
+  assignCollectionProductUseCase,
+  createCollectionUseCase,
+  getCollectionAdminUseCase,
+  listCollectionsAdminUseCase,
+  removeCollectionProductUseCase,
+  reorderCollectionProductsUseCase,
+  setCollectionActiveUseCase,
+  updateCollectionUseCase,
+} from "../collections/collections.module";
 import {
   cancelOrderUseCase,
   deliverOrderUseCase,
@@ -26,6 +38,8 @@ import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
 import { createAdminAuthRouter } from "./interface/http/admin-auth.routes";
+import { AdminCollectionsController } from "./interface/http/admin-collections.controller";
+import { createAdminCollectionsRouter } from "./interface/http/admin-collections.routes";
 import { AdminOrdersController } from "./interface/http/admin-orders.controller";
 import { createAdminOrdersRouter } from "./interface/http/admin-orders.routes";
 
@@ -48,7 +62,18 @@ const adminOrdersController = new AdminOrdersController(
   deliverOrderUseCase,
   cancelOrderWithRefundUseCase,
 );
+const adminCollectionsController = new AdminCollectionsController(
+  listCollectionsAdminUseCase,
+  getCollectionAdminUseCase,
+  createCollectionUseCase,
+  updateCollectionUseCase,
+  setCollectionActiveUseCase,
+  assignCollectionProductUseCase,
+  removeCollectionProductUseCase,
+  reorderCollectionProductsUseCase,
+);
 
 export const router = Router();
 router.use("/auth", createAdminAuthRouter(adminAuthController));
 router.use("/orders", createAdminOrdersRouter(adminOrdersController));
+router.use("/collections", createAdminCollectionsRouter(adminCollectionsController));
