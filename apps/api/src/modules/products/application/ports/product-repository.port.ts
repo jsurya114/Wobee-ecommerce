@@ -1,7 +1,27 @@
+import type { ProductSort } from "@woobe/validation";
 import type { ProductDetailEntity, ProductSummaryEntity, ProductVariantEntity } from "../../domain/entities/product.entity";
 
 export interface ListProductsFilter {
   categoryId?: string;
+  collectionId?: string;
+  /** Matched against Product.name — see ListProductsUseCase's own comment on ILIKE + the pg_trgm index. */
+  search?: string;
+  /** Independent facets — OR within each, AND across (see ListProductsUseCase). */
+  sizes?: string[];
+  colors?: string[];
+  /**
+   * Present only when the caller asked for in-stock-only — the exact set of
+   * currently-in-stock variant ids, resolved live from `inventory` one call
+   * up (ListProductsUseCase), never from a cached flag on Product/Variant.
+   * An empty array is a real, valid "nothing is in stock right now" state —
+   * the use-case short-circuits before even reaching this repository in
+   * that case (see its own comment), so this repository never has to treat
+   * `[]` specially.
+   */
+  inStockVariantIds?: string[];
+  minPricePaise?: number;
+  maxPricePaise?: number;
+  sort: ProductSort;
   page: number;
   limit: number;
 }

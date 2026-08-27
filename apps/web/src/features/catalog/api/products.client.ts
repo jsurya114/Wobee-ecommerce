@@ -24,9 +24,36 @@ export interface ProductListResult {
   total: number;
 }
 
-export function listProducts(params: { category?: string; page?: number; limit?: number } = {}): Promise<ProductListResult> {
+export const PRODUCT_SORT_VALUES = ["price_asc", "price_desc", "newest"] as const;
+export type ProductSort = (typeof PRODUCT_SORT_VALUES)[number];
+
+/** Everything GET /api/v1/products accepts (Week 2 Day 1, ADR-012) — mirrors packages/validation's productListQuerySchema. */
+export interface ProductListParams {
+  category?: string;
+  collection?: string;
+  q?: string;
+  /** Comma-separated on the wire — pass an array, this joins it. */
+  size?: string[];
+  color?: string[];
+  inStock?: boolean;
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: ProductSort;
+  page?: number;
+  limit?: number;
+}
+
+export function listProducts(params: ProductListParams = {}): Promise<ProductListResult> {
   const query = new URLSearchParams();
   if (params.category) query.set("category", params.category);
+  if (params.collection) query.set("collection", params.collection);
+  if (params.q) query.set("q", params.q);
+  if (params.size?.length) query.set("size", params.size.join(","));
+  if (params.color?.length) query.set("color", params.color.join(","));
+  if (params.inStock !== undefined) query.set("inStock", String(params.inStock));
+  if (params.minPrice !== undefined) query.set("minPrice", String(params.minPrice));
+  if (params.maxPrice !== undefined) query.set("maxPrice", String(params.maxPrice));
+  if (params.sort) query.set("sort", params.sort);
   if (params.page) query.set("page", String(params.page));
   if (params.limit) query.set("limit", String(params.limit));
   const suffix = query.toString() ? `?${query.toString()}` : "";

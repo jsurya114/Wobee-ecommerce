@@ -292,11 +292,20 @@ model Product {
   reviews       Review[]
   wishlistItems WishlistItem[]
 
-  // TODO (Day 3, ADR-012): pg_trgm GIN index on `name` for fuzzy search once
-  // the catalogue-search query path is actually built — deferred rather than
-  // guessed at on Day 1. See journal.md.
+  // Week 2 Day 1 (ADR-012): the pg_trgm GIN index on `name` deferred by the
+  // TODO this comment replaces is added in migration
+  // 20260827_add_catalogue_search_indexes (raw SQL — Prisma has no first-class
+  // trigram-index syntax). Postgres' planner uses it to accelerate the
+  // ILIKE '%term%' query ListProductsUseCase issues via
+  // `name: { contains, mode: "insensitive" }` — no raw SQL needed in the
+  // query path itself, just the index. `minPricePaiseCache`/`createdAt`
+  // get their own standalone indexes below (same migration) for the
+  // price-only-sort and newest-sort paths this module also adds; the
+  // existing composite index just below stays for the category+price path.
   @@index([categoryId])
   @@index([categoryId, minPricePaiseCache])
+  @@index([minPricePaiseCache])
+  @@index([createdAt])
   @@map("products")
 }
 

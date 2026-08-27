@@ -25,6 +25,16 @@ export interface InventoryRepositoryPort {
   findAvailableQuantitiesByVariantIds(variantIds: string[]): Promise<Map<string, number>>;
 
   /**
+   * Week 2 Day 1: every variant id, catalogue-wide, with
+   * quantityAvailable - quantityReserved > 0 right now, summed across
+   * warehouse rows same as findAvailableQuantitiesByVariantIds. Backs the
+   * catalogue listing's "in stock only" filter (products.module.ts wires
+   * this through InventoryReaderPort) — deliberately a live read, not a
+   * cached flag (DEVELOPMENT_RULES.md #1).
+   */
+  findInStockVariantIds(): Promise<string[]>;
+
+  /**
    * ADR-015: `SELECT ... FOR UPDATE` on every requested variant's inventory
    * row(s), inside the caller-supplied transaction, before deciding whether
    * to reserve. `tx` is an opaque Unit-of-Work handle (see
