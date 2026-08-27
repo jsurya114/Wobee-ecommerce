@@ -35,7 +35,8 @@ const shippingReader: ShippingReaderPort = { evaluate: (grams) => evaluateShippi
 export const getOrCreateCartUseCase = new GetOrCreateCartUseCase(cartRepository);
 /** Exported for cross-module use — orders' checkout reads live weight/price/stock through the same path the cart page does. */
 export const getCartUseCase = new GetCartUseCase(cartRepository, variantCatalog, pricingReader, inventoryReader, shippingReader);
-const addItemUseCase = new AddItemUseCase(cartRepository, variantCatalog, inventoryReader);
+/** Exported for cross-module use — wishlist's move-to-cart action (Week 2 Day 2) adds through the same path the cart page's "Add to bag" does. */
+export const addItemUseCase = new AddItemUseCase(cartRepository, variantCatalog, inventoryReader);
 const updateItemQuantityUseCase = new UpdateItemQuantityUseCase(cartRepository, inventoryReader);
 const removeItemUseCase = new RemoveItemUseCase(cartRepository);
 const mergeGuestCartUseCase = new MergeGuestCartUseCase(cartRepository, inventoryReader, getOrCreateCartUseCase);

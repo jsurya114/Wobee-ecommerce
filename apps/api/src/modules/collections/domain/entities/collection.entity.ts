@@ -3,4 +3,5 @@ export interface CollectionEntity {
   name: string;
   slug: string;
   description: string | null;
+  isActive: boolean;
 }
