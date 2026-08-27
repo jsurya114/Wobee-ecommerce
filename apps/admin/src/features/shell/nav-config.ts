@@ -25,7 +25,7 @@ export const ADMIN_NAV: AdminNavEntry[] = [
 ];
 
 /** Mirrors apps/api/src/config/permissions.ts's ROLE_PERMISSIONS map — duplicated here (client-side convenience only, never the actual enforcement) rather than imported, since apps/admin can't reach into apps/api's internals (ADR-019). The server route guard is what actually enforces access; this only decides what to show. */
-const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
+export const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
   CUSTOMER: new Set(),
   SUPER_ADMIN: new Set(["MANAGE_SETTINGS", "MANAGE_CATALOG", "MANAGE_INVENTORY", "MANAGE_ORDERS", "MANAGE_STAFF"]),
   ORDER_PROCESSING_STAFF: new Set(["MANAGE_ORDERS"]),
@@ -35,4 +35,8 @@ const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
 export function navEntriesForRole(role: string): AdminNavEntry[] {
   const permissions = ROLE_PERMISSIONS[role] ?? new Set();
   return ADMIN_NAV.filter((entry) => permissions.has(entry.permission));
+}
+
+export function hasPermission(role: string | undefined, permission: Permission): boolean {
+  return (ROLE_PERMISSIONS[role ?? "CUSTOMER"] ?? new Set()).has(permission);
 }

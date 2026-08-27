@@ -80,6 +80,7 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 ### ADR-018: Auth Strategy
 **Decision:** Custom auth for launch — JWT (short-lived access token + rotating refresh token, refresh token in httpOnly secure cookie) with bcrypt password hashing. Not Auth0, despite the plugin being installed — avoids per-MAU cost at ecommerce scale and keeps auth logic in-repo where the rest of the RBAC/session rules already live.
 **Forward compatibility:** Auth credentials live in their own table (`auth_credentials`, keyed to `user_id`, with a `method` column) rather than a password column on `User` directly. This means mobile OTP login (the planned future addition) is an additive new row type later, not a schema migration that touches the `User` table.
+**Cookie policy correction:** the customer `refresh_token` cookie is `SameSite=lax`, not `strict` as originally stated here — `strict` would drop the cookie on the first top-level navigation after an external redirect (e.g. returning from Razorpay's payment page), breaking the session exactly when it matters most. `lax` is correct for a storefront cookie. The separate `admin_refresh_token` (ADR-024/025) uses `SameSite=strict` instead — staff sessions have no legitimate cross-site entry point, so the tighter setting costs nothing for a higher-privilege session.
 
 ### ADR-019: Frontend Data Access Pattern
 **Decision:** `apps/web` and `apps/admin` never import `packages/database` or query Postgres directly — not even from Next.js Server Components/Server Actions as a performance shortcut. All data access, including SSR, goes through `apps/api` over HTTP.
@@ -128,6 +129,14 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 **Deliberately not built now:** an `accountant` role (finance-only, read access to orders/payments/GST reports) is a genuinely common pattern at scale — Shopify explicitly supports granting accountants store access — but it's outside this contract's scope. Worth knowing it's a natural, low-effort future addition (one more entry in the permission-mapping config) if the client wants it later; not worth building speculatively now.
 **Retrofit note:** this replaces Day 2's already-shipped binary RBAC — see `PRE_DAY4_PATCH.md`.
 
+### ADR-025: Cross-Module Dependency Resolution — Admin Cancellation Refunds & Audit Logging
+**Context:** `payments` already imports `orders`' use-cases (to confirm/fail orders on webhook receipt). Routing the admin-triggered `CancelOrderUseCase`'s refund (§4 addendum) through `payments` or `refunds` directly from `orders` would create a circular import.
+**Decision:**
+- New leaf `audit` module — touches only Prisma, imports nothing else, exposes `recordAuditLogUseCase`. Every module can import it with zero cycle risk, since it never imports anything back. Owns `AdminAuditLog` (§15's admin-activity-logging requirement — this table didn't actually exist yet despite earlier docs assuming it did; corrected here).
+- `refunds` module pulled forward from Week 4 (minimal build: `Refund` table, refund-creation use-case, Razorpay refund client) — this is contracted scope already (quotation §5: "cancel, return and refund"), resequenced earlier, not new scope. Only the admin-cancellation refund path is pulled forward; the full customer-initiated return request flow (`RETURN_REQUESTED → RETURN_APPROVED`, its own UI) stays Week 4.
+- `refunds` writes `Payment.status` for refund transitions through one narrow method (`markPaymentRefunded()`), not open access to the `Payment` model — this is **split ownership by transition type** (`payments` owns capture-lifecycle writes, `refunds` owns refund-lifecycle writes to the same table), not a blanket boundary exception. `orders`' `CancelOrderUseCase` calls `refunds` only, never `payments` directly.
+- Refund failure (gateway error) doesn't block the cancellation — inventory releases and the order cancels regardless; the failure is recorded on the `Refund` row for manual follow-up rather than surfaced as a request-level error. COD orders correctly trigger no gateway call, since nothing was captured pre-delivery.
+
 ---
 
 ## 4. Order, Return & Refund State Machines (finalized)
@@ -161,6 +170,10 @@ stateDiagram-v2
 ```
 
 Exchanges follow the same Return sub-flow but resolve to a new Order linked via `exchange_of_order_id` instead of a Refund. Refund operations remain idempotent per the original brief's §9 — same `(provider, event_id)`-style dedup pattern as payment webhooks (ADR-014), applied to refund confirmations.
+
+**Addendum — admin-triggered cancellation:** `CONFIRMED`/`PROCESSING` → `CANCELLED` (staff-initiated, via the admin order-management surface) must trigger a refund, not just release the inventory reservation — `CONFIRMED` means payment was already webhook-verified and captured, so cancelling without repaying leaves the customer having paid for a cancelled order. Route this through the same idempotent refund mechanism as a customer-initiated return, not a separate path.
+
+**Addendum — shipment modeling:** `trackingNumber`/`carrier`/`shippedAt` live directly on `Order` rather than a separate `Shipment` table. This is a deliberate simplification for single-warehouse, single-package fulfillment (ADR-015) — the original brief's Order/Payment/Shipment/Return/Refund relationship still holds conceptually, this just collapses Shipment into Order's columns rather than a joined table. Forecloses split-shipment scenarios without a later migration; acceptable trade-off at current scale, worth revisiting if multi-package fulfillment becomes real.
 
 ---
 
@@ -207,4 +220,4 @@ Returns/exchange/refund flows (Return entity per §4, item-level), remaining Bul
 
 ## 8. Next Immediate Step
 
-Feed this plan + the original architecture brief to Claude Code as the implementation baseline, starting with Week 1. Do not let it skip ahead to checkout/payments code before the schema and auth foundation are in place — the whole point of sequencing by financial risk is that later weeks depend on earlier ones being correct. 
+Feed this plan + the original architecture brief to Claude Code as the implementation baseline, starting with Week 1. Do not let it skip ahead to checkout/payments code before the schema and auth foundation are in place — the whole point of sequencing by financial risk is that later weeks depend on earlier ones being correct.

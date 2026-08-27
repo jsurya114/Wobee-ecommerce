@@ -341,3 +341,40 @@ Entry format:
 **Follow-ups / known gaps:** none found. All of this session's UI-redesign work (this entry plus the three above it) is still uncommitted, pending the user's review.
 
 ---
+
+## 2026-08-26 — Full startup + end-to-end browser verification: one real bug found and fixed (order-confirmation stuck on "Loading")
+
+**Branch:** `dev2`, uncommitted.
+
+**Context:** asked to start all three servers fresh in this session (new container/session, nothing was running) and walk the real app in a browser end-to-end, fixing anything broken along the way.
+
+**Infra note for whoever continues this:** this session has no Docker at all (not just "Docker not running" — the `docker` CLI itself isn't installed), and the machine's native Postgres (`postgresql@15`)/Redis only listen on the stock ports 5432/6379 for an unrelated project. Stood up a second, dedicated native Postgres cluster on port 5433 (`initdb`'d at `~/.local/share/woobe-dev/pgdata`, started via `pg_ctl ... -o "-p 5433"`) and a second Redis on port 6380 (`redis-server --port 6380 --daemonize yes`, data dir `~/.local/share/woobe-dev/redis`) to match `.env`'s expected ports — created the `woobe` role + `woobe_dev`/`woobe_shadow` databases, ran `migrate:deploy` (4 migrations, clean) and `db:seed`. Neither instance is registered with `brew services` — they need to be started manually next session (commands above) since nothing in the repo persists this. Worth a `/run-skill-generator` pass so this doesn't have to be re-derived cold again.
+
+**Bug found and fixed:** `apps/web/src/features/orders/components/OrderConfirmation.tsx` — every order (COD and Razorpay alike) got stuck forever on "Loading your order…" in dev, even though the backend created the order fine and the confirmation-fetch API calls succeeded (visible 200s in the network tab). Root cause: an `isMountedRef` guard —
+```ts
+const isMountedRef = useRef(true);
+useEffect(() => () => { isMountedRef.current = false; }, []);
+```
+— only ever *sets it false* (in the cleanup) and never sets it back to `true`. `next.config.mjs` has `reactStrictMode: true`, so React's dev-mode intentional mount→cleanup→remount cycle runs that cleanup once before the "real" mount, permanently flipping the ref to `false` for the component's entire remaining lifetime. Every subsequent `setOrder(fresh)` in `refetch()` is guarded by `if (isMountedRef.current)` (line 49), so it silently no-ops forever — the fetch succeeds, the state update is just discarded. Fix: reset `isMountedRef.current = true` inside the effect body itself, not just at `useRef` init, so the second (real) mount re-arms it:
+```ts
+useEffect(() => {
+  isMountedRef.current = true;
+  return () => { isMountedRef.current = false; };
+}, []);
+```
+Confirmed via repro: before the fix, both a guest COD checkout and a logged-in COD checkout hung on "Loading your order…" indefinitely despite the order existing server-side (had to load `/account/orders` to see it actually went through). After the fix, both COD flows show "Order confirmed!" immediately, and the Razorpay "Pay online" flow correctly reaches "Order placed" / pending-payment (grep'd the whole web+admin tree for the same `isMountedRef` shape first — this was the only occurrence).
+
+**Verified, end-to-end in a real browser (chrome-devtools-mcp, isolated contexts to avoid stale-cookie pollution from a prior session's leftover `cart_id` cookies against the freshly-seeded DB):**
+- Home, PLP category links, PDP (variant/size selection, live price) — clean, no console errors beyond a benign missing `/favicon.ico` (404) and an expected silent-refresh 401 for guests with no session.
+- Cart: add/increase/decrease quantity, live weight/price/shipping-fee recalculation, minimum-order-weight gate (checkout link disabled under 1kg, enabled + ₹50 shipping fee above it, correct free-delivery countdown) — all correct (ADR-021).
+- Guest checkout → COD → order-confirmation → auto-confirms → "Order confirmed!" with GST-inclusive total.
+- Register → auto-login → account page → "My orders" (empty, correctly not showing the guest order) → placed a second, logged-in COD order → shows up correctly in order history with the right status/total.
+- Logout → login with the same credentials → session restored correctly.
+- Razorpay "Pay online" path: order created in `PENDING_PAYMENT`, "Pay now" click correctly surfaces a "Something went wrong" toast and switches to "Try payment again" rather than crashing — expected, since `.env`'s Razorpay keys are still the Day-4 stub placeholders (`rzp_test_stub_replace_before_day5`), not real test credentials. Not a code defect; noted `error-handler.ts`'s `console.error` logs `"Unknown error"` with no stack for this case because the Razorpay SDK rejects with a plain object, not an `Error` — harmless today (correctly surfaces as a generic 500 to the client either way) but worth improving if Razorpay error debugging comes up for real.
+- `apps/admin` boots clean on :3001 but is still exactly the Week-1 placeholder homepage ("Basic order view lands Week 1 Day 5...") — no actual order-view route exists yet despite the Day 5 commit message; confirmed by reading `apps/admin/app/page.tsx` and finding no other routes. Not a bug, just an honest gap between the commit message and what's actually built — flagging so it isn't assumed done.
+
+**Verified (non-UI):** `apps/web` typecheck and `eslint --max-warnings=0` on the fixed file both clean post-fix. All three dev server logs (`api`, `web`, `admin`) scanned for the full session — zero unexpected errors/exceptions outside the one deliberately-provoked Razorpay-stub 500.
+
+**Follow-ups:** real Razorpay test keys needed to exercise the actual payment-widget path; admin order view is still unbuilt; consider a `/run-skill-generator` pass to capture the Docker-less Postgres/Redis bootstrap as a reusable project skill.
+
+---

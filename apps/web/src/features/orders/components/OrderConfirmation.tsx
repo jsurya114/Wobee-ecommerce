@@ -39,8 +39,11 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   // a "set state on an unmounted component" warning, not a correctness bug,
   // but cheap to close properly while the async chains are already here.
   const isMountedRef = useRef(true);
-  useEffect(() => () => {
-    isMountedRef.current = false;
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const refetch = useCallback(async () => {
