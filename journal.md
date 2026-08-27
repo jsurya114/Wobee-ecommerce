@@ -545,12 +545,16 @@ Merged clean, no conflicts (Day 0's inventory-restock work and Day 1's new `find
 
 ---
 
-## 2026-08-27 — Week 2 Day 2: dispatched, in progress (not yet merged)
+## 2026-08-27 — Week 2 Day 2, attempt 1: FAILED — subagent hit its own usage limit mid-exploration, nothing built
 
-**Branch:** `feature/collections-wishlist`, being built by a worktree-isolated subagent — **not yet complete as of this entry.**
+**Branch:** `feature/collections-wishlist` — deleted after this entry, nothing on it worth keeping (see below).
 
-Scope: `project_planning/week2 (1).md` `# 4` (Collections & Merchandising — admin CRUD, collection detail page + product rail, SEO-friendly URLs, on top of Day 1's bare `GET /api/v1/collections` listing) and `# 5` (Wishlist — full module, currently still Week 1's placeholder `Router()`). Same process as Day 1: isolated worktree, own branch, will report back before anything touches `dev1`.
+Dispatched the same way as Day 1 (worktree-isolated subagent, scope = `project_planning/week2 (1).md` `# 4` Collections & Merchandising + `# 5` Wishlist). The agent terminated early: `"Agent terminated early due to an API error: You've hit your session limit · resets 6:30pm (Asia/Calcutta)"`. This is the subagent's own usage limit, not this orchestrating session's.
 
-**This entry exists only to keep the journal's "read the latest entry before you start work" promise honest while this is mid-flight** — the next entry (once the agent reports and this session independently re-verifies, same discipline as Day 1) will have the real account: what got built, what was deferred, test counts, live-verification details, and the merge. Until then, `feature/collections-wishlist` is unverified, unmerged, and not part of `dev1`.
+**Checked before deleting anything, not assumed:** the agent's worktree had **zero commits** beyond the inherited base (`7c6fc0a`) and **zero uncommitted/untracked changes** — `git status --short`, `git diff --stat`, and `git status --porcelain --untracked-files=all` were all empty. Its last logged action was still read-only exploration ("check `useCart.tsx`, `lib/api-client.ts`, `SiteHeader.tsx`, `BottomNav.tsx`, `ProductCard.tsx`, and the app router directory structure") — it failed before writing a single line of implementation. Nothing was lost; there was nothing to lose. Worktree removed, empty branch deleted.
+
+**What this means for the "reduce the session limit via subagents" approach:** it doesn't straightforwardly work the way it sounds — a subagent has its own usage budget, separate from (but apparently drawn from the same account-level pool as) the orchestrating session's, and a large, exploration-heavy task can burn through it before producing anything, as happened here. This is worth weighing before dispatching the next attempt at Day 2: retry as another subagent once the limit resets (6:30pm IST), or have the orchestrating session do Day 2's work directly instead.
+
+**Also noted this session, unrelated to the failure:** `git reflog show origin/dev1` shows the remote was pushed up through this session's latest local commit at 15:39, roughly 10 minutes after that commit was made locally — nothing in this session ever ran `git push`. Flagging plainly rather than silently: something in this environment appears to sync to GitHub automatically; it wasn't a deliberate push by this session, and none is planned going forward per this session's instruction to stop pushing.
 
 ---
