@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import { roleHasPermission, type Permission } from "../config/permissions";
+import type { Permission } from "@woobe/types";
+import { roleHasPermission } from "../config/permissions";
 import { ForbiddenError, UnauthorizedError } from "../shared/errors";
 
 /**

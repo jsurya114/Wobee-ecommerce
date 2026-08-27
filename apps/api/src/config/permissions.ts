@@ -1,4 +1,4 @@
-import type { Role } from "@woobe/types";
+import type { Permission, Role } from "@woobe/types";
 
 /**
  * ADR-024: permissions mapped to roles, not hardcoded per-role checks —
@@ -17,8 +17,6 @@ export const PERMISSIONS = {
   /** Staff account/role management — super_admin only. */
   MANAGE_STAFF: "MANAGE_STAFF",
 } as const;
-
-export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 /**
  * ADR-024: NOT a linear hierarchy — order_processing_staff and

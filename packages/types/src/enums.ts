@@ -41,3 +41,11 @@ export type RefundStatus = (typeof REFUND_STATUS)[number];
 /// from, and nothing issues `ADMIN` going forward.
 export const ROLE = ["CUSTOMER", "SUPER_ADMIN", "ORDER_PROCESSING_STAFF", "PRODUCT_MANAGEMENT_STAFF"] as const;
 export type Role = (typeof ROLE)[number];
+
+/// ADR-024's permission vocabulary (apps/api/src/config/permissions.ts owns
+/// the role->permission MAP, which is server-only business logic; this
+/// union alone is shared so apps/admin can gate nav/buttons the same way
+/// (ADR-020) — client-side is a UI convenience, the server route guard is
+/// what actually enforces it.
+export const PERMISSION = ["MANAGE_SETTINGS", "MANAGE_CATALOG", "MANAGE_INVENTORY", "MANAGE_ORDERS", "MANAGE_STAFF"] as const;
+export type Permission = (typeof PERMISSION)[number];
