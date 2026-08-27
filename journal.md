@@ -378,3 +378,57 @@ Confirmed via repro: before the fix, both a guest COD checkout and a logged-in C
 **Follow-ups:** real Razorpay test keys needed to exercise the actual payment-widget path; admin order view is still unbuilt; consider a `/run-skill-generator` pass to capture the Docker-less Postgres/Redis bootstrap as a reusable project skill.
 
 ---
+
+## 2026-08-27 — HANDOFF: Admin order-management feature — all 20 plan tasks complete, final whole-branch review is the only thing left
+
+**Branch:** `dev2`, all work below is committed (nothing uncommitted from this effort). If you're picking this up cold, start by reading the two documents below — they are the actual spec and plan, this journal entry is just a pointer + status snapshot.
+
+**Read these first, in order:**
+1. `docs/superpowers/specs/2026-08-26-admin-order-view-design.md` — the approved design spec (what's being built and why, including several deliberate architecture decisions: refund-on-cancel, the `audit`/`refunds` module split to avoid a circular dependency, the separate stricter admin session cookie).
+2. `docs/superpowers/plans/2026-08-26-admin-order-view.md` — the 20-task implementation plan, executed via Claude Code's subagent-driven-development skill (fresh implementer subagent per task, independent reviewer subagent per task, fix loop on findings). Every task in it is done.
+
+**Status: all 20 tasks implemented, reviewed, and merged.** Commits, in order (all on `dev2`, starting right after `c87165b` "feat(ui): update layout, navigation and product components"):
+
+```
+92bc358  feat(database): add order fulfillment fields and admin audit log table         [Task 1]
+604a58a  feat(api): add leaf audit module for admin activity logging                    [Task 2]
+4ecb783  feat(payments): expose narrow refund-lifecycle seams for the refunds module    [Task 3]
+b81d70d  feat(refunds): build out admin-cancellation refund path (Week 4, pulled fwd)   [Task 4]
+90e6180  fix(refunds): don't shadow a completed refund with a duplicate FAILED row      [Task 4, fix round 1]
+367ddb8  feat(orders): extend entity/repository for fulfillment fields + admin listing  [Task 5]
+b699970  feat(orders): wire inventory-release, refund-issuer, and audit-logger ports    [Task 6]
+d71db30  feat(orders): add start-processing, ship, and deliver use-cases                [Task 7]
+31eeb7a  feat(orders): add CancelOrderUseCase with refund-on-cancel                     [Task 8]
+b963d30  feat(orders): export admin order-management use-cases                         [Task 9]
+fe3d842  feat(validation): add admin order-action schemas                              [Task 10]
+acfe243  feat(auth): export use-case singletons; add admin refresh cookie              [Task 11]
+8c691f3  feat(admin): add staff auth controller and routes                             [Task 12]
+a78f7d8  feat(admin): add order-management routes and composition root                 [Task 13]
+af488bf  feat(database): seed order-processing and product-management staff accounts   [Task 14]
+c2c2d75  test(admin): integration tests — auth, RBAC, order lifecycle, cancel-refund    [Task 15]
+ab5e092  feat(admin): staff login (API client, session hook, login page)               [Task 16]
+683c55c  feat(admin): dashboard shell (sidebar, top bar, session guard, nav config)     [Task 17]
+1092161  feat(admin): order-management API client and data hooks                       [Task 18]
+f02f0cf  feat(admin): orders list page with status filter and search                   [Task 19]
+aa2a268  (Task 20's files — see note below)                                            [Task 20]
+4ce5b30  fix(admin,api): handle set-cookie typing and order-fetch rejection             [post-Task-20 fix]
+```
+
+**What got built, end to end:** staff login (`apps/admin`, separate `admin_refresh_token` cookie, `sameSite: strict`, distinct from the storefront's customer cookie); an admin order list with status filter + search; an order detail page with a live status timeline; full order-lifecycle actions gated by RBAC (`CONFIRMED → PROCESSING → SHIPPED → DELIVERED`, tracking number/carrier captured on ship); and — the one piece of real correctness work pulled forward from Week 4 — cancelling a paid order now actually attempts a Razorpay refund (`refunds` module, new this effort) rather than just releasing inventory, with every transition writing an `AdminAuditLog` row. Seeded demo accounts: `orders@woobe.in` (order-processing staff), `catalog@woobe.in` (product-management staff), both password `Staff@12345`; existing `admin@woobe.in` / `Admin@12345` is super-admin.
+
+**One git-state wrinkle worth knowing about, not a code problem:** Task 20's implementer hit a session-limit error after writing its code but before its own commit. Before a fresh agent could pick it up, an unrelated external commit (`aa2a268`, made outside this process while cleaning up other pending changes) swept in Task 20's already-correct files alongside some unrelated bystander changes (a storefront fix, this journal file, `project_planning/plan.md`, an eslint-plugin addition). A second agent verified byte-for-byte that Task 20's actual files were untouched and correct, then ran the full manual verification and found two small, real bugs in **earlier** tasks' code (not Task 20's) — a `set-cookie` header type mismatch failing `apps/api`'s typecheck (Task 15's integration test file), and a missing `catch` causing an unhandled promise rejection in `useAdminOrder.ts` (Task 18). Both were fixed and re-verified in `4ce5b30`. Everything is accounted for; nothing was lost.
+
+**Full session ledger** (if the machine/session that ran this is still around): `.superpowers/sdd/2026-08-26-admin-order-view/progress.md` — this is git-ignored scratch, so it does NOT travel with a fresh clone. It has the complete blow-by-blow (every task's dispatch, every reviewer's findings, every ruling made along the way) if you have access to that filesystem. If not, this journal entry plus the plan/spec docs above are self-contained enough to continue without it.
+
+**What's left — exactly one step:** the plan's final whole-branch review (dispatched on the most capable available model, since it's judging the whole feature holistically rather than one task at a time), covering the full diff from `c87165b` to `4ce5b30`. If you're continuing this with a fresh Claude Code session, the simplest instruction to give it is:
+
+> Read `docs/superpowers/plans/2026-08-26-admin-order-view.md` and this journal entry (2026-08-27, "HANDOFF"). All 20 tasks are done and committed. Using the `superpowers:subagent-driven-development` skill's "Final Review" step, dispatch a whole-branch code reviewer (per `superpowers:requesting-code-review`) over the diff from `c87165b` to `4ce5b30` on `dev2`. If it comes back clean, use `superpowers:finishing-a-development-branch` to wrap up. If it finds issues, fix them in one batched dispatch (not one fixer per finding) and do one scoped re-review before finishing.
+
+**Known, deliberately-deferred items (not bugs, just scope boundaries — see the spec for the reasoning):**
+- The customer-initiated return/exchange request flow (`Return` entity, its own UI) is explicitly Week 4 scope — not built here. Only the narrower admin-cancellation refund path was pulled forward.
+- `packages/database/prisma/seed.ts`'s `PricingSetting`/`ShippingRule`/`GstSlab` blocks use `.create` not `.upsert` (pre-existing, Week-1 code, unrelated to this effort) — re-running `db:seed` against a non-empty DB will accumulate duplicate rows there. Harmless today (current read paths tolerate duplicates) but worth a small follow-up fix at some point.
+- The "refund needs manual follow-up" message on a cancelled order is transient UI state — it only shows in the same browser session right after clicking Cancel, and won't reappear on a page reload. If that turns out to matter in practice, it'd need `refundIssued` (or a real refund-status field) added to the order-detail API response.
+- Real Razorpay test-mode keys are still not configured in `.env` (stub values) — the refund path has only ever been exercised against the honest "gateway unreachable" branch, never a real successful refund. Worth testing for real once keys are available.
+- `apps/admin` has zero automated frontend tests (matches `apps/web`'s current state too — a pre-existing gap in this codebase, not introduced here).
+
+---
