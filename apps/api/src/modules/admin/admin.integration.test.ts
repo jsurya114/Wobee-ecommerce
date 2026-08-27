@@ -228,13 +228,14 @@ describe("order lifecycle + audit log", () => {
 });
 
 describe("cancellation + refund", () => {
-  it("cancelling a CONFIRMED COD order releases inventory and triggers no refund", async () => {
+  it("cancelling a CONFIRMED COD order restocks inventory and triggers no refund", async () => {
     const { variantId } = await createTestVariant(3);
     const order = await createConfirmedCodOrder(variantId);
     const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
 
     const beforeInventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
     expect(beforeInventory.quantityReserved).toBe(0); // COD confirm already finalized the reservation into a deduction
+    expect(beforeInventory.quantityAvailable).toBe(2); // 3 seeded - 1 finalized sale
 
     const res = await request(app)
       .post(`/api/v1/admin/orders/${order.id}/cancel`)
@@ -245,11 +246,47 @@ describe("cancellation + refund", () => {
     expect(res.body.refundIssued).toBe(false);
     expect(res.body.order.status).toBe("CANCELLED");
 
+    // Week 2 Day 0 remediation's own regression coverage: re-query
+    // inventory AFTER the cancel, not just before — this is the exact
+    // assertion the Week 1 test's name promised but never actually made,
+    // which is how the restock bug shipped unnoticed.
+    const afterInventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(afterInventory.quantityAvailable).toBe(3); // restocked back to the pre-sale level
+    expect(afterInventory.quantityReserved).toBe(0); // untouched — there was no hold to give back, only a sale to undo
+
     const refund = await prisma.refund.findFirst({ where: { orderId: order.id } });
     expect(refund).toBeNull();
 
     const auditLog = await prisma.adminAuditLog.findFirstOrThrow({ where: { entityId: order.id, action: "ORDER_CANCELLED" } });
     expect(auditLog.metadata).toMatchObject({ reason: "test", refundIssued: false });
+  });
+
+  it("cancelling an already-CANCELLED order is a no-op and does not double-restock inventory", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+
+    const firstCancel = await request(app)
+      .post(`/api/v1/admin/orders/${order.id}/cancel`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ reason: "first" });
+    expect(firstCancel.status).toBe(200);
+
+    const afterFirstCancel = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(afterFirstCancel.quantityAvailable).toBe(3);
+
+    const secondCancel = await request(app)
+      .post(`/api/v1/admin/orders/${order.id}/cancel`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ reason: "second" });
+    expect(secondCancel.status).toBe(200);
+    expect(secondCancel.body.refundIssued).toBe(false);
+
+    const afterSecondCancel = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(afterSecondCancel.quantityAvailable).toBe(3); // NOT 4 — the second call must not restock again
+
+    const auditLogs = await prisma.adminAuditLog.findMany({ where: { entityId: order.id, action: "ORDER_CANCELLED" } });
+    expect(auditLogs).toHaveLength(1); // the second call's `changed: false` skips the audit write too
   });
 
   it("cancelling a CONFIRMED Razorpay order with today's unconfigured Razorpay keys still cancels the order and records a FAILED refund", async () => {
@@ -271,5 +308,12 @@ describe("cancellation + refund", () => {
 
     const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
     expect(payment.status).toBe("CAPTURED"); // NOT marked REFUNDED — the gateway call never succeeded
+
+    // A failed refund attempt still cancelled the order — the stock restock
+    // isn't gated on the refund succeeding (see CancelOrderUseCase's own
+    // ordering: transition + restock commit first, refund is attempted
+    // after, in admin's CancelOrderWithRefundUseCase).
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(inventory.quantityAvailable).toBe(3);
   });
 });

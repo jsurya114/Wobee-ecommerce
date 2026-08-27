@@ -92,6 +92,37 @@ export class InventoryRepository implements InventoryRepositoryPort {
   }
 
   /**
+   * Week 2 Day 0 remediation: restores stock for a cancelled order whose
+   * reservation was already finalized (`quantityReserved` for these items
+   * is already 0 — see this method's own port doc comment for why
+   * `releaseReservation` was the wrong operation here). Unlike the
+   * reserve/finalize/release trio, there's no existing `quantityReserved`
+   * amount to bound this by — it's a straight `quantityAvailable`
+   * increment. Locks first, same as the others, so this can't race a
+   * concurrent adjustment to the same variant's rows.
+   *
+   * Single-warehouse simplification (matches `incrementReservedAcrossRows`'s
+   * own note): credits the full quantity to the first locked row rather
+   * than trying to reconstruct which specific warehouse row(s) the original
+   * sale drew from — correct as long as a variant has one inventory row,
+   * revisit if/when a second warehouse exists.
+   */
+  async restockFinalizedSale(items: { variantId: string; quantity: number }[], tx: unknown): Promise<void> {
+    if (items.length === 0) return;
+    const client = tx as PrismaTx;
+    const rowsByVariant = await this.lockRowsForVariants(client, items.map((item) => item.variantId));
+    for (const item of items) {
+      const rows = rowsByVariant.get(item.variantId) ?? [];
+      const target = rows[0];
+      if (!target) continue; // defensive — a variant that was previously finalized must have had a row
+      await client.inventory.update({
+        where: { id: target.id },
+        data: { quantityAvailable: { increment: item.quantity } },
+      });
+    }
+  }
+
+  /**
    * Shared by reserve/finalize/release: `SELECT ... FOR UPDATE` on every
    * requested variant's inventory row(s), inside the caller's transaction
    * (ADR-015), before any of the three decide what to write. This is what

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CancelOrderUseCase } from "./cancel-order.use-case";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import type { OrderRepositoryPort } from "../ports/order-repository.port";
-import type { InventoryReleasePort } from "../ports/inventory-release.port";
+import type { InventoryRestockPort } from "../ports/inventory-restock.port";
 import type { TransactionPort } from "../ports/transaction.port";
 
 function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
@@ -25,15 +25,15 @@ function buildUseCase(overrides: { findByIdResult?: OrderEntity; transitionChang
     findById: vi.fn().mockResolvedValue(confirmed),
     transitionStatus: vi.fn().mockResolvedValue({ changed: overrides.transitionChanged ?? true, order: cancelled }),
   } as unknown as OrderRepositoryPort;
-  const inventoryRelease: InventoryReleasePort = { release: vi.fn().mockResolvedValue(undefined) };
+  const inventoryRestock: InventoryRestockPort = { restock: vi.fn().mockResolvedValue(undefined) };
   const transaction: TransactionPort = { run: (fn) => fn("tx") };
-  const useCase = new CancelOrderUseCase(orderRepository, inventoryRelease, transaction);
-  return { useCase, orderRepository, inventoryRelease };
+  const useCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transaction);
+  return { useCase, orderRepository, inventoryRestock };
 }
 
 describe("CancelOrderUseCase", () => {
-  it("cancels a CONFIRMED order and releases its reserved inventory", async () => {
-    const { useCase, orderRepository, inventoryRelease } = buildUseCase();
+  it("cancels a CONFIRMED order and restocks its finalized inventory", async () => {
+    const { useCase, orderRepository, inventoryRestock } = buildUseCase();
 
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" }, "Customer request");
 
@@ -43,7 +43,7 @@ describe("CancelOrderUseCase", () => {
       "order-1", "CONFIRMED", "CANCELLED", "tx",
       expect.objectContaining({ cancelledAt: expect.any(Date), cancellationReason: "Customer request" }),
     );
-    expect(inventoryRelease.release).toHaveBeenCalledWith([{ variantId: "variant-1", quantity: 2 }], "tx");
+    expect(inventoryRestock.restock).toHaveBeenCalledWith([{ variantId: "variant-1", quantity: 2 }], "tx");
   });
 
   it("also allows cancelling a PROCESSING order", async () => {
@@ -60,17 +60,17 @@ describe("CancelOrderUseCase", () => {
   });
 
   it("is a no-op for an already CANCELLED order — never touches the transition or inventory", async () => {
-    const { useCase, orderRepository, inventoryRelease } = buildUseCase({ findByIdResult: order({ status: "CANCELLED" }) });
+    const { useCase, orderRepository, inventoryRestock } = buildUseCase({ findByIdResult: order({ status: "CANCELLED" }) });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
     expect(result.changed).toBe(false);
     expect(orderRepository.transitionStatus).not.toHaveBeenCalled();
-    expect(inventoryRelease.release).not.toHaveBeenCalled();
+    expect(inventoryRestock.restock).not.toHaveBeenCalled();
   });
 
-  it("is idempotent — a concurrent cancel that already won skips inventory release", async () => {
-    const { useCase, inventoryRelease } = buildUseCase({ transitionChanged: false });
+  it("is idempotent — a concurrent cancel that already won skips the restock (no double-restock)", async () => {
+    const { useCase, inventoryRestock } = buildUseCase({ transitionChanged: false });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
     expect(result.changed).toBe(false);
-    expect(inventoryRelease.release).not.toHaveBeenCalled();
+    expect(inventoryRestock.restock).not.toHaveBeenCalled();
   });
 });

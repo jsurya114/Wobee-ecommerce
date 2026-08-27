@@ -7,6 +7,7 @@ import { Router } from "express";
 import { FinalizeReservationUseCase } from "./application/use-cases/finalize-reservation.use-case";
 import { GetAvailableQuantitiesUseCase } from "./application/use-cases/get-available-quantities.use-case";
 import { ReleaseReservationUseCase } from "./application/use-cases/release-reservation.use-case";
+import { RestockFinalizedSaleUseCase } from "./application/use-cases/restock-finalized-sale.use-case";
 import { ReserveInventoryForCheckoutUseCase } from "./application/use-cases/reserve-inventory-for-checkout.use-case";
 import { InventoryRepository } from "./infrastructure/repositories/inventory.repository";
 
@@ -17,5 +18,7 @@ export const getAvailableQuantitiesUseCase = new GetAvailableQuantitiesUseCase(i
 export const reserveInventoryForCheckoutUseCase = new ReserveInventoryForCheckoutUseCase(inventoryRepository);
 export const finalizeReservationUseCase = new FinalizeReservationUseCase(inventoryRepository);
 export const releaseReservationUseCase = new ReleaseReservationUseCase(inventoryRepository);
+/** Week 2 Day 0 remediation — see the use-case's own doc comment. */
+export const restockFinalizedSaleUseCase = new RestockFinalizedSaleUseCase(inventoryRepository);
 
 export const router = Router();

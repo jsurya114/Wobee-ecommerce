@@ -9,7 +9,7 @@
 // the Order table themselves.
 import { getCartUseCase, getOrCreateCartUseCase, markCartConvertedUseCase } from "../cart/cart.module";
 import { recordAuditLogUseCase } from "../audit/audit.module";
-import { releaseReservationUseCase, reserveInventoryForCheckoutUseCase } from "../inventory/inventory.module";
+import { reserveInventoryForCheckoutUseCase, restockFinalizedSaleUseCase } from "../inventory/inventory.module";
 import { calculateGstUseCase } from "../pricing/pricing.module";
 import { evaluateShippingUseCase } from "../shipping/shipping.module";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
@@ -17,7 +17,7 @@ import type { CartReaderPort } from "./application/ports/cart-reader.port";
 import type { CartResolverPort } from "./application/ports/cart-resolver.port";
 import type { CartWriterPort } from "./application/ports/cart-writer.port";
 import type { GstReaderPort } from "./application/ports/gst-reader.port";
-import type { InventoryReleasePort } from "./application/ports/inventory-release.port";
+import type { InventoryRestockPort } from "./application/ports/inventory-restock.port";
 import type { InventoryReservationPort } from "./application/ports/inventory-reservation.port";
 import type { ShippingReaderPort } from "./application/ports/shipping-reader.port";
 import { CancelOrderUseCase } from "./application/use-cases/cancel-order.use-case";
@@ -50,7 +50,8 @@ const gstReader: GstReaderPort = { calculateMany: (lines) => calculateGstUseCase
 const inventoryReservation: InventoryReservationPort = {
   reserveForCheckout: (items, tx) => reserveInventoryForCheckoutUseCase.execute(items, tx),
 };
-const inventoryRelease: InventoryReleasePort = { release: (items, tx) => releaseReservationUseCase.execute(items, tx) };
+/** Week 2 Day 0 remediation — wired to the restock (not release) operation. See CancelOrderUseCase's own doc comment. */
+const inventoryRestock: InventoryRestockPort = { restock: (items, tx) => restockFinalizedSaleUseCase.execute(items, tx) };
 const auditLogger: AuditLoggerPort = { log: (entry, tx) => recordAuditLogUseCase.execute(entry, tx) };
 
 const checkoutUseCase = new CheckoutUseCase(
@@ -77,13 +78,13 @@ export const startProcessingOrderUseCase = new StartProcessingOrderUseCase(order
 export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner);
 export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner);
 /**
- * Status transition + inventory release ONLY. The refund and the
+ * Status transition + inventory restock ONLY. The refund and the
  * `ORDER_CANCELLED` audit entry that a cancellation also implies are
  * composed one level up, in `admin`'s CancelOrderWithRefundUseCase —
  * `orders` cannot import `refunds` without recreating the
  * orders -> refunds -> payments -> orders import cycle (ADR-025).
  */
-export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRelease, transactionRunner);
+export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transactionRunner);
 export const listOrdersUseCase = new ListOrdersUseCase(orderRepository);
 export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository);
 

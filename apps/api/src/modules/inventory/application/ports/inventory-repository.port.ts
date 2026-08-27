@@ -51,4 +51,19 @@ export interface InventoryRepositoryPort {
    * `quantityAvailable` is untouched (nothing was ever actually sold).
    */
   releaseReservation(items: { variantId: string; quantity: number }[], tx: unknown): Promise<void>;
+
+  /**
+   * Week 2 Day 0 remediation (post-Week-1-review): the OTHER failure
+   * counterpart, for a sale that was already finalized. A `CONFIRMED`/
+   * `PROCESSING` order being cancelled already went through
+   * `finalizeReservation` — `quantityReserved` for its items is already 0,
+   * `quantityAvailable` already dropped. Reusing `releaseReservation` here
+   * (bounded by `quantityReserved`) was the Week 1 bug: it found nothing to
+   * release and silently no-opped, permanently shrinking the sellable pool.
+   * This restores the sold stock the opposite way: `quantityAvailable`
+   * increments by the cancelled quantity, `quantityReserved` is untouched
+   * (there was never a hold to give back — the sale is simply being undone).
+   * Row-locks first, same as the other three methods.
+   */
+  restockFinalizedSale(items: { variantId: string; quantity: number }[], tx: unknown): Promise<void>;
 }
