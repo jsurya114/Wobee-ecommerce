@@ -32,13 +32,18 @@ export function CollectionFilter({
       aria-label="Filter by collection"
       className="mb-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <Link href={buildProductsHref({ ...currentParams, collection: undefined })} className={pill(!activeSlug)}>
+      <Link
+        href={buildProductsHref({ ...currentParams, collection: undefined })}
+        aria-current={!activeSlug || undefined}
+        className={pill(!activeSlug)}
+      >
         All collections
       </Link>
       {collections.map((collection) => (
         <Link
           key={collection.id}
           href={buildProductsHref({ ...currentParams, collection: collection.slug })}
+          aria-current={activeSlug === collection.slug || undefined}
           className={pill(activeSlug === collection.slug)}
         >
           {collection.name}

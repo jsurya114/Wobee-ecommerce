@@ -126,19 +126,31 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
 
       {open ? (
         <div id="catalogue-filters-panel" className="mt-4 flex flex-col gap-4 rounded-card border border-border p-4">
-          <div>
-            <Label className="mb-2 block">Size</Label>
+          <fieldset>
+            {/* A <label> here (rather than <legend>) isn't associated with
+                any single field — this groups several toggle buttons, not
+                one form control — and was flagged as a real a11y issue by
+                live browser verification (DevTools "No label associated
+                with a form field"), not a hypothetical. */}
+            <legend className="mb-2 font-body text-sm font-medium text-text-primary">Size</legend>
             <div className="flex flex-wrap gap-2">
               {SIZE_OPTIONS.map((size) => (
-                <button key={size} type="button" className={pill(activeSizes.includes(size))} onClick={() => toggleSize(size)}>
+                <button
+                  key={size}
+                  type="button"
+                  aria-pressed={activeSizes.includes(size)}
+                  className={pill(activeSizes.includes(size))}
+                  onClick={() => toggleSize(size)}
+                >
                   {size}
                 </button>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           <button
             type="button"
+            aria-pressed={Boolean(currentParams.inStock)}
             className={pill(Boolean(currentParams.inStock))}
             onClick={() => navigate({ inStock: currentParams.inStock ? undefined : "true" })}
           >

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Input } from "@woobe/ui";
 import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
 
@@ -16,6 +16,17 @@ import { buildProductsHref, type ProductsQueryParams } from "../lib/build-produc
 export function SearchBar({ currentParams }: { currentParams: ProductsQueryParams }) {
   const router = useRouter();
   const [value, setValue] = useState(currentParams.q ?? "");
+
+  // Re-sync from the URL whenever ?q= actually changes for a reason other
+  // than this component's own submit — most notably FiltersPanel's "Clear
+  // filters". Only fires when the committed value changes, so it never
+  // clobbers in-progress typing (which hasn't touched currentParams.q yet).
+  // A `key`-based remount was tried first and rejected — it left a second,
+  // stale <input id="product-search"> in the DOM after a router.push
+  // triggered from a sibling component (verified live, not assumed).
+  useEffect(() => {
+    setValue(currentParams.q ?? "");
+  }, [currentParams.q]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

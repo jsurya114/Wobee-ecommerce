@@ -31,13 +31,14 @@ export function CategoryFilter({
       aria-label="Filter by category"
       className="mb-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <Link href={buildProductsHref({ ...currentParams, category: undefined })} className={pill(!activeSlug)}>
+      <Link href={buildProductsHref({ ...currentParams, category: undefined })} aria-current={!activeSlug || undefined} className={pill(!activeSlug)}>
         All
       </Link>
       {categories.map((category) => (
         <Link
           key={category.id}
           href={buildProductsHref({ ...currentParams, category: category.slug })}
+          aria-current={activeSlug === category.slug || undefined}
           className={pill(activeSlug === category.slug)}
         >
           {category.name}
