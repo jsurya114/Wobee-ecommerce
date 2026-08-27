@@ -4,6 +4,7 @@ import type {
   ListProductsFilter,
   ListProductsResult,
   ProductRepositoryPort,
+  ProductSummaryWithStatus,
 } from "../../application/ports/product-repository.port";
 
 /**
@@ -160,6 +161,33 @@ export class ProductRepository implements ProductRepositoryPort {
       productName: row.product.name,
       productSlug: row.product.slug,
       image: row.product.images[0]?.url ?? null,
+    }));
+  }
+
+  async findByIds(productIds: string[]): Promise<ProductSummaryWithStatus[]> {
+    if (productIds.length === 0) return [];
+    const rows = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        brand: true,
+        categoryId: true,
+        isActive: true,
+        minPricePaiseCache: true,
+        images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      brand: row.brand,
+      categoryId: row.categoryId,
+      isActive: row.isActive,
+      minPricePaiseCache: row.minPricePaiseCache,
+      primaryImage: row.images[0] ?? null,
     }));
   }
 }

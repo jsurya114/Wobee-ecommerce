@@ -12,6 +12,7 @@ import type { CollectionReaderPort } from "./application/ports/collection-reader
 import type { InventoryReaderPort } from "./application/ports/inventory-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
 import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-slug.use-case";
+import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
 import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-for-cart.use-case";
 import { ListProductsUseCase } from "./application/use-cases/list-products.use-case";
 import { ProductRepository } from "./infrastructure/repositories/product.repository";
@@ -33,6 +34,8 @@ const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, p
 
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRepository);
+/** Exported for cross-module use — see the use-case's own doc comment. */
+export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productRepository);
 
 const productsController = new ProductsController(listProductsUseCase, getProductBySlugUseCase);
 

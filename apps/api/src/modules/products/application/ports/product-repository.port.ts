@@ -35,9 +35,15 @@ export interface ListProductsResult {
  * application depends on this interface, not on Prisma directly — the
  * infrastructure layer implements it (ARCHITECTURE.md §3.1).
  */
+/** Used by the wishlist module (via this module's exported use-case, Week 2 Day 2) — unlike findMany/findBySlug, deliberately NOT `isActive`-filtered: a wishlisted product that later goes inactive still needs to show up (with isActive: false) rather than silently vanish from the view. */
+export interface ProductSummaryWithStatus extends ProductSummaryEntity {
+  isActive: boolean;
+}
+
 export interface ProductRepositoryPort {
   findMany(filter: ListProductsFilter): Promise<ListProductsResult>;
   findBySlug(slug: string): Promise<ProductDetailEntity | null>;
   /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. */
   findVariantsByIds(variantIds: string[]): Promise<(ProductVariantEntity & { productId: string; productName: string; productSlug: string; image: string | null })[]>;
+  findByIds(productIds: string[]): Promise<ProductSummaryWithStatus[]>;
 }
