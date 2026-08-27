@@ -7,6 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "postinstall": "pnpm --filter @woobe/database run generate",
+    "bootstrap": "node scripts/bootstrap.mjs",
     "dev": "pnpm -r --parallel run dev",
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
@@ -15,10 +17,10 @@
     "boundaries:check": "pnpm --filter @woobe/api run boundaries:check",
     "check:migrations": "node scripts/check-destructive-migration.mjs",
     "db:generate": "pnpm --filter @woobe/database run generate",
-    "db:migrate": "pnpm --filter @woobe/database run migrate:dev",
-    "db:migrate:deploy": "pnpm --filter @woobe/database run migrate:deploy",
-    "db:seed": "pnpm --filter @woobe/database run seed",
-    "db:studio": "pnpm --filter @woobe/database run studio",
+    "db:migrate": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run migrate:dev",
+    "db:migrate:deploy": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run migrate:deploy",
+    "db:seed": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run seed",
+    "db:studio": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run studio",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
   },

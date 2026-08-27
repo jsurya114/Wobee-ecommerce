@@ -1,4 +1,30 @@
+import path from "node:path";
 import { z } from "zod";
+
+/**
+ * Week 2 Day 0 (bootstrap remediation): `apps/api` has no `.env` of its own
+ * and, until now, no code that loaded one — every prior session had to
+ * discover by trial and error that it expects the monorepo root `.env`'s
+ * values to already be present in the process environment, then `export`
+ * them manually before `pnpm --filter @woobe/api run dev`. This closes that
+ * gap using Node's built-in loader (stable since Node 20.6/22 — this repo
+ * already requires Node >=22, see root package.json) rather than adding a
+ * `dotenv` dependency for it.
+ *
+ * Deliberately best-effort: `loadEnvFile` throws if the file doesn't exist
+ * (true in CI, which injects env vars directly — see .github/workflows/ci.yml
+ * — and true for anyone who genuinely prefers exporting vars themselves), so
+ * this is wrapped and silently skipped rather than crashing. It also never
+ * overrides a variable the process already has — verified empirically, not
+ * assumed: an already-set `process.env` value always wins over the file's,
+ * which is exactly what keeps `vitest.config.ts`'s injected test env
+ * (pointing at `woobe_test`, not this file's `woobe_dev`) intact.
+ */
+try {
+  process.loadEnvFile(path.resolve(__dirname, "../../../../.env"));
+} catch {
+  // No root .env (CI, or a developer who exports vars themselves) — fine.
+}
 
 /**
  * Env validation, fail fast — ARCHITECTURE.md §3.4. If a required variable

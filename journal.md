@@ -432,3 +432,64 @@ aa2a268  (Task 20's files — see note below)                                   
 - `apps/admin` has zero automated frontend tests (matches `apps/web`'s current state too — a pre-existing gap in this codebase, not introduced here).
 
 ---
+
+## 2026-08-27 — Independent review (Days 1–5 + admin effort) + Week 2 Day 0 Part A: inventory-restock bug fixed
+
+**Branch:** `dev1` — uncommitted (per this session's instruction: only commit/push when explicitly asked).
+
+**Independent review first.** Before touching any code, ran a from-scratch verification of everything the journal claims — new local Postgres (`:5433`)/Redis (`:6380`) stood up in a clean session, real `typecheck`/`lint`/`boundaries:check`/`test`/`build`, and a live `chrome-devtools-mcp` walkthrough of both the storefront (guest COD checkout) and, for the first time, the admin app (login → orders list → order detail → status transition → cancel-with-refund) — the admin HANDOFF entry above never had one. Full findings in `review.md` at the repo root. Two real issues found:
+
+1. **High: cancelling a `CONFIRMED`/`PROCESSING` order didn't restock inventory.** `CancelOrderUseCase` released stock via inventory's `releaseReservationUseCase` — correct for `PENDING_PAYMENT → PAYMENT_FAILED` (a hold that was never sold), wrong here, since `finalizeReservation` already ran by the time an order is `CONFIRMED` (`quantityReserved` is already 0). The "release" found nothing to release and silently no-opped; `quantityAvailable` never went back up. Reproduced live: placed a real order, watched `quantityAvailable` drop `20 → 18`, cancelled it via the admin UI, and it stayed at `18`. Traced to the design spec itself (`docs/superpowers/specs/2026-08-26-admin-order-view-design.md`), which explicitly specified wiring the new port to the reservation-release use-case — a genuine spec-level mix-up between "release a hold" and "restock a finalized sale," not just an implementer slip. The one existing test whose *name* claimed to cover this ("releases inventory") never actually re-queried inventory after cancelling.
+2. **High: `apps/web`'s production build silently depends on a live API server at build time**, and CI has never once run (`GET /repos/.../actions/runs` → `total_count: 0`) — so this was never caught. Not fixed yet, see Day 0 Part B below.
+
+`review.md` fed directly into a revised `project_planning/week2 (1).md` (§34–40, "Mandatory Pre-Week-2 Remediation") that the user had prepared before this session — both issues above are its Day 0 blockers, confirming the review's findings were taken as-is rather than needing re-litigation.
+
+**What changed (Part A — the inventory fix):**
+- **`inventory` module**: new `restockFinalizedSale(items, tx)` on `InventoryRepositoryPort`/`InventoryRepository` — increments `quantityAvailable` only (no `quantityReserved` bound, unlike `releaseReservation`), row-locks first via the same `lockRowsForVariants` helper the other three operations share. New `RestockFinalizedSaleUseCase`, exported from `inventory.module.ts` alongside (not replacing) `releaseReservationUseCase`, which `payments` still correctly uses for its own `PAYMENT_FAILED` path.
+- **`orders` module**: `InventoryReleasePort` renamed/replaced with `InventoryRestockPort` (`{ restock(items, tx) }`) — the old name was itself part of how this slipped past review, since "release" reads as correct for both the hold-release and the sale-restock case when it isn't. `CancelOrderUseCase` now depends on this port instead. `orders.module.ts` wires it to the new `restockFinalizedSaleUseCase`. Idempotency needs no new guard — it rides the same `changed: false` conditional-transition check that already made the old code idempotent (a second cancel of an already-`CANCELLED` order never reaches the restock call).
+- **Tests**: unit test (`cancel-order.use-case.test.ts`) updated for the renamed port. `admin.integration.test.ts`'s COD-cancel test now actually re-queries `inventory` **after** cancelling (the exact assertion its old name promised but never made) and asserts `quantityAvailable` returns to the pre-sale level; the Razorpay-cancel test gained the same check. New test: cancelling an already-`CANCELLED` order twice restocks exactly once, not twice (`quantityAvailable` stays put on the second call, and only one `ORDER_CANCELLED` audit row exists).
+
+**Verified, not just written:**
+- Full suite green: **70/70** (`apps/api`, up from 69 — one new idempotency test), typecheck/lint/boundaries clean across all 9 projects (222 modules / 558 deps).
+- **Live, against the running dev API, independent of the test suite**: placed a real 17-unit COD order for Silk Scarf/Blush via curl (`quantityAvailable` 40→23 on confirm), cancelled it via the real admin endpoint as `orders@woobe.in` (`quantityAvailable` 23→**40**, restocked correctly), then cancelled the same order a second time and confirmed it stayed at **40** (not 57) — idempotency holds outside the test suite's mocked/transactional context too.
+
+**Why:** Week 2's plan (§34.1) marks this a Day 0 blocker — building returns/exchanges or any further inventory-dependent Week 2 work on top of a silently-broken restock path would only compound the problem.
+
+**Follow-ups / known gaps:** none new. Day 0 Part B (web build/CI — §35 of the plan) and Part C (bootstrap script — §36) are next, before Day 1 feature work starts.
+
+---
+
+## 2026-08-27 — Week 2 Day 0 Parts B + C: homepage rendering fix, fresh-environment bootstrap — Day 0 complete
+
+**Branch:** `dev1` — uncommitted (per this session's instruction: only commit/push when explicitly asked; see "What's still open" below).
+
+**Part B — `apps/web`'s build-time API dependency (plan §35).** Root cause confirmed exactly as `review.md` described: the homepage (`app/(storefront)/page.tsx`) is a plain async Server Component with no rendering-mode export, so `next build` tries to statically generate it — which needs a live `apps/api` reachable *during the build itself*. Chose **Option A (dynamic rendering)** over the plan's other two options and recorded it as **ADR-026** (`project_planning/plan.md`): a fallback/error-handling approach would let the build succeed while silently shipping frozen product/price data, which directly conflicts with `DEVELOPMENT_RULES.md` #1 (price/stock must be live, never stale) — the same rule already governing why cart/checkout never trust a cached price applies to the homepage that's a customer's first look at one. CI-starts-the-API would fix CI but not the identical failure for any other developer's local `pnpm build`. Fix: `export const dynamic = "force-dynamic"` on the homepage, matching `/products` (which already renders dynamically, because it reads `searchParams`).
+
+**Verified, not assumed:** killed the running `apps/api` dev server entirely, `rm -rf apps/web/.next`, ran `pnpm --filter @woobe/web run build` — succeeds with zero live services running (`/` now shows `ƒ Dynamic` in the route table, not `○ Static`). Then ran the full `pnpm run build` (all three apps) in the same zero-services state — clean. This is the actual CI-equivalent condition the plan's own "CI acceptance" checklist calls for.
+
+**Part C — fresh-environment bootstrap (plan §36).** Three real gaps closed, all previously tribal-knowledge-only (this is the third time the journal records rediscovering the stale-Prisma-client half of this; see Day 3, the Day 4 correction entry, and this session's own review):
+1. **`postinstall: "pnpm --filter @woobe/database run generate"`** added to root `package.json` — every `pnpm install` now regenerates the Prisma client automatically, closing the exact gap that broke `apps/api` typecheck at the start of this session (and twice before it, per the journal).
+2. **`apps/api/src/config/env.ts`** now loads the monorepo root `.env` itself, via Node's built-in `process.loadEnvFile` (stable since Node 20.6, this repo already requires Node ≥22 — no new dependency). Previously `apps/api` had no `.env` of its own and no loading mechanism at all; every session (including this one) had to discover by trial and error that it expects `.env`'s values already exported into the shell. Verified empirically (not assumed from docs) that an already-set `process.env` value always wins over the file's — confirmed both directly (`node -e` test) and by re-running the full 70-test suite unchanged (`vitest.config.ts`'s injected `woobe_test` env is untouched by this).
+3. **`scripts/with-root-env.mjs`** — the same loader, applied to `db:migrate`/`db:migrate:deploy`/`db:seed`/`db:studio` (the Prisma CLI has no env-loading of its own; `db:generate` doesn't need it, confirmed it runs fine with no `DATABASE_URL` set at all). **`scripts/bootstrap.mjs`** (`pnpm run bootstrap`) ties it together — idempotent, creates `.env` from `.env.example` if missing, generates the Prisma client, checks Postgres/Redis reachability with actionable next-steps (Docker vs. native — deliberately doesn't try to auto-start either, since this repo has genuinely been run both ways on different machines and guessing wrong would fight an existing setup), then applies migrations. Does **not** auto-seed (plan §36: "seed when explicitly requested").
+4. **`Readme.md`** (previously a placeholder, literally the text "abc") rewritten with the actual fresh-environment path, env-var loading behavior, migration/seed commands, and repo layout.
+
+**Verified, not just written:**
+- Ran `pnpm run bootstrap` for real against this session's Postgres/Redis — first run correctly failed at the migrate step (caught its own gap: the Prisma CLI wrapper didn't exist yet), fixed, re-ran clean end to end.
+- Simulated the CI condition directly: moved `.env` out of the way entirely, ran the migrate-deploy wrapper with only manually-exported env vars (exactly what `.github/workflows/ci.yml` does) — succeeds identically, confirming the loader's "already-set env wins" behavior doesn't regress CI.
+- Started `apps/api`'s dev server from a **genuinely fresh shell with zero manually-exported variables** (this session's Bash tool doesn't persist shell state between calls, so this wasn't simulated) — `/health` responded correctly on the first try.
+- Full suite re-run clean after every change in this entry: typecheck (9/9), lint (9/9, zero warnings), `boundaries:check` (222 modules / 559 deps), `test` (70/70), `build` (all three apps, zero live services running).
+
+**Why:** plan §38 marks Day 0 (Parts A+B+C) as the gate before any Week 2 feature work starts — "Only then start feature development."
+
+**Day 0 acceptance, per plan §38:**
+```
+Inventory cancellation     PASS  (previous entry — restock verified live + regression-tested)
+Web clean build            PASS  (this entry — verified with zero live services running)
+CI actually executed       NOT DONE — needs a push/PR; this session only commits/pushes when explicitly asked (see below)
+Bootstrap documented       PASS  (this entry)
+Week 1 regression          PASS  (70/70 tests, full build, throughout both entries)
+```
+
+**What's still open, deliberately not done without being asked:** plan §35's "CI acceptance" checklist also asks to push to a branch/PR and confirm GitHub Actions actually executes (it has literally never run once — `review.md`). Everything provable **without** pushing has been proven (identical CI-equivalent conditions reproduced locally, twice, per above). Actually triggering GitHub Actions needs a push, which this session doesn't do unless asked. All Day 0 code changes are complete, verified, and sitting uncommitted in the working tree, ready for that decision.
+
+---
