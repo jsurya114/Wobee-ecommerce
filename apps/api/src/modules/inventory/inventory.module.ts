@@ -5,6 +5,7 @@
 // Day 5 alongside payment confirmation — all on the same InventoryRepository.
 import { Router } from "express";
 import { FinalizeReservationUseCase } from "./application/use-cases/finalize-reservation.use-case";
+import { FindInStockVariantIdsUseCase } from "./application/use-cases/find-in-stock-variant-ids.use-case";
 import { GetAvailableQuantitiesUseCase } from "./application/use-cases/get-available-quantities.use-case";
 import { ReleaseReservationUseCase } from "./application/use-cases/release-reservation.use-case";
 import { RestockFinalizedSaleUseCase } from "./application/use-cases/restock-finalized-sale.use-case";
@@ -20,5 +21,7 @@ export const finalizeReservationUseCase = new FinalizeReservationUseCase(invento
 export const releaseReservationUseCase = new ReleaseReservationUseCase(inventoryRepository);
 /** Week 2 Day 0 remediation — see the use-case's own doc comment. */
 export const restockFinalizedSaleUseCase = new RestockFinalizedSaleUseCase(inventoryRepository);
+/** Week 2 Day 1 — see the use-case's own doc comment. */
+export const findInStockVariantIdsUseCase = new FindInStockVariantIdsUseCase(inventoryRepository);
 
 export const router = Router();

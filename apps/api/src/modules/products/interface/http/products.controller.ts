@@ -15,6 +15,14 @@ export class ProductsController {
     const query = req.query as unknown as ProductListQuery;
     const result = await this.listProductsUseCase.execute({
       categorySlug: query.category,
+      collectionSlug: query.collection,
+      q: query.q,
+      sizes: query.size,
+      colors: query.color,
+      inStockOnly: query.inStock,
+      minPricePaise: query.minPrice,
+      maxPricePaise: query.maxPrice,
+      sort: query.sort,
       page: query.page,
       limit: query.limit,
     });

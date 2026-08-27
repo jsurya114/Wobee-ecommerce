@@ -34,6 +34,23 @@ export class InventoryRepository implements InventoryRepositoryPort {
     return totals;
   }
 
+  /**
+   * One query, catalogue-wide — same shape as findAvailableQuantitiesByVariantIds
+   * but without a variantId filter and aggregated in Postgres via groupBy
+   * rather than in application code. Fine at this catalogue's current scale
+   * (ADR-012's OpenSearch/heavier-infra trigger — 50k products, p95 > 300ms —
+   * is nowhere close); revisit if that trigger is ever hit.
+   */
+  async findInStockVariantIds(): Promise<string[]> {
+    const rows = await prisma.inventory.groupBy({
+      by: ["variantId"],
+      _sum: { quantityAvailable: true, quantityReserved: true },
+    });
+    return rows
+      .filter((row) => (row._sum.quantityAvailable ?? 0) - (row._sum.quantityReserved ?? 0) > 0)
+      .map((row) => row.variantId);
+  }
+
   async reserveForCheckout(
     items: { variantId: string; quantity: number }[],
     tx: unknown,
