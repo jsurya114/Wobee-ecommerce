@@ -1,15 +1,25 @@
 import Link from "next/link";
 import { cn } from "@woobe/ui";
 import type { Category } from "../api/categories.client";
+import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
 
 /**
- * Basic category-only filter (Day 3 scope — advanced search/sort is
- * deferred, see week1_excecution_prompt.md). Plain links so the filter
- * works without JS and each state is a real, shareable URL. Horizontally
- * scrollable, not wrapping, on mobile (woobe_ui_design_plan.md §9 — filters
- * as a scrollable row, not a sidebar).
+ * Plain links so the filter works without JS and each state is a real,
+ * shareable URL (horizontally scrollable, not wrapping, on mobile —
+ * woobe_ui_design_plan.md §9's "filters as a scrollable row, not a
+ * sidebar"). Week 2 Day 1: switching category now preserves every other
+ * active filter (search, size, color, sort, ...) via buildProductsHref,
+ * not just category on its own.
  */
-export function CategoryFilter({ categories, activeSlug }: { categories: Category[]; activeSlug?: string }) {
+export function CategoryFilter({
+  categories,
+  activeSlug,
+  currentParams,
+}: {
+  categories: Category[];
+  activeSlug?: string;
+  currentParams: ProductsQueryParams;
+}) {
   const pill = (isActive: boolean) =>
     cn(
       "shrink-0 rounded-pill border px-4 py-2 font-body text-sm transition-colors",
@@ -19,13 +29,17 @@ export function CategoryFilter({ categories, activeSlug }: { categories: Categor
   return (
     <nav
       aria-label="Filter by category"
-      className="mb-6 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="mb-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <Link href="/products" className={pill(!activeSlug)}>
+      <Link href={buildProductsHref({ ...currentParams, category: undefined })} className={pill(!activeSlug)}>
         All
       </Link>
       {categories.map((category) => (
-        <Link key={category.id} href={`/products?category=${encodeURIComponent(category.slug)}`} className={pill(activeSlug === category.slug)}>
+        <Link
+          key={category.id}
+          href={buildProductsHref({ ...currentParams, category: category.slug })}
+          className={pill(activeSlug === category.slug)}
+        >
           {category.name}
         </Link>
       ))}
