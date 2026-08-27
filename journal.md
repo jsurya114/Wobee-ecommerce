@@ -544,3 +544,13 @@ Merged clean, no conflicts (Day 0's inventory-restock work and Day 1's new `find
 **Follow-ups / known gaps:** none new beyond what the agent's own entry above already flagged.
 
 ---
+
+## 2026-08-27 — Week 2 Day 2: dispatched, in progress (not yet merged)
+
+**Branch:** `feature/collections-wishlist`, being built by a worktree-isolated subagent — **not yet complete as of this entry.**
+
+Scope: `project_planning/week2 (1).md` `# 4` (Collections & Merchandising — admin CRUD, collection detail page + product rail, SEO-friendly URLs, on top of Day 1's bare `GET /api/v1/collections` listing) and `# 5` (Wishlist — full module, currently still Week 1's placeholder `Router()`). Same process as Day 1: isolated worktree, own branch, will report back before anything touches `dev1`.
+
+**This entry exists only to keep the journal's "read the latest entry before you start work" promise honest while this is mid-flight** — the next entry (once the agent reports and this session independently re-verifies, same discipline as Day 1) will have the real account: what got built, what was deferred, test counts, live-verification details, and the merge. Until then, `feature/collections-wishlist` is unverified, unmerged, and not part of `dev1`.
+
+---
