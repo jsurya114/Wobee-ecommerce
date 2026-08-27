@@ -114,6 +114,21 @@ creating an import cycle.
 
 ### 4.3 Cancellation-triggers-refund (the one non-deferrable piece)
 
+> **Correction (post-implementation).** The `orders → refunds` edge this
+> section proposes below is NOT what shipped, because the parenthetical at
+> the end of the first bullet under "**`orders` module** gains
+> `CancelOrderUseCase`" is factually wrong: `refunds` *does* have a
+> back-edge — it imports `payments`, and `payments` imports `orders`. So
+> `orders → refunds` closes the very cycle this section set out to avoid
+> (`orders → refunds → payments → orders`). As implemented, `orders`
+> imports nothing from `refunds` or `payments`; `CancelOrderUseCase` does
+> only the status transition + inventory release, and the refund call and
+> the `ORDER_CANCELLED` audit write are composed one level up by
+> `admin`'s `CancelOrderWithRefundUseCase` (`admin` sits above all three
+> and nothing imports it back). Steps 1–6 of the flow below are otherwise
+> unchanged, just split across those two use-cases. A `no-circular` rule
+> in `apps/api/.dependency-cruiser.cjs` now enforces this in CI.
+
 **Why this can't wait:** `CONFIRMED` means a Razorpay payment was already
 webhook-verified and captured (ADR-014), or a COD order's accounting
 entry was recorded. If admin cancellation only released inventory, a

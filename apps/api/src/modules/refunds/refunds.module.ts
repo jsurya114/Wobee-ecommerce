@@ -19,7 +19,13 @@ const razorpayRefundService = new RazorpayRefundService();
 const paymentReader: PaymentReaderPort = { findByOrderId: (orderId) => getPaymentForOrderUseCase.execute(orderId) };
 const paymentRefundWriter: PaymentRefundWriterPort = { markRefunded: (paymentId) => markPaymentRefundedUseCase.execute(paymentId) };
 
-/** Exported for cross-module use — `orders`' CancelOrderUseCase calls this, never `payments` directly (ADR-025). */
+/**
+ * Exported for cross-module use — `admin`'s CancelOrderWithRefundUseCase
+ * calls this. NOT `orders`: an orders -> refunds edge would close the cycle
+ * orders -> refunds -> payments -> orders, since this module imports
+ * `payments` and `payments` imports `orders` (ADR-025). Cancellation is
+ * therefore composed in `admin`, which nothing imports back.
+ */
 export const issueRefundForCancelledOrderUseCase = new IssueRefundForCancelledOrderUseCase(
   paymentReader,
   paymentRefundWriter,

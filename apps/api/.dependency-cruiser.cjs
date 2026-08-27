@@ -43,6 +43,16 @@ module.exports = {
       // resolved path is relative (../../packages/...) or absolute.
       to: { path: "packages/database/(src|generated)/|node_modules/@prisma/client/" },
     },
+    {
+      name: "no-circular",
+      comment:
+        "No module may import another in a cycle — see ADR-025's module-dependency-graph design. " +
+        "Cycles here don't crash only by accident (every cross-module reference sits inside a lazy " +
+        "arrow closure in a port object literal); an eager reference would hit a TDZ error at boot.",
+      severity: "error",
+      from: {},
+      to: { circular: true },
+    },
   ],
   options: {
     tsPreCompilationDeps: true,

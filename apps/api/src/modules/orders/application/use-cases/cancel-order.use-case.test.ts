@@ -3,8 +3,6 @@ import { CancelOrderUseCase } from "./cancel-order.use-case";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import type { OrderRepositoryPort } from "../ports/order-repository.port";
 import type { InventoryReleasePort } from "../ports/inventory-release.port";
-import type { RefundIssuerPort } from "../ports/refund-issuer.port";
-import type { AuditLoggerPort } from "../ports/audit-logger.port";
 import type { TransactionPort } from "../ports/transaction.port";
 
 function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
@@ -20,7 +18,7 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
   };
 }
 
-function buildUseCase(overrides: { findByIdResult?: OrderEntity; transitionChanged?: boolean; refundIssued?: boolean } = {}) {
+function buildUseCase(overrides: { findByIdResult?: OrderEntity; transitionChanged?: boolean } = {}) {
   const confirmed = overrides.findByIdResult ?? order();
   const cancelled = order({ status: "CANCELLED", cancelledAt: new Date(), cancellationReason: "Customer request" });
   const orderRepository = {
@@ -28,30 +26,24 @@ function buildUseCase(overrides: { findByIdResult?: OrderEntity; transitionChang
     transitionStatus: vi.fn().mockResolvedValue({ changed: overrides.transitionChanged ?? true, order: cancelled }),
   } as unknown as OrderRepositoryPort;
   const inventoryRelease: InventoryReleasePort = { release: vi.fn().mockResolvedValue(undefined) };
-  const refundIssuer: RefundIssuerPort = { issueRefundIfNeeded: vi.fn().mockResolvedValue({ refundIssued: overrides.refundIssued ?? true }) };
-  const auditLogger: AuditLoggerPort = { log: vi.fn().mockResolvedValue(undefined) };
   const transaction: TransactionPort = { run: (fn) => fn("tx") };
-  const useCase = new CancelOrderUseCase(orderRepository, inventoryRelease, refundIssuer, auditLogger, transaction);
-  return { useCase, orderRepository, inventoryRelease, refundIssuer, auditLogger };
+  const useCase = new CancelOrderUseCase(orderRepository, inventoryRelease, transaction);
+  return { useCase, orderRepository, inventoryRelease };
 }
 
 describe("CancelOrderUseCase", () => {
-  it("cancels a CONFIRMED order, releases inventory, triggers a refund, and logs it", async () => {
-    const { useCase, orderRepository, inventoryRelease, refundIssuer, auditLogger } = buildUseCase();
+  it("cancels a CONFIRMED order and releases its reserved inventory", async () => {
+    const { useCase, orderRepository, inventoryRelease } = buildUseCase();
 
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" }, "Customer request");
 
-    expect(result.refundIssued).toBe(true);
+    expect(result.changed).toBe(true);
+    expect(result.order.status).toBe("CANCELLED");
     expect(orderRepository.transitionStatus).toHaveBeenCalledWith(
       "order-1", "CONFIRMED", "CANCELLED", "tx",
       expect.objectContaining({ cancelledAt: expect.any(Date), cancellationReason: "Customer request" }),
     );
     expect(inventoryRelease.release).toHaveBeenCalledWith([{ variantId: "variant-1", quantity: 2 }], "tx");
-    expect(refundIssuer.issueRefundIfNeeded).toHaveBeenCalledWith("order-1");
-    expect(auditLogger.log).toHaveBeenCalledWith({
-      actorId: "staff-1", actorRole: "ORDER_PROCESSING_STAFF", action: "ORDER_CANCELLED",
-      entityType: "Order", entityId: "order-1", metadata: { reason: "Customer request", refundIssued: true },
-    });
   });
 
   it("also allows cancelling a PROCESSING order", async () => {
@@ -67,20 +59,18 @@ describe("CancelOrderUseCase", () => {
     );
   });
 
-  it("is idempotent — a concurrent cancel that already won skips inventory release and refund entirely", async () => {
-    const { useCase, inventoryRelease, refundIssuer, auditLogger } = buildUseCase({ transitionChanged: false });
+  it("is a no-op for an already CANCELLED order — never touches the transition or inventory", async () => {
+    const { useCase, orderRepository, inventoryRelease } = buildUseCase({ findByIdResult: order({ status: "CANCELLED" }) });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
-    expect(result.refundIssued).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(orderRepository.transitionStatus).not.toHaveBeenCalled();
     expect(inventoryRelease.release).not.toHaveBeenCalled();
-    expect(refundIssuer.issueRefundIfNeeded).not.toHaveBeenCalled();
-    expect(auditLogger.log).not.toHaveBeenCalled();
   });
 
-  it("still reports the order as cancelled even when the refund attempt fails", async () => {
-    const { useCase, auditLogger } = buildUseCase({ refundIssued: false });
+  it("is idempotent — a concurrent cancel that already won skips inventory release", async () => {
+    const { useCase, inventoryRelease } = buildUseCase({ transitionChanged: false });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
-    expect(result.refundIssued).toBe(false);
-    expect(result.order.status).toBe("CANCELLED"); // cancellation itself still succeeded
-    expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({ metadata: { reason: undefined, refundIssued: false } }));
+    expect(result.changed).toBe(false);
+    expect(inventoryRelease.release).not.toHaveBeenCalled();
   });
 });

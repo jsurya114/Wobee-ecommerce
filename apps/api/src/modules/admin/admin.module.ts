@@ -13,6 +13,7 @@ import {
   logoutUserUseCase,
   refreshTokenUseCase,
 } from "../auth/auth.module";
+import { recordAuditLogUseCase } from "../audit/audit.module";
 import {
   cancelOrderUseCase,
   deliverOrderUseCase,
@@ -21,10 +22,22 @@ import {
   shipOrderUseCase,
   startProcessingOrderUseCase,
 } from "../orders/orders.module";
+import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
+import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
 import { createAdminAuthRouter } from "./interface/http/admin-auth.routes";
 import { AdminOrdersController } from "./interface/http/admin-orders.controller";
 import { createAdminOrdersRouter } from "./interface/http/admin-orders.routes";
+
+// Cancellation is the one admin action that spans three modules (orders +
+// refunds + audit). `orders` can't compose it itself without recreating the
+// orders -> refunds -> payments -> orders cycle, so it's composed here —
+// see CancelOrderWithRefundUseCase's own doc comment.
+const cancelOrderWithRefundUseCase = new CancelOrderWithRefundUseCase(
+  cancelOrderUseCase,
+  issueRefundForCancelledOrderUseCase,
+  recordAuditLogUseCase,
+);
 
 const adminAuthController = new AdminAuthController(loginUserUseCase, refreshTokenUseCase, logoutUserUseCase, getCurrentUserUseCase);
 const adminOrdersController = new AdminOrdersController(
@@ -33,7 +46,7 @@ const adminOrdersController = new AdminOrdersController(
   startProcessingOrderUseCase,
   shipOrderUseCase,
   deliverOrderUseCase,
-  cancelOrderUseCase,
+  cancelOrderWithRefundUseCase,
 );
 
 export const router = Router();
