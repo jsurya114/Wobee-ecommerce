@@ -532,3 +532,15 @@ Week 1 regression          PASS  (70/70 tests, full build, throughout both entri
 - `minPricePaiseCache`/`effectivePricePaiseCache` are still only ever set by the seed script (Week 1 gap, not touched this session) — admin product CRUD (Week 2 Day 7) will need to actually recompute these on write, or the price filter/sort this day added will silently drift from real pricing once admin-created products exist.
 
 ---
+
+## 2026-08-27 — Week 2 Day 1: independently re-verified and merged to dev1
+
+**Branch/commit:** `feature/catalog-search` (built by a worktree-isolated subagent, entry above) merged `--no-ff` into `dev1`.
+
+Per this session's own orchestration approach (subagent per day, isolated worktree, agent's own report never trusted blindly): re-ran the full verification suite myself, independently, before merging — `pnpm install` + `pnpm run bootstrap` in the agent's worktree, `typecheck`/`lint`/`boundaries:check`/`test`/`build` all clean (108/108 tests, matching the agent's own report exactly), migration confirmed additive-only both by reading it and by `check:migrations`. Spot-checked the actual implementation (not just its tests) — `ListProductsUseCase`/`ProductRepository` correctly follow ADR-010 layering, the price filter correctly uses the display-cache for listing (matching Week 1's own documented "cache is fine for listing, never for checkout" rule) rather than a DEVELOPMENT_RULES.md #1 violation. Live curl checks against a freshly-started API instance (search, combined size+inStock+sort filters, invalid-param rejection, the new collections endpoint) all matched the reported behavior exactly, including the price_desc ordering.
+
+Merged clean, no conflicts (Day 0's inventory-restock work and Day 1's new `findInStockVariantIds` composed without collision — both touch `inventory.module.ts`/`inventory.repository.ts` but additively). Re-ran the full suite again on `dev1` post-merge, not just trusted that each side was clean independently: typecheck/lint/boundaries/108-tests/build (zero live services) all clean.
+
+**Follow-ups / known gaps:** none new beyond what the agent's own entry above already flagged.
+
+---
