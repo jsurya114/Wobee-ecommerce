@@ -11,6 +11,9 @@ interface CartContextValue {
   addItem: (variantId: string, quantity: number) => Promise<void>;
   updateItem: (itemId: string, quantity: number) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
+  /** Requires a logged-in accessToken — throws if called while signed out (the coupon UI only renders the input for a logged-in customer). */
+  applyCoupon: (code: string) => Promise<void>;
+  removeCoupon: () => Promise<void>;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -74,7 +77,26 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [accessToken],
   );
 
-  return <CartContext.Provider value={{ cart, isLoading, addItem, updateItem, removeItem }}>{children}</CartContext.Provider>;
+  const applyCoupon = useCallback(
+    async (code: string) => {
+      if (!accessToken) throw new Error("Log in to use a coupon");
+      const result = await cartApi.applyCoupon(code, accessToken);
+      setCart(result);
+    },
+    [accessToken],
+  );
+
+  const removeCoupon = useCallback(async () => {
+    if (!accessToken) throw new Error("Log in to use a coupon");
+    const result = await cartApi.removeCoupon(accessToken);
+    setCart(result);
+  }, [accessToken]);
+
+  return (
+    <CartContext.Provider value={{ cart, isLoading, addItem, updateItem, removeItem, applyCoupon, removeCoupon }}>
+      {children}
+    </CartContext.Provider>
+  );
 }
 
 export function useCart(): CartContextValue {

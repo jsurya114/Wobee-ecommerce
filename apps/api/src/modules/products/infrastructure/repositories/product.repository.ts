@@ -132,7 +132,9 @@ export class ProductRepository implements ProductRepositoryPort {
 
   async findVariantsByIds(
     variantIds: string[],
-  ): Promise<(ProductVariantEntity & { productId: string; productName: string; productSlug: string; image: string | null })[]> {
+  ): Promise<
+    (ProductVariantEntity & { productId: string; categoryId: string; productName: string; productSlug: string; image: string | null })[]
+  > {
     const rows = await prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
       select: {
@@ -144,7 +146,13 @@ export class ProductRepository implements ProductRepositoryPort {
         ratePerKgOverridePaise: true,
         isActive: true,
         product: {
-          select: { id: true, name: true, slug: true, images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } } },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            categoryId: true,
+            images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } },
+          },
         },
       },
     });
@@ -158,6 +166,7 @@ export class ProductRepository implements ProductRepositoryPort {
       ratePerKgOverridePaise: row.ratePerKgOverridePaise,
       isActive: row.isActive,
       productId: row.product.id,
+      categoryId: row.product.categoryId,
       productName: row.product.name,
       productSlug: row.product.slug,
       image: row.product.images[0]?.url ?? null,

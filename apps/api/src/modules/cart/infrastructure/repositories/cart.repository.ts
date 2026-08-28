@@ -34,8 +34,10 @@ export class CartRepository implements CartRepositoryPort {
   async reactivateCart(cartId: string): Promise<CartRecord> {
     // Clear first: the old items already live on the completed order's
     // snapshot (OrderItem), not meant to reappear in the reactivated cart.
+    // couponCode is cleared for the same reason — a code applied to the
+    // cart that just checked out has no bearing on a brand-new session.
     await prisma.cartItem.deleteMany({ where: { cartId } });
-    const cart = await prisma.cart.update({ where: { id: cartId }, data: { status: CartStatus.ACTIVE } });
+    const cart = await prisma.cart.update({ where: { id: cartId }, data: { status: CartStatus.ACTIVE, couponCode: null } });
     return toRecord(cart);
   }
 
@@ -45,7 +47,11 @@ export class CartRepository implements CartRepositoryPort {
 
   async markCartConverted(cartId: string, tx: unknown): Promise<void> {
     const client = tx as PrismaTx;
-    await client.cart.update({ where: { id: cartId }, data: { status: CartStatus.CONVERTED } });
+    // couponCode cleared here too (belt-and-suspenders with reactivateCart's
+    // own clear) — a CONVERTED cart is done, its coupon already redeemed
+    // (CouponRedemption row, not this field) and must not silently carry
+    // forward to whatever cart this user has next.
+    await client.cart.update({ where: { id: cartId }, data: { status: CartStatus.CONVERTED, couponCode: null } });
   }
 
   async findItems(cartId: string): Promise<CartItemRecord[]> {
@@ -75,6 +81,15 @@ export class CartRepository implements CartRepositoryPort {
 
   async removeItem(itemId: string): Promise<void> {
     await prisma.cartItem.delete({ where: { id: itemId } });
+  }
+
+  async findCouponCode(cartId: string): Promise<string | null> {
+    const cart = await prisma.cart.findUnique({ where: { id: cartId }, select: { couponCode: true } });
+    return cart?.couponCode ?? null;
+  }
+
+  async setCouponCode(cartId: string, code: string | null): Promise<void> {
+    await prisma.cart.update({ where: { id: cartId }, data: { couponCode: code } });
   }
 }
 

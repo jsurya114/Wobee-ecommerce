@@ -44,6 +44,10 @@ export interface ProductRepositoryPort {
   findMany(filter: ListProductsFilter): Promise<ListProductsResult>;
   findBySlug(slug: string): Promise<ProductDetailEntity | null>;
   /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. */
-  findVariantsByIds(variantIds: string[]): Promise<(ProductVariantEntity & { productId: string; productName: string; productSlug: string; image: string | null })[]>;
+  findVariantsByIds(
+    variantIds: string[],
+  ): Promise<
+    (ProductVariantEntity & { productId: string; categoryId: string; productName: string; productSlug: string; image: string | null })[]
+  >;
   findByIds(productIds: string[]): Promise<ProductSummaryWithStatus[]>;
 }

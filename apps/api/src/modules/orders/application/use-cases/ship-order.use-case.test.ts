@@ -3,6 +3,7 @@ import { ShipOrderUseCase } from "./ship-order.use-case";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import type { OrderRepositoryPort } from "../ports/order-repository.port";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
+import type { ShipmentCreatorPort } from "../ports/shipment-creator.port";
 import type { TransactionPort } from "../ports/transaction.port";
 
 function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
@@ -17,6 +18,10 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
   };
 }
 
+function echoShipmentCreator(): ShipmentCreatorPort {
+  return { createShipment: vi.fn().mockImplementation(async (input) => ({ trackingNumber: input.trackingNumber, carrier: input.carrier })) };
+}
+
 describe("ShipOrderUseCase", () => {
   it("transitions PROCESSING -> SHIPPED with tracking info and writes an audit log entry", async () => {
     const processing = order();
@@ -27,14 +32,16 @@ describe("ShipOrderUseCase", () => {
     } as unknown as OrderRepositoryPort;
     const auditLogger = { log: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
+    const shipmentCreator = echoShipmentCreator();
 
-    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction);
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator);
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" }, {
       trackingNumber: "TRK1",
       carrier: "BlueDart",
     });
 
     expect(result.changed).toBe(true);
+    expect(shipmentCreator.createShipment).toHaveBeenCalledWith({ orderId: "order-1", trackingNumber: "TRK1", carrier: "BlueDart" });
     expect(orderRepository.transitionStatus).toHaveBeenCalledWith(
       "order-1", "PROCESSING", "SHIPPED", "tx",
       expect.objectContaining({ trackingNumber: "TRK1", carrier: "BlueDart", shippedAt: expect.any(Date) }),
@@ -49,10 +56,28 @@ describe("ShipOrderUseCase", () => {
     const orderRepository = { findById: vi.fn().mockResolvedValue(order({ status: "CONFIRMED" })) } as unknown as OrderRepositoryPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
-    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction);
+    const shipmentCreator = echoShipmentCreator();
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator);
 
     await expect(
       useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "T", carrier: "C" }),
     ).rejects.toThrow("Cannot ship an order in status CONFIRMED");
+    expect(shipmentCreator.createShipment).not.toHaveBeenCalled();
+  });
+
+  it("propagates a provider failure without transitioning the order (week2 (1).md §10's 'Provider failure' test)", async () => {
+    const orderRepository = {
+      findById: vi.fn().mockResolvedValue(order()),
+      transitionStatus: vi.fn(),
+    } as unknown as OrderRepositoryPort;
+    const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
+    const transaction: TransactionPort = { run: (fn) => fn("tx") };
+    const shipmentCreator: ShipmentCreatorPort = { createShipment: vi.fn().mockRejectedValue(new Error("provider unreachable")) };
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator);
+
+    await expect(
+      useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "T", carrier: "C" }),
+    ).rejects.toThrow("provider unreachable");
+    expect(orderRepository.transitionStatus).not.toHaveBeenCalled();
   });
 });

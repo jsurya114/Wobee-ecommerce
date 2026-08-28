@@ -19,6 +19,8 @@ export class ShippingRepository implements ShippingRepositoryPort {
       minWeightGramsForCheckout: rule.minWeightGramsForCheckout,
       freeDeliveryThresholdGrams: rule.freeDeliveryThresholdGrams,
       standardFeePaise: rule.standardFeePaise,
+      estimatedDeliveryDaysMin: rule.estimatedDeliveryDaysMin,
+      estimatedDeliveryDaysMax: rule.estimatedDeliveryDaysMax,
     };
   }
 }

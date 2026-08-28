@@ -1,4 +1,4 @@
-import { addCartItemSchema, updateCartItemSchema } from "@woobe/validation";
+import { addCartItemSchema, applyCouponSchema, updateCartItemSchema } from "@woobe/validation";
 import { Router } from "express";
 import { asyncHandler } from "../../../../middleware/async-handler";
 import { authGuard } from "../../../../middleware/auth-guard";
@@ -39,6 +39,20 @@ export function createCartRouter(controller: CartController): Router {
     "/merge",
     authGuard,
     asyncHandler((req, res) => controller.merge(req, res)),
+  );
+
+  // Coupons require a real account too (Cart.couponCode's own schema
+  // comment, CouponRedemption.userId is non-null) — week2 (1).md §9.
+  router.post(
+    "/coupon",
+    authGuard,
+    validate(applyCouponSchema),
+    asyncHandler((req, res) => controller.applyCoupon(req, res)),
+  );
+  router.delete(
+    "/coupon",
+    authGuard,
+    asyncHandler((req, res) => controller.removeCoupon(req, res)),
   );
 
   return router;

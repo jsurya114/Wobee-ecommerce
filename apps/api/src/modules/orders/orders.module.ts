@@ -9,16 +9,19 @@
 // the Order table themselves.
 import { getCartUseCase, getOrCreateCartUseCase, markCartConvertedUseCase } from "../cart/cart.module";
 import { recordAuditLogUseCase } from "../audit/audit.module";
+import { redeemCouponUseCase } from "../coupons/coupons.module";
 import { reserveInventoryForCheckoutUseCase, restockFinalizedSaleUseCase } from "../inventory/inventory.module";
 import { calculateGstUseCase } from "../pricing/pricing.module";
-import { evaluateShippingUseCase } from "../shipping/shipping.module";
+import { createShipmentUseCase, evaluateShippingUseCase } from "../shipping/shipping.module";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
 import type { CartReaderPort } from "./application/ports/cart-reader.port";
 import type { CartResolverPort } from "./application/ports/cart-resolver.port";
 import type { CartWriterPort } from "./application/ports/cart-writer.port";
+import type { CouponRedeemerPort } from "./application/ports/coupon-redeemer.port";
 import type { GstReaderPort } from "./application/ports/gst-reader.port";
 import type { InventoryRestockPort } from "./application/ports/inventory-restock.port";
 import type { InventoryReservationPort } from "./application/ports/inventory-reservation.port";
+import type { ShipmentCreatorPort } from "./application/ports/shipment-creator.port";
 import type { ShippingReaderPort } from "./application/ports/shipping-reader.port";
 import { CancelOrderUseCase } from "./application/use-cases/cancel-order.use-case";
 import { CheckoutUseCase } from "./application/use-cases/checkout.use-case";
@@ -44,9 +47,26 @@ const transactionRunner = new PrismaTransactionRunner();
 const orderNumberGenerator = new OrderNumberGeneratorService();
 
 const cartResolver: CartResolverPort = { resolve: (params) => getOrCreateCartUseCase.execute(params) };
-const cartReader: CartReaderPort = { getCart: (cartId) => getCartUseCase.execute(cartId) };
+const cartReader: CartReaderPort = {
+  // Not a trivial pass-through like most cross-module ports here: cart's
+  // own CartView surfaces the applied coupon as `appliedCoupon` (with its
+  // own live validity/reason for display) rather than a bare code, so this
+  // adapter unwraps it to just the code — checkout re-validates it from
+  // scratch via couponRedeemer regardless of whatever `isValid` the cart
+  // page's own preview last showed (never trusted, per this module's own
+  // CheckoutCartView doc comment).
+  getCart: async (cartId, userId) => {
+    const cart = await getCartUseCase.execute(cartId, userId);
+    return { ...cart, couponCode: cart.appliedCoupon?.code ?? null };
+  },
+};
 const cartWriter: CartWriterPort = { markConverted: (cartId, tx) => markCartConvertedUseCase.execute(cartId, tx) };
+const couponRedeemer: CouponRedeemerPort = {
+  validateAndLock: (input, tx) => redeemCouponUseCase.validateAndLock(input, tx),
+  finalize: (couponId, userId, orderId, tx) => redeemCouponUseCase.finalize(couponId, userId, orderId, tx),
+};
 const shippingReader: ShippingReaderPort = { evaluate: (grams) => evaluateShippingUseCase.execute(grams) };
+const shipmentCreator: ShipmentCreatorPort = { createShipment: (input) => createShipmentUseCase.execute(input) };
 const gstReader: GstReaderPort = { calculateMany: (lines) => calculateGstUseCase.executeMany(lines) };
 const inventoryReservation: InventoryReservationPort = {
   reserveForCheckout: (items, tx) => reserveInventoryForCheckoutUseCase.execute(items, tx),
@@ -65,6 +85,7 @@ const checkoutUseCase = new CheckoutUseCase(
   orderRepository,
   orderNumberGenerator,
   transactionRunner,
+  couponRedeemer,
 );
 const getOrderUseCase = new GetOrderUseCase(orderRepository);
 const listMyOrdersUseCase = new ListMyOrdersUseCase(orderRepository);
@@ -76,7 +97,7 @@ export const getOrderForPaymentUseCase = new GetOrderForPaymentUseCase(orderRepo
 
 /** Exported for cross-module use — `admin`'s HTTP layer (ADR-025) calls these directly, same pattern as payments' Day 5 exports above. */
 export const startProcessingOrderUseCase = new StartProcessingOrderUseCase(orderRepository, auditLogger, transactionRunner);
-export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner);
+export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner, shipmentCreator);
 export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner);
 /**
  * Status transition + inventory restock ONLY. The refund and the

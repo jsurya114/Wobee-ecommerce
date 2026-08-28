@@ -6,12 +6,14 @@ import { checkoutSchema, type CheckoutInput } from "@woobe/validation";
 import { Button, Card, CardContent, CardHeader, CardTitle, FormField, RadioGroup, RadioGroupItem } from "@woobe/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useCart } from "@/features/cart/hooks/useCart";
+import * as shippingApi from "@/features/shipping/api/shipping.client";
+import type { ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import * as checkoutApi from "../api/checkout.client";
 
 export function CheckoutForm() {
@@ -30,6 +32,27 @@ export function CheckoutForm() {
     resolver: zodResolver(checkoutSchema),
     defaultValues: { paymentMethod: "COD" },
   });
+
+  // week2 (1).md §10's pincode/serviceability check — informational only,
+  // checked on blur so it doesn't block typing or submission itself
+  // (checkPincodeServiceability is deliberately permissive today, no
+  // approved restricted-area list exists yet — see that function's own
+  // doc comment). Never blocks checkout; it's a courtesy heads-up.
+  const [deliveryEstimate, setDeliveryEstimate] = useState<ShippingEstimate | null>(null);
+  const pincodeField = register("address.pincode");
+  const checkPincode = async (pincode: string) => {
+    if (!pincode.trim()) {
+      setDeliveryEstimate(null);
+      return;
+    }
+    try {
+      setDeliveryEstimate(await shippingApi.getShippingEstimate(pincode.trim()));
+    } catch {
+      // Silent — this check is a courtesy, not a validation gate; a failed
+      // lookup just means no estimate shows, not a form error.
+      setDeliveryEstimate(null);
+    }
+  };
 
   // Pre-fill from the account profile for a logged-in shopper — still fully
   // editable (shipping to a different person/address is a valid case).
@@ -91,7 +114,8 @@ export function CheckoutForm() {
     );
   }
 
-  const estimatedTotal = cart.totalPaise + (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise);
+  const estimatedTotal =
+    cart.totalPaise + (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise) - cart.discountPaise;
 
   return (
     <div className="grid gap-6 pb-4 md:grid-cols-[1fr_320px] md:gap-8 md:pb-0">
@@ -148,8 +172,19 @@ export function CheckoutForm() {
             inputMode="numeric"
             autoComplete="postal-code"
             error={errors.address?.pincode?.message}
-            {...register("address.pincode")}
+            {...pincodeField}
+            onBlur={(e) => {
+              pincodeField.onBlur(e);
+              void checkPincode(e.target.value);
+            }}
           />
+          {deliveryEstimate ? (
+            <p className={`font-body text-xs ${deliveryEstimate.serviceable ? "text-text-secondary" : "text-error"}`}>
+              {deliveryEstimate.serviceable
+                ? `Delivers in ${deliveryEstimate.estimatedDeliveryDaysMin}-${deliveryEstimate.estimatedDeliveryDaysMax} days`
+                : deliveryEstimate.reason}
+            </p>
+          ) : null}
         </Card>
 
         <Card className="p-5">
@@ -190,6 +225,12 @@ export function CheckoutForm() {
                 {cart.shipping.isFreeDelivery ? "Free" : formatPaiseAsInr(cart.shipping.shippingFeePaise)}
               </dd>
             </div>
+            {cart.discountPaise > 0 ? (
+              <div className="flex justify-between">
+                <dt className="text-text-secondary">Coupon discount</dt>
+                <dd className="text-success">-{formatPaiseAsInr(cart.discountPaise)}</dd>
+              </div>
+            ) : null}
           </dl>
           <div className="mt-4 flex justify-between border-t border-border pt-4 font-body text-base font-medium">
             <span className="text-text-primary">Estimated total</span>

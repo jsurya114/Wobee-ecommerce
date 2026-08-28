@@ -27,12 +27,22 @@ export interface ShippingProgress {
   gramsToFreeDelivery: number;
 }
 
+export interface AppliedCoupon {
+  code: string;
+  /** false when the applied code no longer validates (expired, cart dropped below its minimum, etc.) — shown with `reason` rather than silently vanishing. */
+  isValid: boolean;
+  reason?: string;
+}
+
 export interface CartView {
   cartId: string;
   items: CartLine[];
   itemCount: number;
   totalWeightGrams: number;
   totalPaise: number;
+  /** Week 2 Day 5 (week2 (1).md §9) — 0 when no coupon is applied or the applied one no longer validates. */
+  discountPaise: number;
+  appliedCoupon: AppliedCoupon | null;
   shipping: ShippingProgress;
 }
 
@@ -60,4 +70,13 @@ export function removeCartItem(itemId: string, accessToken?: string): Promise<Ca
 /** ADR-011: merges the guest cart_id cookie's cart into the caller's account cart. Requires a logged-in accessToken. */
 export function mergeCart(accessToken: string): Promise<CartView> {
   return apiFetch<CartView>("/api/v1/cart/merge", { method: "POST", accessToken });
+}
+
+/** Week 2 Day 5 (week2 (1).md §9) — requires a logged-in accessToken (coupons need a real account, see Cart.couponCode's own schema comment). */
+export function applyCoupon(code: string, accessToken: string): Promise<CartView> {
+  return apiFetch<CartView>("/api/v1/cart/coupon", { method: "POST", body: { code }, accessToken });
+}
+
+export function removeCoupon(accessToken: string): Promise<CartView> {
+  return apiFetch<CartView>("/api/v1/cart/coupon", { method: "DELETE", accessToken });
 }

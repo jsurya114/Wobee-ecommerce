@@ -236,9 +236,10 @@ model Category {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  parent   Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
-  children Category[] @relation("CategoryToCategory")
-  products Product[]
+  parent           Category?        @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children         Category[]       @relation("CategoryToCategory")
+  products         Product[]
+  couponCategories CouponCategory[]
 
   @@map("categories")
 }
@@ -293,12 +294,13 @@ model Product {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  category      Category            @relation(fields: [categoryId], references: [id])
-  variants      ProductVariant[]
-  images        ProductImage[]
-  collections   ProductCollection[]
-  reviews       Review[]
-  wishlistItems WishlistItem[]
+  category       Category            @relation(fields: [categoryId], references: [id])
+  variants       ProductVariant[]
+  images         ProductImage[]
+  collections    ProductCollection[]
+  reviews        Review[]
+  wishlistItems  WishlistItem[]
+  couponProducts CouponProduct[]
 
   // Week 2 Day 1 (ADR-012): the pg_trgm GIN index on `name` deferred by the
   // TODO this comment replaces is added in migration
@@ -415,11 +417,17 @@ model GstSlab {
 /// userId is null for a guest cart, set on login/merge (union items, prefer
 /// higher quantity on conflict, then re-validated against live stock).
 model Cart {
-  id        String     @id @default(uuid())
-  userId    String?    @unique
-  status    CartStatus @default(ACTIVE)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id         String     @id @default(uuid())
+  userId     String?    @unique
+  status     CartStatus @default(ACTIVE)
+  /// Week 2 Day 5 (week2 (1).md §9) — the applied coupon's code only, same
+  /// "store the reference, never the money" rule CartItem already follows
+  /// (variantId+quantity, no price). The discount itself is always
+  /// recomputed live from this code on every cart read and re-validated
+  /// from scratch at checkout — never trusted from here.
+  couponCode String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   user  User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   items CartItem[]
@@ -490,14 +498,51 @@ model Coupon {
   createdAt         DateTime   @default(now())
 
   redemptions CouponRedemption[]
+  products    CouponProduct[]
+  categories  CouponCategory[]
 
   @@map("coupons")
 }
 
-/// orderId is unique — at most one coupon redemption per order. This unique
-/// constraint is also the concurrency guard: two near-simultaneous requests
-/// to apply a coupon to the same order can't both succeed (mandatory
-/// concurrency test per plan.md §5).
+/// Week 2 Day 5 (week2 (1).md §9 — "Product/category applicability"). A
+/// coupon with NO rows in either this table or CouponCategory applies
+/// cart-wide; one with rows in either restricts its discount to matching
+/// line items only (see resolveCouponEligibility's own doc comment).
+model CouponProduct {
+  id        String @id @default(uuid())
+  couponId  String
+  productId String
+
+  coupon  Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, productId])
+  @@index([couponId])
+  @@map("coupon_products")
+}
+
+model CouponCategory {
+  id         String @id @default(uuid())
+  couponId   String
+  categoryId String
+
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, categoryId])
+  @@index([couponId])
+  @@map("coupon_categories")
+}
+
+/// orderId is unique — at most one coupon redemption per order (schema-level
+/// dedup against double-redeeming on the SAME order). That is NOT, on its
+/// own, the usageLimit/perUserLimit concurrency guard the plan's own
+/// "Concurrent redemption" test demands — two DIFFERENT orders racing to
+/// redeem the last unit of a usageLimit-capped coupon would both pass this
+/// constraint fine. The real guard is RedeemCouponUseCase's row lock on
+/// Coupon itself (`SELECT ... FOR UPDATE`, same ADR-015 pattern Inventory
+/// already uses) before counting existing redemptions — see that
+/// use-case's own doc comment.
 model CouponRedemption {
   id        String   @id @default(uuid())
   couponId  String
@@ -518,11 +563,18 @@ model CouponRedemption {
 
 /// Admin-configurable weight-based shipping thresholds. See
 /// DECISIONS_PENDING.md #2 for the standardFeePaise placeholder value.
+/// estimatedDeliveryDays{Min,Max}: Week 2 Day 5 (week2 (1).md §10 —
+/// "Delivery estimate"). No approved SLA exists yet — same
+/// placeholder-with-a-flagged-decision treatment as standardFeePaise
+/// already got in DECISIONS_PENDING.md #2, added there as #5 by this
+/// change, not silently assumed final.
 model ShippingRule {
   id                         String   @id @default(uuid())
   minWeightGramsForCheckout  Int      @default(1000)
   freeDeliveryThresholdGrams Int      @default(1500)
   standardFeePaise           Int
+  estimatedDeliveryDaysMin   Int      @default(3)
+  estimatedDeliveryDaysMax   Int      @default(7)
   effectiveFrom              DateTime @default(now())
   createdAt                  DateTime @default(now())
 

@@ -2,6 +2,9 @@ export interface ShippingRuleValues {
   minWeightGramsForCheckout: number;
   freeDeliveryThresholdGrams: number;
   standardFeePaise: number;
+  /** Week 2 Day 5 (week2 (1).md §10) — admin-configurable, see ShippingRule's own schema comment for why these are placeholders, not an approved SLA. */
+  estimatedDeliveryDaysMin: number;
+  estimatedDeliveryDaysMax: number;
 }
 
 export interface ShippingEvaluation {
@@ -13,6 +16,9 @@ export interface ShippingEvaluation {
   gramsToMinimum: number;
   /** How many more grams the cart needs for free delivery, 0 once isFreeDelivery. */
   gramsToFreeDelivery: number;
+  /** Week 2 Day 5 — passed through from the live rule so cart/checkout never need a second round-trip just to show "arrives in N-M days". */
+  estimatedDeliveryDaysMin: number;
+  estimatedDeliveryDaysMax: number;
 }
 
 /**
@@ -34,5 +40,30 @@ export function resolveShippingEvaluation(totalWeightGrams: number, rule: Shippi
     shippingFeePaise: meetsMinimum && !isFreeDelivery ? rule.standardFeePaise : 0,
     gramsToMinimum: Math.max(0, rule.minWeightGramsForCheckout - totalWeightGrams),
     gramsToFreeDelivery: Math.max(0, rule.freeDeliveryThresholdGrams - totalWeightGrams),
+    estimatedDeliveryDaysMin: rule.estimatedDeliveryDaysMin,
+    estimatedDeliveryDaysMax: rule.estimatedDeliveryDaysMax,
   };
+}
+
+const PINCODE_PATTERN = /^\d{6}$/;
+
+export interface PincodeServiceability {
+  serviceable: boolean;
+  reason?: string;
+}
+
+/**
+ * Week 2 Day 5 (week2 (1).md §10 — "Pincode/serviceability"). No approved
+ * restricted-area list exists yet (nothing in plan.md/architecture.md names
+ * one, and DECISIONS_PENDING.md has no entry for it) — every well-formed
+ * 6-digit Indian pincode is serviceable today. This is the seam a real
+ * restricted-pincode table would plug into later (this function's caller,
+ * not its shape, would change) — not a placeholder that silently
+ * fabricates non-serviceable areas nobody approved.
+ */
+export function checkPincodeServiceability(pincode: string): PincodeServiceability {
+  if (!PINCODE_PATTERN.test(pincode)) {
+    return { serviceable: false, reason: "Enter a valid 6-digit pincode" };
+  }
+  return { serviceable: true };
 }

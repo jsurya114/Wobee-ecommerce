@@ -39,4 +39,8 @@ export interface CartRepositoryPort {
   addItem(cartId: string, variantId: string, quantity: number): Promise<CartItemRecord>;
   setItemQuantity(itemId: string, quantity: number): Promise<CartItemRecord>;
   removeItem(itemId: string): Promise<void>;
+
+  /** Week 2 Day 5 (week2 (1).md §9) — the applied coupon's code only, same "store the reference, recompute the money live" rule as everything else on Cart (see Cart.couponCode's own schema comment). null when none is applied. */
+  findCouponCode(cartId: string): Promise<string | null>;
+  setCouponCode(cartId: string, code: string | null): Promise<void>;
 }

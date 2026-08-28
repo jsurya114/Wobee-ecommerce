@@ -307,6 +307,72 @@ async function main() {
   }
 
   console.log(`  Seeded ${productDefs.length} products with variants + inventory.`);
+
+  // ── Demo coupons (week2 (1).md §9) — no admin CRUD exists for coupons
+  // this week (coupons.module.ts's own doc comment), so this seed script is
+  // the only path that creates them. One of each rule shape, so every
+  // branch of resolveCouponEligibility has a real, usable code to test with. ──
+  const farFuture = new Date("2999-01-01");
+  const longPast = new Date("2020-01-01");
+
+  await prisma.coupon.upsert({
+    where: { code: "WELCOME10" },
+    update: {},
+    create: {
+      code: "WELCOME10",
+      type: "PERCENTAGE",
+      value: 10,
+      perUserLimit: 1,
+      validFrom: longPast,
+      validTo: farFuture,
+    },
+  });
+
+  await prisma.coupon.upsert({
+    where: { code: "FLAT200" },
+    update: {},
+    create: {
+      code: "FLAT200",
+      type: "FLAT",
+      value: 20_000, // ₹200
+      minCartValuePaise: 1_000_00, // ₹1,000
+      usageLimit: 100,
+      validFrom: longPast,
+      validTo: farFuture,
+    },
+  });
+
+  const scarf = await prisma.product.findUnique({ where: { slug: "silk-scarf" } });
+  if (scarf) {
+    await prisma.coupon.upsert({
+      where: { code: "SCARF15" },
+      update: {},
+      create: {
+        code: "SCARF15",
+        type: "PERCENTAGE",
+        value: 15,
+        validFrom: longPast,
+        validTo: farFuture,
+        products: { create: { productId: scarf.id } },
+      },
+    });
+  }
+
+  await prisma.coupon.upsert({
+    where: { code: "ACCESSORIES20" },
+    update: {},
+    create: {
+      code: "ACCESSORIES20",
+      type: "PERCENTAGE",
+      value: 20,
+      maxDiscountPaise: 500_00, // ₹500 cap
+      validFrom: longPast,
+      validTo: farFuture,
+      categories: { create: { categoryId: categories["accessories"]!.id } },
+    },
+  });
+
+  console.log("  Demo coupons: WELCOME10 (10% off, once per customer), FLAT200 (₹200 off ₹1,000+), SCARF15 (15% off the Silk Scarf), ACCESSORIES20 (20% off Accessories, capped at ₹500).");
   console.log("Seed complete.");
 }
 

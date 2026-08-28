@@ -48,6 +48,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               <span>Shipping</span>
               <span>{formatPaiseAsInr(order.shippingFeePaise)}</span>
             </div>
+            {order.discountPaise > 0 ? (
+              <div className="flex justify-between text-text-secondary">
+                <span>Coupon discount</span>
+                <span className="text-success">-{formatPaiseAsInr(order.discountPaise)}</span>
+              </div>
+            ) : null}
             <div className="flex justify-between text-text-secondary">
               <span>Tax</span>
               <span>{formatPaiseAsInr(order.taxPaise)}</span>
@@ -62,11 +68,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <Card className="p-4">
           <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Contact & shipping</h2>
           <dl className="flex flex-col gap-1 font-body text-sm">
-            <div className="flex justify-between"><dt className="text-text-secondary">Name</dt><dd className="text-text-primary">{order.contactName}</dd></div>
-            <div className="flex justify-between"><dt className="text-text-secondary">Phone</dt><dd className="text-text-primary">{order.contactPhone}</dd></div>
-            <div className="flex justify-between"><dt className="text-text-secondary">Email</dt><dd className="text-text-primary">{order.contactEmail}</dd></div>
-            <div className="flex justify-between"><dt className="text-text-secondary">Address</dt><dd className="text-right text-text-primary">{order.shippingSnapshot.line1}, {order.shippingSnapshot.city}, {order.shippingSnapshot.state} {order.shippingSnapshot.pincode}</dd></div>
-            <div className="flex justify-between"><dt className="text-text-secondary">Payment method</dt><dd className="text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Name</dt><dd className="text-right text-text-primary">{order.contactName}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Phone</dt><dd className="text-right text-text-primary">{order.contactPhone}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Email</dt><dd className="break-all text-right text-text-primary">{order.contactEmail}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Address</dt><dd className="text-right text-text-primary">{order.shippingSnapshot.line1}, {order.shippingSnapshot.city}, {order.shippingSnapshot.state} {order.shippingSnapshot.pincode}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Payment method</dt><dd className="text-right text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd></div>
           </dl>
         </Card>
 

@@ -1,10 +1,12 @@
 import type { CheckoutAddressInput } from "@woobe/validation";
 import { ConflictError, UnprocessableEntityError } from "../../../../shared/errors";
+import { allocateCouponDiscount } from "../../domain/allocate-coupon-discount";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import { OrderNumberCollisionError } from "../../domain/errors/order-number-collision.error";
-import type { CartReaderPort } from "../ports/cart-reader.port";
+import type { CartReaderPort, CheckoutCartLine } from "../ports/cart-reader.port";
 import type { CartResolverPort } from "../ports/cart-resolver.port";
 import type { CartWriterPort } from "../ports/cart-writer.port";
+import type { CouponRedeemerPort } from "../ports/coupon-redeemer.port";
 import type { GstReaderPort } from "../ports/gst-reader.port";
 import type { InventoryReservationPort } from "../ports/inventory-reservation.port";
 import type { CreateOrderInput, CreateOrderItemInput, OrderRepositoryPort } from "../ports/order-repository.port";
@@ -29,6 +31,18 @@ const MAX_ORDER_NUMBER_ATTEMPTS = 3;
  * DEVELOPMENT_RULES.md #1), then reserves inventory and creates the order
  * inside a single Unit-of-Work transaction so "stock reserved" and "order
  * exists" can never disagree (see TransactionPort).
+ *
+ * Week 2 Day 5 (week2 (1).md §9) adds live coupon redemption. GST, item
+ * building, and the subtotal/tax/discount totals all moved INSIDE the
+ * transaction (they weren't before) because the discount amount — needed
+ * before tax can be recalculated on the discounted value, per §9's own
+ * "Calculate discount -> Recalculate tax" ordering — only becomes known
+ * once the coupon's row lock is held (`couponRedeemer.validateAndLock`,
+ * see that port's own doc comment for why this is a two-phase call split
+ * around order creation). Re-doing this work inside `tx` on every retry of
+ * `createOrderWithRetry` is intentional, not an oversight: an order-number
+ * collision is astronomically rare, and re-deriving from live state again
+ * is simpler and safer than trying to cache it across a retry.
  */
 export class CheckoutUseCase {
   constructor(
@@ -41,11 +55,12 @@ export class CheckoutUseCase {
     private readonly orderRepository: OrderRepositoryPort,
     private readonly orderNumberGenerator: OrderNumberGeneratorPort,
     private readonly transaction: TransactionPort,
+    private readonly couponRedeemer: CouponRedeemerPort,
   ) {}
 
   async execute(input: PlaceOrderInput): Promise<OrderEntity> {
     const { cartId } = await this.cartResolver.resolve({ userId: input.userId, guestCartId: input.guestCartId });
-    const cart = await this.cartReader.getCart(cartId);
+    const cart = await this.cartReader.getCart(cartId, input.userId);
 
     if (cart.items.length === 0) {
       throw new UnprocessableEntityError("Your bag is empty");
@@ -69,11 +84,98 @@ export class CheckoutUseCase {
       );
     }
 
+    // Coupons require a real account (CouponRedemption.userId is non-null,
+    // and cart/coupon POST is authGuard-only — see cart.routes.ts) — a
+    // couponCode surviving onto a guest checkout shouldn't happen in
+    // practice, but is treated as "no coupon" rather than crashing checkout
+    // over it.
+    const couponCode = input.userId ? cart.couponCode : null;
+
+    return this.transaction.run(async (tx) => {
+      const couponResult = couponCode
+        ? await this.couponRedeemer.validateAndLock(
+            {
+              code: couponCode,
+              userId: input.userId!,
+              cartSubtotalPaise: cart.totalPaise,
+              lines: cart.items.map((line) => ({
+                variantId: line.variantId,
+                productId: line.productId,
+                categoryId: line.categoryId,
+                lineTotalPaise: line.subtotalPaise,
+              })),
+            },
+            tx,
+          )
+        : null;
+
+      const discountPaise = couponResult?.discountPaise ?? 0;
+      const lineDiscounts = couponResult ? allocateCouponDiscount(discountPaise, couponResult.eligibleLines) : new Map<string, number>();
+
+      const items = await this.buildOrderItems(cart.items, lineDiscounts);
+      const subtotalPaise = items.reduce((sum, item) => sum + item.lineTotalPaise, 0);
+      const taxPaise = items.reduce((sum, item) => sum + item.taxAmountPaise, 0);
+
+      const orderBase: Omit<CreateOrderInput, "orderNumber"> = {
+        userId: input.userId ?? null,
+        contactName: input.address.fullName,
+        contactPhone: input.address.phone,
+        contactEmail: input.contactEmail,
+        shippingSnapshot: toShippingSnapshot(input.address),
+        subtotalPaise,
+        discountPaise,
+        shippingFeePaise: shipping.shippingFeePaise,
+        taxPaise,
+        totalPaise: subtotalPaise + taxPaise + shipping.shippingFeePaise - discountPaise,
+        totalWeightGrams: cart.totalWeightGrams,
+        paymentMethod: input.paymentMethod,
+        items,
+      };
+
+      const reservation = await this.inventoryReservation.reserveForCheckout(
+        cart.items.map((line) => ({ variantId: line.variantId, quantity: line.quantity })),
+        tx,
+      );
+      if (!reservation.success) {
+        // Throwing here rolls back the whole transaction (nothing partially
+        // reserved, and — when a coupon was applied — the lock acquired by
+        // validateAndLock above releases with no redemption ever recorded).
+        throw new ConflictError(
+          `Stock changed while you were checking out — only ${reservation.insufficient
+            .map((line) => line.availableQuantity)
+            .join(", ")} left for one or more items. Please review your bag.`,
+        );
+      }
+
+      const order = await this.createOrderWithRetry(orderBase, tx);
+
+      if (couponResult) {
+        // Same transaction, same still-held row lock (Postgres holds a lock
+        // for the whole transaction, not just the statement that took it) —
+        // see CouponRedeemerPort's own doc comment for why this is a
+        // separate call rather than folded into validateAndLock.
+        await this.couponRedeemer.finalize(couponResult.couponId, input.userId!, order.id, tx);
+      }
+
+      await this.cartWriter.markConverted(cartId, tx);
+      return order;
+    });
+  }
+
+  private async buildOrderItems(lines: CheckoutCartLine[], lineDiscounts: Map<string, number>): Promise<CreateOrderItemInput[]> {
     const gstLines = await this.gstReader.calculateMany(
-      cart.items.map((line) => ({ unitPricePaise: line.unitPricePaise, lineTotalPaise: line.subtotalPaise })),
+      lines.map((line) => ({
+        unitPricePaise: line.unitPricePaise,
+        // Tax is calculated on the discounted line value (§9's "Calculate
+        // discount -> Recalculate tax" ordering) — the slab itself is still
+        // picked from the undiscounted per-unit price (GstSlab's own
+        // comment: tiered by *per-piece* price, which a promotional
+        // discount doesn't change).
+        lineTotalPaise: line.subtotalPaise - (lineDiscounts.get(line.variantId) ?? 0),
+      })),
     );
 
-    const items: CreateOrderItemInput[] = cart.items.map((line, i) => ({
+    return lines.map((line, i) => ({
       variantId: line.variantId,
       productNameSnapshot: line.productName,
       skuSnapshot: line.sku,
@@ -86,46 +188,6 @@ export class CheckoutUseCase {
       lineTotalPaise: line.subtotalPaise,
       taxAmountPaise: gstLines[i]!.taxAmountPaise,
     }));
-
-    const subtotalPaise = items.reduce((sum, item) => sum + item.lineTotalPaise, 0);
-    const taxPaise = items.reduce((sum, item) => sum + item.taxAmountPaise, 0);
-    const discountPaise = 0; // coupons deliberately out of scope this week (week1_excecution_prompt.md, Day 4)
-
-    const orderBase: Omit<CreateOrderInput, "orderNumber"> = {
-      userId: input.userId ?? null,
-      contactName: input.address.fullName,
-      contactPhone: input.address.phone,
-      contactEmail: input.contactEmail,
-      shippingSnapshot: toShippingSnapshot(input.address),
-      subtotalPaise,
-      discountPaise,
-      shippingFeePaise: shipping.shippingFeePaise,
-      taxPaise,
-      totalPaise: subtotalPaise + taxPaise + shipping.shippingFeePaise - discountPaise,
-      totalWeightGrams: cart.totalWeightGrams,
-      paymentMethod: input.paymentMethod,
-      items,
-    };
-
-    return this.transaction.run(async (tx) => {
-      const reservation = await this.inventoryReservation.reserveForCheckout(
-        cart.items.map((line) => ({ variantId: line.variantId, quantity: line.quantity })),
-        tx,
-      );
-      if (!reservation.success) {
-        // Throwing here rolls back the whole transaction (nothing partially
-        // reserved) — see InventoryReservationPort's own comment.
-        throw new ConflictError(
-          `Stock changed while you were checking out — only ${reservation.insufficient
-            .map((line) => line.availableQuantity)
-            .join(", ")} left for one or more items. Please review your bag.`,
-        );
-      }
-
-      const order = await this.createOrderWithRetry(orderBase, tx);
-      await this.cartWriter.markConverted(cartId, tx);
-      return order;
-    });
   }
 
   private async createOrderWithRetry(

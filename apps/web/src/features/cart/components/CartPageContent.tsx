@@ -6,6 +6,7 @@ import { ShoppingBag } from "lucide-react";
 import Link from "next/link";
 import { useCart } from "../hooks/useCart";
 import { CartLineItem } from "./CartLineItem";
+import { CouponForm } from "./CouponForm";
 import { WeightThresholdBanner } from "./WeightThresholdBanner";
 
 export function CartPageContent() {
@@ -50,7 +51,6 @@ export function CartPageContent() {
           <CartLineItem key={line.itemId} line={line} />
         ))}
       </Card>
-
       {/* Server-computed totals only — nothing here is derived from a client-held value (DEVELOPMENT_RULES.md #1). */}
       <Card className="h-fit p-6">
         <h2 className="mb-4 font-display text-lg text-text-primary">Order summary</h2>
@@ -69,12 +69,24 @@ export function CartPageContent() {
               {cart.shipping.isFreeDelivery ? "Free" : formatPaiseAsInr(cart.shipping.shippingFeePaise)}
             </dd>
           </div>
+          {cart.discountPaise > 0 ? (
+            <div className="flex justify-between">
+              <dt className="text-text-secondary">Coupon discount</dt>
+              <dd className="text-success">-{formatPaiseAsInr(cart.discountPaise)}</dd>
+            </div>
+          ) : null}
         </dl>
         <div className="mt-4 flex justify-between border-t border-border pt-4 font-body text-base font-medium">
           <span className="text-text-primary">Total</span>
           <span className="text-text-primary">
-            {formatPaiseAsInr(cart.totalPaise + (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise))}
+            {formatPaiseAsInr(
+              cart.totalPaise + (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise) - cart.discountPaise,
+            )}
           </span>
+        </div>
+
+        <div className="mt-4">
+          <CouponForm appliedCoupon={cart.appliedCoupon} />
         </div>
 
         <div className="mt-4">
