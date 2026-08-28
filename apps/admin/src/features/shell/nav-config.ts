@@ -17,8 +17,9 @@ export interface AdminNavEntry {
  */
 export const ADMIN_NAV: AdminNavEntry[] = [
   { label: "Orders", href: "/orders", status: "live", permission: "MANAGE_ORDERS" },
-  { label: "Products", href: "/products", status: "coming-soon", permission: "MANAGE_CATALOG" },
-  { label: "Inventory", href: "/inventory", status: "coming-soon", permission: "MANAGE_INVENTORY" },
+  { label: "Products", href: "/products", status: "live", permission: "MANAGE_CATALOG" },
+  { label: "Inventory", href: "/inventory", status: "live", permission: "MANAGE_INVENTORY" },
+  { label: "Collections", href: "/collections", status: "live", permission: "MANAGE_CATALOG" },
   { label: "Settings", href: "/settings", status: "coming-soon", permission: "MANAGE_SETTINGS" },
   { label: "Staff", href: "/staff", status: "coming-soon", permission: "MANAGE_STAFF" },
   { label: "Returns", href: "/returns", status: "live", permission: "MANAGE_ORDERS" },

@@ -2,7 +2,9 @@ import { z } from "zod";
 
 /**
  * Single source of truth for request shapes (ADR-020) — used by apps/web's
- * listing page and apps/api's `validate` middleware.
+ * listing page and apps/api's `validate` middleware. Week 2 Day 7
+ * (week2 (1).md §16) adds the admin product-management shapes below the
+ * original customer-facing listing-query schema.
  */
 
 /**
@@ -71,3 +73,98 @@ export const productListQuerySchema = z
     path: ["minPrice"],
   });
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
+
+// ── Week 2 Day 7 admin product-management shapes (week2 (1).md §16) ──
+
+// Same convention Category/Collection slugs already use — see
+// collections.schema.ts's own comment on this exact regex.
+const slugSchema = z
+  .string()
+  .trim()
+  .min(1, "Slug is required")
+  .max(160)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Slug must be lowercase letters, numbers, and hyphens only");
+
+/** A query-string boolean arrives as the literal string "true"/"false", never a real boolean — z.coerce.boolean() would treat the string "false" as truthy and is a known Zod footgun for exactly this shape (same reasoning `booleanFlag()` above already applies, kept separate since that one intentionally has no explicit exported type). */
+const queryBooleanSchema = z
+  .enum(["true", "false"])
+  .optional()
+  .transform((value) => (value === undefined ? undefined : value === "true"));
+
+export const createProductSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(200),
+  slug: slugSchema,
+  description: z.string().trim().max(5000).optional(),
+  brand: z.string().trim().max(120).optional(),
+  categoryId: z.string().uuid("Invalid category id"),
+  metaTitle: z.string().trim().max(200).optional(),
+  metaDescription: z.string().trim().max(500).optional(),
+});
+export type CreateProductInput = z.infer<typeof createProductSchema>;
+
+export const updateProductSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(200).optional(),
+  slug: slugSchema.optional(),
+  description: z.string().trim().max(5000).nullable().optional(),
+  brand: z.string().trim().max(120).nullable().optional(),
+  categoryId: z.string().uuid("Invalid category id").optional(),
+  metaTitle: z.string().trim().max(200).nullable().optional(),
+  metaDescription: z.string().trim().max(500).nullable().optional(),
+});
+export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+
+export const setProductActiveSchema = z.object({ isActive: z.boolean() });
+export type SetProductActiveInput = z.infer<typeof setProductActiveSchema>;
+
+export const createVariantSchema = z.object({
+  // Not required from the client — POST /admin/products/:id/variants takes
+  // the product id from the URL, always overriding whatever (if anything)
+  // is sent here, so the URL stays the single authoritative source.
+  productId: z.string().uuid("Invalid product id").optional(),
+  sku: z.string().trim().min(1, "SKU is required").max(64),
+  color: z.string().trim().min(1, "Colour is required").max(60),
+  size: z.string().trim().min(1, "Size is required").max(30),
+  weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams"),
+  ratePerKgOverridePaise: z.coerce.number().int().positive().nullable().optional(),
+  fabric: z.string().trim().max(200).nullable().optional(),
+  fit: z.string().trim().max(200).nullable().optional(),
+  measurements: z.string().trim().max(500).nullable().optional(),
+  /** Starting stock for the new variant's Inventory row — 0 if omitted (see InitializeInventoryForVariantUseCase's own doc comment). */
+  initialQuantity: z.coerce.number().int().min(0).optional(),
+});
+export type CreateVariantInput = z.infer<typeof createVariantSchema>;
+
+export const updateVariantSchema = z.object({
+  sku: z.string().trim().min(1, "SKU is required").max(64).optional(),
+  color: z.string().trim().min(1, "Colour is required").max(60).optional(),
+  size: z.string().trim().min(1, "Size is required").max(30).optional(),
+  weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams").optional(),
+  ratePerKgOverridePaise: z.coerce.number().int().positive().nullable().optional(),
+  fabric: z.string().trim().max(200).nullable().optional(),
+  fit: z.string().trim().max(200).nullable().optional(),
+  measurements: z.string().trim().max(500).nullable().optional(),
+});
+export type UpdateVariantInput = z.infer<typeof updateVariantSchema>;
+
+export const setVariantActiveSchema = z.object({ isActive: z.boolean() });
+export type SetVariantActiveInput = z.infer<typeof setVariantActiveSchema>;
+
+export const addProductImageSchema = z.object({
+  url: z.string().trim().url("Invalid image URL").max(2000),
+  altText: z.string().trim().min(1, "Alt text is required for accessibility").max(200),
+});
+export type AddProductImageInput = z.infer<typeof addProductImageSchema>;
+
+export const reorderProductImagesSchema = z.object({
+  imageIds: z.array(z.string().uuid("Invalid image id")).min(1, "At least one image id is required"),
+});
+export type ReorderProductImagesInput = z.infer<typeof reorderProductImagesSchema>;
+
+export const listProductsAdminQuerySchema = z.object({
+  search: z.string().trim().min(1).optional(),
+  categoryId: z.string().uuid().optional(),
+  isActive: queryBooleanSchema,
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20),
+});
+export type ListProductsAdminQuery = z.infer<typeof listProductsAdminQuerySchema>;

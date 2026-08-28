@@ -291,8 +291,16 @@ model Product {
   categoryId         String
   isActive           Boolean  @default(true)
   minPricePaiseCache Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  /// Week 2 Day 7 (week2 (1).md §16's "SEO metadata" admin operation) —
+  /// data-entry only this week. Module 19 (SEO, a later day) is what
+  /// actually renders these into <head> tags/canonical/OpenGraph/structured
+  /// data; until then these are just admin-editable fields with no
+  /// customer-facing effect, same "schema + data-entry now, rendering
+  /// later" pattern coupons' schema followed for Week 2 Day 5.
+  metaTitle       String?
+  metaDescription String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   category       Category            @relation(fields: [categoryId], references: [id])
   variants       ProductVariant[]
@@ -349,8 +357,17 @@ model ProductVariant {
   ratePerKgOverridePaise   Int?
   effectivePricePaiseCache Int      @default(0)
   isActive                 Boolean  @default(true)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  /// Week 2 Day 7 (week2 (1).md §16's own per-variant operations list) —
+  /// free-text descriptive fields, no structure specified anywhere in the
+  /// approved docs beyond their names, so plain nullable text rather than
+  /// inventing an unspecified sub-schema (e.g. structured bust/waist/hip
+  /// measurements). Display-only; nothing in pricing/inventory/checkout
+  /// reads these.
+  fabric       String?
+  fit          String?
+  measurements String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
   inventory     Inventory[]

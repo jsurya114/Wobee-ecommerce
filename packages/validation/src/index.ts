@@ -4,6 +4,7 @@ export * from "./cart.schema";
 export * from "./checkout.schema";
 export * from "./collections.schema";
 export * from "./coupons.schema";
+export * from "./inventory.schema";
 export * from "./payments.schema";
 export * from "./products.schema";
 export * from "./returns.schema";

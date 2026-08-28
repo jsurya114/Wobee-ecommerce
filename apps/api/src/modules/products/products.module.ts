@@ -2,15 +2,30 @@
 // repos/services to use-cases to routes, and wires this module's own ports
 // to other modules' exported use-cases (categories, pricing, inventory) as
 // trivial pass-through adapters, keeping the dependency-cruiser boundary
-// intact (no Prisma import outside infrastructure/).
+// intact (no Prisma import outside infrastructure/). Week 2 Day 7
+// (week2 (1).md §16) adds the admin product/variant/media management
+// use-cases below the original customer-facing ones, exported for `admin`'s
+// HTTP layer the same way every other admin-facing module already does.
 import { findCategoryBySlugUseCase } from "../categories/categories.module";
 import { findCollectionBySlugUseCase } from "../collections/collections.module";
-import { findInStockVariantIdsUseCase, getAvailableQuantitiesUseCase } from "../inventory/inventory.module";
+import { findInStockVariantIdsUseCase, getAvailableQuantitiesUseCase, initializeInventoryForVariantUseCase } from "../inventory/inventory.module";
 import { calculateEffectivePriceUseCase } from "../pricing/pricing.module";
 import type { CategoryReaderPort } from "./application/ports/category-reader.port";
 import type { CollectionReaderPort } from "./application/ports/collection-reader.port";
+import type { InventoryInitializerPort } from "./application/ports/inventory-initializer.port";
 import type { InventoryReaderPort } from "./application/ports/inventory-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
+import { AddProductImageUseCase } from "./application/use-cases/admin/add-product-image.use-case";
+import { CreateProductUseCase } from "./application/use-cases/admin/create-product.use-case";
+import { CreateProductVariantUseCase } from "./application/use-cases/admin/create-product-variant.use-case";
+import { GetProductAdminUseCase } from "./application/use-cases/admin/get-product-admin.use-case";
+import { ListProductsAdminUseCase } from "./application/use-cases/admin/list-products-admin.use-case";
+import { RemoveProductImageUseCase } from "./application/use-cases/admin/remove-product-image.use-case";
+import { ReorderProductImagesUseCase } from "./application/use-cases/admin/reorder-product-images.use-case";
+import { SetProductActiveUseCase } from "./application/use-cases/admin/set-product-active.use-case";
+import { SetProductVariantActiveUseCase } from "./application/use-cases/admin/set-product-variant-active.use-case";
+import { UpdateProductUseCase } from "./application/use-cases/admin/update-product.use-case";
+import { UpdateProductVariantUseCase } from "./application/use-cases/admin/update-product-variant.use-case";
 import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-slug.use-case";
 import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
 import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-for-cart.use-case";
@@ -28,6 +43,9 @@ const inventoryReader: InventoryReaderPort = {
   getAvailableQuantities: (variantIds) => getAvailableQuantitiesUseCase.execute(variantIds),
   findInStockVariantIds: () => findInStockVariantIdsUseCase.execute(),
 };
+const inventoryInitializer: InventoryInitializerPort = {
+  initializeForVariant: (variantId, quantity) => initializeInventoryForVariantUseCase.execute(variantId, quantity),
+};
 
 const listProductsUseCase = new ListProductsUseCase(productRepository, categoryReader, collectionReader, inventoryReader);
 const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, pricingReader, inventoryReader);
@@ -36,6 +54,19 @@ const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, p
 export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRepository);
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productRepository);
+
+/** Exported for `admin`'s HTTP layer (ADR-025) — Week 2 Day 7 admin product management. */
+export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepository);
+export const getProductAdminUseCase = new GetProductAdminUseCase(productRepository);
+export const createProductUseCase = new CreateProductUseCase(productRepository);
+export const updateProductUseCase = new UpdateProductUseCase(productRepository);
+export const setProductActiveUseCase = new SetProductActiveUseCase(productRepository);
+export const createProductVariantUseCase = new CreateProductVariantUseCase(productRepository, pricingReader, inventoryInitializer);
+export const updateProductVariantUseCase = new UpdateProductVariantUseCase(productRepository, pricingReader);
+export const setProductVariantActiveUseCase = new SetProductVariantActiveUseCase(productRepository);
+export const addProductImageUseCase = new AddProductImageUseCase(productRepository);
+export const removeProductImageUseCase = new RemoveProductImageUseCase(productRepository);
+export const reorderProductImagesUseCase = new ReorderProductImagesUseCase(productRepository);
 
 const productsController = new ProductsController(listProductsUseCase, getProductBySlugUseCase);
 

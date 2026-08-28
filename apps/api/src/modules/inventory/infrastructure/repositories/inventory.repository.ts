@@ -1,7 +1,13 @@
 import { Prisma, prisma } from "@woobe/database";
+import { NotFoundError, UnprocessableEntityError } from "../../../../shared/errors";
+import { LOW_STOCK_THRESHOLD, validateInventoryAdjustment } from "../../domain/validate-inventory-adjustment";
 import type {
+  AdminInventoryRow,
   InventoryRepositoryPort,
   InsufficientStockLine,
+  InventoryAdjustmentResult,
+  ListInventoryAdminFilter,
+  ListInventoryAdminResult,
   ReservationOutcome,
 } from "../../application/ports/inventory-repository.port";
 
@@ -137,6 +143,98 @@ export class InventoryRepository implements InventoryRepositoryPort {
         data: { quantityAvailable: { increment: item.quantity } },
       });
     }
+  }
+
+  async initializeForVariant(variantId: string, quantityAvailable: number): Promise<void> {
+    const warehouse = await prisma.warehouse.findFirst({ where: { isActive: true }, select: { id: true } });
+    if (!warehouse) {
+      // Defensive — every environment seeds one active warehouse
+      // (ADR-015); genuinely unreachable outside a broken/empty database.
+      throw new Error("No active warehouse configured — cannot initialize inventory for a new variant");
+    }
+    await prisma.inventory.create({ data: { variantId, warehouseId: warehouse.id, quantityAvailable, quantityReserved: 0 } });
+  }
+
+  async findAllForAdmin(filter: ListInventoryAdminFilter): Promise<ListInventoryAdminResult> {
+    // Reaches through Inventory -> ProductVariant -> Product for display
+    // fields (read-only) — see AdminInventoryRow's own doc comment on the
+    // port for why this is a deliberate, minimal extension of an existing
+    // precedent (OrderRepository.hasUserPurchasedProduct's relation filter
+    // into ProductVariant), not a new cross-module boundary violation.
+    const where: Prisma.InventoryWhereInput = {
+      ...(filter.search
+        ? {
+            variant: {
+              OR: [{ sku: { contains: filter.search, mode: "insensitive" } }, { product: { name: { contains: filter.search, mode: "insensitive" } } }],
+            },
+          }
+        : {}),
+    };
+
+    // Low/out-of-stock filtering is done in application code below (it
+    // depends on quantityAvailable - quantityReserved, which Postgres can't
+    // filter on directly through Prisma's query builder without raw SQL) —
+    // acceptable at this catalogue's scale, same reasoning
+    // InventoryRepository.findInStockVariantIds's own comment already gives
+    // for a full-table aggregate query here.
+    const rows = await prisma.inventory.findMany({
+      where,
+      orderBy: { variant: { sku: "asc" } },
+      select: {
+        variantId: true,
+        quantityAvailable: true,
+        quantityReserved: true,
+        variant: { select: { sku: true, color: true, size: true, product: { select: { id: true, name: true } } } },
+      },
+    });
+
+    const mapped: AdminInventoryRow[] = rows.map((row) => ({
+      variantId: row.variantId,
+      productId: row.variant.product.id,
+      productName: row.variant.product.name,
+      sku: row.variant.sku,
+      color: row.variant.color,
+      size: row.variant.size,
+      quantityAvailable: row.quantityAvailable,
+      quantityReserved: row.quantityReserved,
+    }));
+
+    const filtered = mapped.filter((row) => {
+      const sellable = row.quantityAvailable - row.quantityReserved;
+      if (filter.outOfStockOnly && sellable > 0) return false;
+      if (filter.lowStockOnly && !(sellable > 0 && sellable <= LOW_STOCK_THRESHOLD)) return false;
+      return true;
+    });
+
+    const total = filtered.length;
+    const start = (filter.page - 1) * filter.pageSize;
+    return { items: filtered.slice(start, start + filter.pageSize), total };
+  }
+
+  async adjustQuantity(variantId: string, delta: number): Promise<InventoryAdjustmentResult> {
+    return prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<LockedInventoryRow[]>`
+        SELECT "id", "variantId", "quantityAvailable", "quantityReserved"
+        FROM "inventory"
+        WHERE "variantId" = ${variantId}
+        FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) {
+        throw new NotFoundError("This variant has no inventory record");
+      }
+
+      const validation = validateInventoryAdjustment(row, delta);
+      if (!validation.ok) {
+        throw new UnprocessableEntityError(validation.reason ?? "Invalid inventory adjustment");
+      }
+
+      const updated = await tx.inventory.update({
+        where: { id: row.id },
+        data: { quantityAvailable: validation.newQuantityAvailable },
+      });
+      return { variantId, quantityAvailable: updated.quantityAvailable, quantityReserved: updated.quantityReserved };
+    });
   }
 
   /**

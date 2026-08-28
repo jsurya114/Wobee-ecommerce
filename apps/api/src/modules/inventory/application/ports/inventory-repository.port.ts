@@ -14,7 +14,56 @@ export interface ReservationOutcome {
  * application depends on this interface, not on Prisma directly — the
  * infrastructure layer implements it (ARCHITECTURE.md §3.1).
  */
+export interface InventoryAdjustmentResult {
+  variantId: string;
+  quantityAvailable: number;
+  quantityReserved: number;
+}
+
+/** One row of the admin inventory dashboard (week2 (1).md §15) — reaches through to `products`' own ProductVariant/Product for display fields via a plain Prisma relation, read-only, same established precedent as OrderRepository.hasUserPurchasedProduct's own relation filter into ProductVariant. */
+export interface AdminInventoryRow {
+  variantId: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  color: string;
+  size: string;
+  quantityAvailable: number;
+  quantityReserved: number;
+}
+
+export interface ListInventoryAdminFilter {
+  /** Matches SKU or product name. */
+  search?: string;
+  lowStockOnly?: boolean;
+  outOfStockOnly?: boolean;
+  page: number;
+  pageSize: number;
+}
+
+export interface ListInventoryAdminResult {
+  items: AdminInventoryRow[];
+  total: number;
+}
+
 export interface InventoryRepositoryPort {
+  /** Week 2 Day 7 (week2 (1).md §14) — the single row `CreateProductVariantUseCase` (`products` module) initializes for a brand-new variant, via `InitializeInventoryForVariantUseCase` below. Single warehouse at launch (ADR-015) — resolves it internally rather than asking the caller to know a warehouse id. */
+  initializeForVariant(variantId: string, quantityAvailable: number): Promise<void>;
+
+  /** Week 2 Day 7's admin inventory dashboard (week2 (1).md §15) — paginated, joined with product/variant display fields. */
+  findAllForAdmin(filter: ListInventoryAdminFilter): Promise<ListInventoryAdminResult>;
+
+  /**
+   * Manual admin stock adjustment (week2 (1).md §15's own "must be
+   * validated, transaction-safe" requirement) — locks the variant's (single,
+   * at launch) inventory row, validates via validateInventoryAdjustment
+   * (domain), and writes the new quantityAvailable, all inside one
+   * transaction. Throws NotFoundError if the variant has no inventory row
+   * at all, UnprocessableEntityError if the adjustment would violate either
+   * never-negative guard.
+   */
+  adjustQuantity(variantId: string, delta: number): Promise<InventoryAdjustmentResult>;
+
   /**
    * Sums quantityAvailable - quantityReserved across every warehouse row
    * for each variant (single warehouse at launch per ADR-015, but written

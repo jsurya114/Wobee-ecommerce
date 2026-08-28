@@ -1,5 +1,13 @@
 import type { ProductSort } from "@woobe/validation";
-import type { ProductDetailEntity, ProductSummaryEntity, ProductVariantEntity } from "../../domain/entities/product.entity";
+import type {
+  AdminProductDetailEntity,
+  AdminProductImageEntity,
+  AdminProductSummaryEntity,
+  AdminProductVariantEntity,
+  ProductDetailEntity,
+  ProductSummaryEntity,
+  ProductVariantEntity,
+} from "../../domain/entities/product.entity";
 
 export interface ListProductsFilter {
   categoryId?: string;
@@ -40,6 +48,71 @@ export interface ProductSummaryWithStatus extends ProductSummaryEntity {
   isActive: boolean;
 }
 
+export interface ListProductsAdminFilter {
+  search?: string;
+  categoryId?: string;
+  isActive?: boolean;
+  page: number;
+  pageSize: number;
+}
+
+export interface ListProductsAdminResult {
+  items: AdminProductSummaryEntity[];
+  total: number;
+}
+
+export interface CreateProductInput {
+  name: string;
+  slug: string;
+  description?: string;
+  brand?: string;
+  categoryId: string;
+  metaTitle?: string;
+  metaDescription?: string;
+}
+
+export interface UpdateProductInput {
+  name?: string;
+  slug?: string;
+  description?: string | null;
+  brand?: string | null;
+  categoryId?: string;
+  metaTitle?: string | null;
+  metaDescription?: string | null;
+}
+
+export interface CreateVariantInput {
+  productId: string;
+  sku: string;
+  color: string;
+  size: string;
+  weightGrams: number;
+  ratePerKgOverridePaise?: number | null;
+  fabric?: string | null;
+  fit?: string | null;
+  measurements?: string | null;
+  /** Pre-computed by the use-case (PricingReaderPort) — the repository never derives price itself, same "repository doesn't own business rules" boundary every other module's repository respects. */
+  effectivePricePaiseCache: number;
+}
+
+export interface UpdateVariantInput {
+  sku?: string;
+  color?: string;
+  size?: string;
+  weightGrams?: number;
+  ratePerKgOverridePaise?: number | null;
+  fabric?: string | null;
+  fit?: string | null;
+  measurements?: string | null;
+  /** Only set when weight/rate actually changed — see UpdateProductVariantUseCase's own comment. */
+  effectivePricePaiseCache?: number;
+}
+
+export interface AddProductImageInput {
+  url: string;
+  altText: string;
+}
+
 export interface ProductRepositoryPort {
   findMany(filter: ListProductsFilter): Promise<ListProductsResult>;
   findBySlug(slug: string): Promise<ProductDetailEntity | null>;
@@ -50,4 +123,25 @@ export interface ProductRepositoryPort {
     (ProductVariantEntity & { productId: string; categoryId: string; productName: string; productSlug: string; image: string | null })[]
   >;
   findByIds(productIds: string[]): Promise<ProductSummaryWithStatus[]>;
+
+  // ── Week 2 Day 7 admin surface (week2 (1).md §16) ──
+  findAllForAdmin(filter: ListProductsAdminFilter): Promise<ListProductsAdminResult>;
+  findByIdForAdmin(productId: string): Promise<AdminProductDetailEntity | null>;
+  createProduct(input: CreateProductInput): Promise<AdminProductDetailEntity>;
+  updateProduct(productId: string, input: UpdateProductInput): Promise<AdminProductDetailEntity>;
+  setProductActive(productId: string, isActive: boolean): Promise<AdminProductDetailEntity>;
+
+  createVariant(input: CreateVariantInput): Promise<AdminProductVariantEntity>;
+  updateVariant(variantId: string, input: UpdateVariantInput): Promise<AdminProductVariantEntity>;
+  setVariantActive(variantId: string, isActive: boolean): Promise<AdminProductVariantEntity>;
+  findVariantProductId(variantId: string): Promise<string | null>;
+  /** One variant, with its owning productId — used by UpdateProductVariantUseCase to reprice against the CURRENT weight/rate when only one of the two is part of a given edit. */
+  findVariantForAdmin(variantId: string): Promise<(AdminProductVariantEntity & { productId: string }) | null>;
+  /** Recomputes `Product.minPricePaiseCache` from its currently-active variants (or 0 if none) — called after any variant create/update/activation-change, since that cache drives the customer-facing listing's price display and sort. */
+  recomputeMinPrice(productId: string): Promise<void>;
+
+  addImage(productId: string, input: AddProductImageInput): Promise<AdminProductImageEntity>;
+  removeImage(productId: string, imageId: string): Promise<void>;
+  listImageIds(productId: string): Promise<string[]>;
+  reorderImages(productId: string, orderedImageIds: string[]): Promise<void>;
 }
