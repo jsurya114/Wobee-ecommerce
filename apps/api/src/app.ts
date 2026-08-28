@@ -1,3 +1,4 @@
+import path from "node:path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Application } from "express";
@@ -29,6 +30,22 @@ export function createApp(): Application {
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "@woobe/api", timestamp: new Date().toISOString() });
   });
+
+  // Serves what LocalDiskMediaStorage.getUrl() points at (Week 2 Day 4,
+  // week2 (1).md §13). Helmet's default `Cross-Origin-Resource-Policy:
+  // same-origin` would otherwise block apps/web/apps/admin (different
+  // origins/ports) from loading these as plain <img> sources — relaxed to
+  // `cross-origin` for this one static mount only, everything else (the
+  // JSON API, already governed by the CORS allowlist above) keeps helmet's
+  // stricter default.
+  app.use(
+    "/uploads",
+    (req, res, next) => {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      next();
+    },
+    express.static(path.resolve(process.cwd(), env.MEDIA_UPLOAD_DIR)),
+  );
 
   // Every module mounts at /api/v1/<module-name> — see src/modules/index.ts.
   for (const { path, router } of moduleRouters) {

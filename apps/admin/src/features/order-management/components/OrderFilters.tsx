@@ -19,6 +19,8 @@ export function OrderFilters({
   return (
     <div className="flex gap-3">
       <select
+        name="status"
+        aria-label="Filter by order status"
         value={status ?? ""}
         onChange={(e) => onStatusChange((e.target.value || undefined) as OrderStatus | undefined)}
         className="rounded-md border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary"
@@ -31,6 +33,8 @@ export function OrderFilters({
         ))}
       </select>
       <Input
+        name="search"
+        aria-label="Search order number or email"
         placeholder="Search order number or email"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}

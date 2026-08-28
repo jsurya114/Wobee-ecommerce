@@ -136,6 +136,7 @@ model User {
   reviews           Review[]
   couponRedemptions CouponRedemption[]
   adminAuditLogs    AdminAuditLog[]
+  uploadedMedia     Media[]
 
   @@map("users")
 }
@@ -264,7 +265,7 @@ model ProductCollection {
   /// like insertion) was the de facto order before this, so 0 for everyone
   /// is a safe, unsurprising backfill; admin reorder writes real values
   /// after that.
-  sortOrder Int @default(0)
+  sortOrder    Int    @default(0)
 
   product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
@@ -337,17 +338,17 @@ model ProductImage {
 /// effectivePricePaiseCache mirrors that derivation for listing/sort display
 /// only, same rule as Product.minPricePaiseCache above.
 model ProductVariant {
-  id                        String   @id @default(uuid())
-  productId                 String
-  sku                       String   @unique
-  color                     String
-  size                      String
-  weightGrams                Int
-  ratePerKgOverridePaise      Int?
-  effectivePricePaiseCache    Int      @default(0)
-  isActive                  Boolean  @default(true)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  id                       String   @id @default(uuid())
+  productId                String
+  sku                      String   @unique
+  color                    String
+  size                     String
+  weightGrams              Int
+  ratePerKgOverridePaise   Int?
+  effectivePricePaiseCache Int      @default(0)
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
   inventory     Inventory[]
@@ -725,24 +726,87 @@ model Refund {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Reviews — modeled now, deferred to Week 2+
+// Reviews — built out Week 2 Day 4 (week2 (1).md §8)
 // ─────────────────────────────────────────────────────────────────────────
 
+/// Replaces Week 1's plain `isApproved: Boolean` — the plan's admin bullet
+/// list ("Approve/reject/hide") needs three distinct outcomes, not one.
+/// New reviews start PENDING; only APPROVED reviews are ever shown to
+/// other customers or counted in a product's rating summary.
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HIDDEN
+}
+
 model Review {
-  id         String   @id @default(uuid())
-  productId  String
-  userId     String
-  rating     Int
-  title      String?
-  body       String?
-  isApproved Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id                 String       @id @default(uuid())
+  productId          String
+  userId             String
+  rating             Int
+  title              String?
+  body               String?
+  status             ReviewStatus @default(PENDING)
+  /// Snapshotted at submission time (did this user have a CONFIRMED-or-later
+  /// order containing this product when they wrote the review) — a display
+  /// flag, not a financial figure, so caching it here follows this schema's
+  /// existing "denormalized cache is fine for display, never for money" rule
+  /// (see Product.minPricePaiseCache's comment) rather than re-querying
+  /// Order/OrderItem on every read.
+  isVerifiedPurchase Boolean      @default(false)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // week2 (1).md §8's own rule: "Prevent duplicate reviews" — enforced by
+  // the schema itself, not just application logic (same precedent as
+  // WishlistItem's @@unique([wishlistId, productId])).
+  @@unique([productId, userId])
   @@index([productId])
   @@map("reviews")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Media — built out Week 2 Day 4 (week2 (1).md §13). Provider-independent:
+// this table records what was uploaded and where; apps/api's `media` module
+// is the only thing that ever writes to it, behind a MediaStoragePort an S3/
+// Cloudinary adapter can implement later without touching this schema.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Only IMAGE is built out this week — the plan's own "only support types
+/// approved by requirements" instruction, and nothing in the approved scope
+/// (product/variant/collection images, admin uploads) needs VIDEO/GIF/
+/// THREE_SIXTY yet. Extending this enum is additive whenever one is.
+enum MediaType {
+  IMAGE
+}
+
+enum MediaStatus {
+  ACTIVE
+  DELETED
+}
+
+model Media {
+  id               String      @id @default(uuid())
+  type             MediaType
+  /// Storage-layer key (local disk path today, an S3 object key tomorrow —
+  /// the one field a provider swap would need to reinterpret, never exposed
+  /// to a client directly).
+  key              String      @unique
+  url              String
+  mimeType         String
+  sizeBytes        Int
+  altText          String?
+  status           MediaStatus @default(ACTIVE)
+  uploadedByUserId String
+  createdAt        DateTime    @default(now())
+
+  uploadedBy User @relation(fields: [uploadedByUserId], references: [id])
+
+  @@map("media")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

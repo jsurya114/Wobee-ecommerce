@@ -11,6 +11,7 @@ import { router as notificationsRouter } from "./notifications/notifications.mod
 import { router as ordersRouter } from "./orders/orders.module";
 import { router as paymentsRouter } from "./payments/payments.module";
 import { router as pricingRouter } from "./pricing/pricing.module";
+import { router as mediaRouter } from "./media/media.module";
 import { router as productsRouter } from "./products/products.module";
 import { router as refundsRouter } from "./refunds/refunds.module";
 import { router as returnsRouter } from "./returns/returns.module";
@@ -39,6 +40,7 @@ export const moduleRouters: { path: string; router: Router }[] = [
   { path: "/payments", router: paymentsRouter },
   { path: "/shipping", router: shippingRouter },
   { path: "/reviews", router: reviewsRouter },
+  { path: "/media", router: mediaRouter },
   { path: "/returns", router: returnsRouter },
   { path: "/refunds", router: refundsRouter },
   { path: "/notifications", router: notificationsRouter },

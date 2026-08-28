@@ -76,4 +76,13 @@ export interface OrderRepositoryPort {
   ): Promise<TransitionOrderStatusResult>;
   /** Admin order list (ADR-025's admin order view) — no userId filter, unlike findSummariesByUserId. */
   findAllPaginated(filter: ListOrdersFilter): Promise<ListOrdersResult>;
+  /**
+   * Week 2 Day 4's verified-purchase check (week2 (1).md §8) — true if this
+   * user has an order, in a status that means the purchase actually
+   * happened (not still pending payment, not failed, not cancelled),
+   * containing a variant of this product. Deliberately excludes
+   * PENDING_PAYMENT/PAYMENT_FAILED/CANCELLED — those never delivered a
+   * product to review.
+   */
+  hasUserPurchasedProduct(userId: string, productId: string): Promise<boolean>;
 }

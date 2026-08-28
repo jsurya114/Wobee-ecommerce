@@ -27,6 +27,7 @@ import { DeliverOrderUseCase } from "./application/use-cases/deliver-order.use-c
 import { GetOrderForAdminUseCase } from "./application/use-cases/get-order-for-admin.use-case";
 import { GetOrderForPaymentUseCase } from "./application/use-cases/get-order-for-payment.use-case";
 import { GetOrderUseCase } from "./application/use-cases/get-order.use-case";
+import { HasPurchasedProductUseCase } from "./application/use-cases/has-purchased-product.use-case";
 import { ListMyOrdersUseCase } from "./application/use-cases/list-my-orders.use-case";
 import { ListOrdersUseCase } from "./application/use-cases/list-orders.use-case";
 import { MarkOrderPaymentFailedUseCase } from "./application/use-cases/mark-order-payment-failed.use-case";
@@ -87,6 +88,8 @@ export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, audi
 export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transactionRunner);
 export const listOrdersUseCase = new ListOrdersUseCase(orderRepository);
 export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository);
+/** Exported for `reviews`' verified-purchase check (Week 2 Day 4). */
+export const hasPurchasedProductUseCase = new HasPurchasedProductUseCase(orderRepository);
 
 const ordersController = new OrdersController(checkoutUseCase, getOrderUseCase, listMyOrdersUseCase);
 

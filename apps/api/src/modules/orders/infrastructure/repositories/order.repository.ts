@@ -169,6 +169,20 @@ export class OrderRepository implements OrderRepositoryPort {
       total,
     };
   }
+
+  async hasUserPurchasedProduct(userId: string, productId: string): Promise<boolean> {
+    const match = await prisma.orderItem.findFirst({
+      where: {
+        variant: { productId },
+        order: {
+          userId,
+          status: { in: ["CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED"] },
+        },
+      },
+      select: { id: true },
+    });
+    return match !== null;
+  }
 }
 
 type OrderWithItems = Prisma.OrderGetPayload<{ include: { items: true } }>;

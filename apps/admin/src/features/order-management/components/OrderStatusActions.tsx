@@ -46,13 +46,25 @@ export function OrderStatusActions({ order, onStartProcessing, onShip, onDeliver
 
   if (order.status === "CONFIRMED") {
     return (
-      <div className="flex gap-2">
-        <Button onClick={() => void run(onStartProcessing, "Order moved to processing")} isLoading={busy}>
-          Mark as processing
-        </Button>
-        <Button variant="secondary" onClick={() => setCancelling(true)} disabled={busy}>
-          Cancel order
-        </Button>
+      // Buttons and the cancel-form each in their own row (matches the
+      // PROCESSING branch below) — all three used to sit in one
+      // non-wrapping `flex gap-2` row, which pushed the reason input and
+      // confirm button off-screen at 375px. Not a plain page-overflow bug:
+      // `overflow-x-hidden` on the dashboard's content wrapper (added
+      // fixing the missing-viewport bug) silently clipped it instead of
+      // producing a scrollbar, so `scrollWidth === innerWidth` reported no
+      // problem even with content genuinely unreachable — caught only by
+      // actually opening the form and looking at a screenshot, not by the
+      // overflow-width check alone.
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void run(onStartProcessing, "Order moved to processing")} isLoading={busy}>
+            Mark as processing
+          </Button>
+          <Button variant="secondary" onClick={() => setCancelling(true)} disabled={busy}>
+            Cancel order
+          </Button>
+        </div>
         {cancelling ? renderCancelForm() : null}
       </div>
     );

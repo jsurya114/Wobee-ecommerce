@@ -8,6 +8,7 @@ export * from "./primitives/Label";
 export * from "./primitives/RadioGroup";
 export * from "./primitives/Skeleton";
 export * from "./primitives/Spinner";
+export * from "./primitives/Textarea";
 export * from "./components/FormField";
 export * from "./components/PriceTag";
 export * from "./components/ProgressBar";

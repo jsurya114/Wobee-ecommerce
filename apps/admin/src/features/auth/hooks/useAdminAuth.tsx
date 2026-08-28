@@ -11,7 +11,8 @@ interface AdminAuthContextValue {
   user: AdminUser | null;
   accessToken: string | null;
   status: AuthStatus;
-  login: (input: LoginInput) => Promise<void>;
+  /** Returns the logged-in user so the caller can decide where to send them — not every role has permission for the same landing page (see LoginForm's own use of this). */
+  login: (input: LoginInput) => Promise<AdminUser>;
   logout: () => Promise<void>;
 }
 
@@ -47,6 +48,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(session.accessToken);
     setUser(session.user);
     setStatus("authenticated");
+    return session.user;
   }, []);
 
   const logout = useCallback(async () => {

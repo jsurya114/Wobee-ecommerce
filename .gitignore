@@ -38,3 +38,4 @@ packages/database/prisma/*.db
 
 # Isolated worktrees for subagent-driven development (Week 2+)
 .claude/worktrees/
+uploads/

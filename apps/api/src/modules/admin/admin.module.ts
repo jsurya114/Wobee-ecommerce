@@ -35,6 +35,7 @@ import {
   startProcessingOrderUseCase,
 } from "../orders/orders.module";
 import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
+import { listReviewsAdminUseCase, moderateReviewUseCase } from "../reviews/reviews.module";
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
 import { createAdminAuthRouter } from "./interface/http/admin-auth.routes";
@@ -42,6 +43,8 @@ import { AdminCollectionsController } from "./interface/http/admin-collections.c
 import { createAdminCollectionsRouter } from "./interface/http/admin-collections.routes";
 import { AdminOrdersController } from "./interface/http/admin-orders.controller";
 import { createAdminOrdersRouter } from "./interface/http/admin-orders.routes";
+import { AdminReviewsController } from "./interface/http/admin-reviews.controller";
+import { createAdminReviewsRouter } from "./interface/http/admin-reviews.routes";
 
 // Cancellation is the one admin action that spans three modules (orders +
 // refunds + audit). `orders` can't compose it itself without recreating the
@@ -73,7 +76,10 @@ const adminCollectionsController = new AdminCollectionsController(
   reorderCollectionProductsUseCase,
 );
 
+const adminReviewsController = new AdminReviewsController(listReviewsAdminUseCase, moderateReviewUseCase);
+
 export const router = Router();
 router.use("/auth", createAdminAuthRouter(adminAuthController));
 router.use("/orders", createAdminOrdersRouter(adminOrdersController));
 router.use("/collections", createAdminCollectionsRouter(adminCollectionsController));
+router.use("/reviews", createAdminReviewsRouter(adminReviewsController));

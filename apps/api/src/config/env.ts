@@ -53,6 +53,15 @@ const envSchema = z.object({
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+
+  // Week 2 Day 4 (week2 (1).md §13) — the `media` module's local-disk
+  // MediaStoragePort implementation needs an absolute origin to build a
+  // browser-loadable image URL (a relative path only works when the
+  // browser is already on the API's own origin, which apps/web/apps/admin
+  // never are — different ports). Swapping in an S3/Cloudinary adapter
+  // later replaces this entirely; nothing else in the codebase reads it.
+  API_PUBLIC_URL: z.string().url().default("http://localhost:4000"),
+  MEDIA_UPLOAD_DIR: z.string().default("uploads"),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
+import { navEntriesForRole } from "@/features/shell/nav-config";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 
 export function LoginForm() {
@@ -20,8 +21,19 @@ export function LoginForm() {
 
   const onSubmit = handleSubmit(async (input) => {
     try {
-      await login(input);
-      router.replace("/orders");
+      const user = await login(input);
+      // Not every staff role has MANAGE_ORDERS — a blind `/orders` redirect
+      // landed product_management_staff on a page they get a 403 from,
+      // with no other live page to go to instead (caught live, checking
+      // the admin side: login succeeded, then "Couldn't load orders." was
+      // the entire experience). Send them to the first LIVE section their
+      // role actually has permission for; `/orders` stays the fallback for
+      // a role with no live section at all (still true today for
+      // product_management_staff — Products/Inventory are "coming soon"
+      // until Day 7 — but at least a role that legitimately can use
+      // Orders, like super_admin, never depends on this fallback).
+      const firstLiveEntry = navEntriesForRole(user.role).find((entry) => entry.status === "live");
+      router.replace(firstLiveEntry?.href ?? "/orders");
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Login failed");
     }

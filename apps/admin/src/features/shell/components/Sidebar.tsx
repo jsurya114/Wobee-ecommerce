@@ -12,14 +12,21 @@ export function Sidebar() {
   const entries = navEntriesForRole(user?.role ?? "CUSTOMER");
 
   return (
-    <nav className="flex w-56 shrink-0 flex-col gap-1 border-r border-border p-4">
+    // Below `md:`, this is a horizontal scroll strip above the content
+    // instead of a permanent side column — the desktop-only `w-56` fixed
+    // sidebar had no responsive breakpoint at all (found checking the
+    // admin side, Week 2 Day 4: real content was pushed off-screen at
+    // 375px, requiring horizontal scroll to reach it). Same "same
+    // controls, different chrome" approach the storefront's mobile filter
+    // panel already uses, not a new nav pattern invented for this.
+    <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border p-3 md:w-56 md:flex-col md:overflow-x-visible md:border-b-0 md:border-r md:p-4">
       {entries.map((entry) => {
         const isActive = pathname.startsWith(entry.href);
         if (entry.status === "coming-soon") {
           return (
             <span
               key={entry.href}
-              className="flex items-center justify-between rounded-md px-3 py-2 font-body text-sm text-text-secondary opacity-50"
+              className="flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded-md px-3 py-2 font-body text-sm text-text-secondary opacity-50"
             >
               {entry.label}
               <Badge variant="neutral">Soon</Badge>
@@ -30,7 +37,7 @@ export function Sidebar() {
           <Link
             key={entry.href}
             href={entry.href}
-            className={`rounded-md px-3 py-2 font-body text-sm ${isActive ? "bg-primary-tint text-primary" : "text-text-primary hover:bg-primary-tint/50"}`}
+            className={`shrink-0 whitespace-nowrap rounded-md px-3 py-2 font-body text-sm ${isActive ? "bg-primary-tint text-primary" : "text-text-primary hover:bg-primary-tint/50"}`}
           >
             {entry.label}
           </Link>
