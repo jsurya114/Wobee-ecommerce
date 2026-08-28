@@ -101,21 +101,29 @@ export class HandleRazorpayWebhookUseCase {
         return { result: "amount-mismatch" };
       }
 
-      await this.transaction.run(async (tx) => {
-        const { changed } = await this.orderPort.confirm(order.id, tx);
-        if (changed) {
+      const { changed } = await this.transaction.run(async (tx) => {
+        const transitioned = await this.orderPort.confirm(order.id, tx);
+        if (transitioned.changed) {
           await this.paymentRepository.update(payment.id, { status: "CAPTURED", razorpayPaymentId: paymentEntity.id }, tx);
           await this.inventoryFinalization.finalize(order.items, tx);
         }
+        return transitioned;
       });
+      if (changed) {
+        await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
+      }
     } else if (params.payload.event === "payment.failed") {
-      await this.transaction.run(async (tx) => {
-        const { changed } = await this.orderPort.markPaymentFailed(order.id, tx);
-        if (changed) {
+      const { changed } = await this.transaction.run(async (tx) => {
+        const transitioned = await this.orderPort.markPaymentFailed(order.id, tx);
+        if (transitioned.changed) {
           await this.paymentRepository.update(payment.id, { status: "FAILED" }, tx);
           await this.inventoryFinalization.release(order.items, tx);
         }
+        return transitioned;
       });
+      if (changed) {
+        await this.orderPort.notifyOrderEvent(order.id, "PAYMENT_FAILED");
+      }
     }
     // Any other event type (refund.*, order.paid, ...) — deliberately out of
     // scope this week; still acknowledged below so Razorpay doesn't retry it forever.

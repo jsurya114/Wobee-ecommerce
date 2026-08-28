@@ -30,6 +30,7 @@ import {
   updateCollectionUseCase,
 } from "../collections/collections.module";
 import { adjustInventoryUseCase, listInventoryAdminUseCase } from "../inventory/inventory.module";
+import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import {
   cancelOrderUseCase,
   deliverOrderUseCase,
@@ -90,6 +91,7 @@ const cancelOrderWithRefundUseCase = new CancelOrderWithRefundUseCase(
   cancelOrderUseCase,
   issueRefundForCancelledOrderUseCase,
   recordAuditLogUseCase,
+  enqueueNotificationUseCase,
 );
 
 const adminAuthController = new AdminAuthController(loginUserUseCase, refreshTokenUseCase, logoutUserUseCase, getCurrentUserUseCase);

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MarkReturnRefundedUseCase } from "./mark-return-refunded.use-case";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
+import type { OrderReaderPort } from "../ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "../ports/order-return-flag-writer.port";
 import type { RefundIssuerPort } from "../ports/refund-issuer.port";
 import type { ReturnRepositoryPort } from "../ports/return-repository.port";
@@ -11,8 +12,12 @@ function refundInitiatedReturn() {
   return { id: "return-1", orderId: "order-1", status: "REFUND_INITIATED", reason: "wrong size", requestedAt: new Date(), resolvedAt: null, items: [] };
 }
 
+function returnOrderView() {
+  return { id: "order-1", userId: "user-1", status: "DELIVERED", deliveredAt: new Date(), contactEmail: "a@a.com", orderNumber: "WOOBE-1", items: [] };
+}
+
 describe("MarkReturnRefundedUseCase", () => {
-  it("transitions REFUND_INITIATED -> REFUNDED, marks the refund manually completed, clears the active-return flag, and logs the action", async () => {
+  it("transitions REFUND_INITIATED -> REFUNDED, marks the refund manually completed, clears the active-return flag, logs the action, and enqueues REFUND_PROCESSED", async () => {
     const returnRepository = {
       findById: vi.fn().mockResolvedValue(refundInitiatedReturn()),
       transitionStatus: vi.fn().mockResolvedValue({ changed: true, return: { ...refundInitiatedReturn(), status: "REFUNDED" } }),
@@ -21,7 +26,9 @@ describe("MarkReturnRefundedUseCase", () => {
     const refundIssuer = { markManuallyCompleted: vi.fn() } as unknown as RefundIssuerPort;
     const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-    const useCase = new MarkReturnRefundedUseCase(returnRepository, refundIssuer, orderReturnFlagWriter, auditLogger);
+    const orderReader = { forAdmin: vi.fn().mockResolvedValue(returnOrderView()) } as unknown as OrderReaderPort;
+    const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new MarkReturnRefundedUseCase(returnRepository, refundIssuer, orderReturnFlagWriter, auditLogger, orderReader, notificationEnqueuer);
 
     const result = await useCase.execute("return-1", actor);
 
@@ -29,6 +36,9 @@ describe("MarkReturnRefundedUseCase", () => {
     expect(refundIssuer.markManuallyCompleted).toHaveBeenCalledWith("return-1", "order-1");
     expect(orderReturnFlagWriter.setHasActiveReturn).toHaveBeenCalledWith("order-1", false);
     expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({ action: "RETURN_REFUND_MANUALLY_COMPLETED" }));
+    expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "REFUND_PROCESSED", payload: expect.objectContaining({ contactEmail: "a@a.com" }) }),
+    );
   });
 
   it("throws ConflictError when the return isn't awaiting manual completion", async () => {
@@ -39,10 +49,13 @@ describe("MarkReturnRefundedUseCase", () => {
     const refundIssuer = { markManuallyCompleted: vi.fn() } as unknown as RefundIssuerPort;
     const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-    const useCase = new MarkReturnRefundedUseCase(returnRepository, refundIssuer, orderReturnFlagWriter, auditLogger);
+    const orderReader = { forAdmin: vi.fn() } as unknown as OrderReaderPort;
+    const notificationEnqueuer = { enqueue: vi.fn() };
+    const useCase = new MarkReturnRefundedUseCase(returnRepository, refundIssuer, orderReturnFlagWriter, auditLogger, orderReader, notificationEnqueuer);
 
     await expect(useCase.execute("return-1", actor)).rejects.toThrow(/awaiting a manual refund completion/i);
     expect(refundIssuer.markManuallyCompleted).not.toHaveBeenCalled();
+    expect(notificationEnqueuer.enqueue).not.toHaveBeenCalled();
   });
 
   it("throws NotFoundError for an unknown return", async () => {
@@ -50,7 +63,9 @@ describe("MarkReturnRefundedUseCase", () => {
     const refundIssuer = { markManuallyCompleted: vi.fn() } as unknown as RefundIssuerPort;
     const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-    const useCase = new MarkReturnRefundedUseCase(returnRepository, refundIssuer, orderReturnFlagWriter, auditLogger);
+    const orderReader = { forAdmin: vi.fn() } as unknown as OrderReaderPort;
+    const notificationEnqueuer = { enqueue: vi.fn() };
+    const useCase = new MarkReturnRefundedUseCase(returnRepository, refundIssuer, orderReturnFlagWriter, auditLogger, orderReader, notificationEnqueuer);
 
     await expect(useCase.execute("missing", actor)).rejects.toThrow("Return not found");
   });

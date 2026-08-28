@@ -28,7 +28,8 @@ describe("DeliverOrderUseCase", () => {
     const auditLogger = { log: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
 
-    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction);
+    const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction, notifyOrderEvent);
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" });
 
     expect(result.changed).toBe(true);
@@ -37,13 +38,15 @@ describe("DeliverOrderUseCase", () => {
       expect.objectContaining({ deliveredAt: expect.any(Date) }),
     );
     expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({ action: "ORDER_DELIVERED" }), "tx");
+    expect(notifyOrderEvent.execute).toHaveBeenCalledWith("order-1", "ORDER_DELIVERED");
   });
 
   it("rejects delivering an order that isn't SHIPPED", async () => {
     const orderRepository = { findById: vi.fn().mockResolvedValue(order({ status: "PROCESSING" })) } as unknown as OrderRepositoryPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
-    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction);
+    const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction, notifyOrderEvent);
 
     await expect(useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" })).rejects.toThrow(
       "Cannot deliver an order in status PROCESSING",

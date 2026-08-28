@@ -34,7 +34,8 @@ describe("ShipOrderUseCase", () => {
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
     const shipmentCreator = echoShipmentCreator();
 
-    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator);
+    const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator, notifyOrderEvent);
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" }, {
       trackingNumber: "TRK1",
       carrier: "BlueDart",
@@ -50,6 +51,7 @@ describe("ShipOrderUseCase", () => {
       expect.objectContaining({ action: "ORDER_SHIPPED", metadata: { trackingNumber: "TRK1", carrier: "BlueDart" } }),
       "tx",
     );
+    expect(notifyOrderEvent.execute).toHaveBeenCalledWith("order-1", "ORDER_SHIPPED");
   });
 
   it("rejects shipping an order that isn't PROCESSING", async () => {
@@ -57,7 +59,8 @@ describe("ShipOrderUseCase", () => {
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
     const shipmentCreator = echoShipmentCreator();
-    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator);
+    const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator, notifyOrderEvent);
 
     await expect(
       useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "T", carrier: "C" }),
@@ -73,7 +76,8 @@ describe("ShipOrderUseCase", () => {
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
     const shipmentCreator: ShipmentCreatorPort = { createShipment: vi.fn().mockRejectedValue(new Error("provider unreachable")) };
-    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator);
+    const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator, notifyOrderEvent);
 
     await expect(
       useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "T", carrier: "C" }),

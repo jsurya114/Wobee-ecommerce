@@ -2,6 +2,8 @@ import type { Role } from "@woobe/types";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import type { ReturnEntity } from "../../domain/entities/return.entity";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
+import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
+import type { OrderReaderPort } from "../ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "../ports/order-return-flag-writer.port";
 import type { RefundIssuerPort } from "../ports/refund-issuer.port";
 import type { ReturnRepositoryPort } from "../ports/return-repository.port";
@@ -21,6 +23,8 @@ export class MarkReturnRefundedUseCase {
     private readonly refundIssuer: RefundIssuerPort,
     private readonly orderReturnFlagWriter: OrderReturnFlagWriterPort,
     private readonly auditLogger: AuditLoggerPort,
+    private readonly orderReader: OrderReaderPort,
+    private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
   async execute(returnId: string, actor: { id: string; role: Role }): Promise<ReturnEntity> {
@@ -48,6 +52,15 @@ export class MarkReturnRefundedUseCase {
       entityType: "Return",
       entityId: returnId,
     });
+
+    const order = await this.orderReader.forAdmin(result.return.orderId);
+    await this.notificationEnqueuer.enqueue({
+      userId: order.userId,
+      type: "REFUND_PROCESSED",
+      channel: "EMAIL",
+      payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId },
+    });
+
     return result.return;
   }
 }

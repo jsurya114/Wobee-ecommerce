@@ -24,6 +24,11 @@ interface AuditLogger {
   execute(input: CreateAuditLogInput): Promise<void>;
 }
 
+/** Matches `EnqueueNotificationUseCase`'s own `execute` signature — see the class doc comment for why REFUND_PROCESSED for this path is enqueued here rather than inside `refunds`' own use-case. */
+interface NotificationEnqueuer {
+  execute(input: { userId: string | null; type: "REFUND_PROCESSED"; channel: "EMAIL"; payload: Record<string, unknown> }): Promise<void>;
+}
+
 /**
  * Cancelling a paid order is three steps across three modules: the status
  * transition + stock release (`orders`), the refund (`refunds`), and the
@@ -57,12 +62,19 @@ interface AuditLogger {
  * than rolling anything back, and a `changed: false` result (a concurrent
  * cancel already won) skips both the refund and the audit write so neither
  * happens twice.
+ *
+ * Week 2 Day 8 (week2 (1).md §20): a successful refund here also enqueues
+ * REFUND_PROCESSED — built here rather than inside `refunds`' own
+ * IssueRefundForCancelledOrderUseCase because that use-case only ever sees
+ * a Payment record (ADR-025), never contact PII; `admin` already has the
+ * full `order` (contactEmail included) from the cancellation step above.
  */
 export class CancelOrderWithRefundUseCase {
   constructor(
     private readonly cancelOrderUseCase: OrderCanceller,
     private readonly issueRefundForCancelledOrderUseCase: CancelledOrderRefundIssuer,
     private readonly recordAuditLogUseCase: AuditLogger,
+    private readonly notificationEnqueuer: NotificationEnqueuer,
   ) {}
 
   async execute(orderId: string, actor: { id: string; role: Role }, reason?: string): Promise<CancelOrderWithRefundResult> {
@@ -84,6 +96,15 @@ export class CancelOrderWithRefundUseCase {
       entityId: orderId,
       metadata: { reason, refundIssued },
     });
+
+    if (refundIssued) {
+      await this.notificationEnqueuer.execute({
+        userId: order.userId,
+        type: "REFUND_PROCESSED",
+        channel: "EMAIL",
+        payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber },
+      });
+    }
 
     return { order, refundIssued };
   }

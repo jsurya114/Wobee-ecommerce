@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import { calculateReturnRefundAmount } from "../../domain/calculate-return-refund-amount";
 import type { ReturnEntity } from "../../domain/entities/return.entity";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
+import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
 import type { OrderReaderPort } from "../ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "../ports/order-return-flag-writer.port";
 import type { IssueRefundOutcome, RefundIssuerPort } from "../ports/refund-issuer.port";
@@ -32,6 +33,7 @@ export class IssueRefundForApprovedReturnUseCase {
     private readonly refundIssuer: RefundIssuerPort,
     private readonly orderReturnFlagWriter: OrderReturnFlagWriterPort,
     private readonly auditLogger: AuditLoggerPort,
+    private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
   async execute(returnId: string, actor: { id: string; role: Role }): Promise<IssueRefundForApprovedReturnResult> {
@@ -78,6 +80,12 @@ export class IssueRefundForApprovedReturnUseCase {
       if (stillActive === 0) {
         await this.orderReturnFlagWriter.setHasActiveReturn(existing.orderId, false);
       }
+      await this.notificationEnqueuer.enqueue({
+        userId: order.userId,
+        type: "REFUND_PROCESSED",
+        channel: "EMAIL",
+        payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId, amountPaise },
+      });
       return { return: finalized.return, outcome };
     }
 

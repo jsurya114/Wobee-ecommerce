@@ -15,8 +15,10 @@
 // module's own boundaries:check run verifies.
 import { recordAuditLogUseCase } from "../audit/audit.module";
 import { getOrderForAdminUseCase, getOrderUseCase, setOrderHasActiveReturnUseCase } from "../orders/orders.module";
+import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { issueRefundForReturnUseCase } from "../refunds/refunds.module";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
+import type { NotificationEnqueuerPort } from "./application/ports/notification-enqueuer.port";
 import type { OrderReaderPort, ReturnOrderView } from "./application/ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "./application/ports/order-return-flag-writer.port";
 import type { RefundIssuerPort } from "./application/ports/refund-issuer.port";
@@ -40,6 +42,8 @@ function toReturnOrderView(order: {
   userId: string | null;
   status: string;
   deliveredAt: Date | null;
+  contactEmail: string;
+  orderNumber: string;
   items: { id: string; variantId: string; productNameSnapshot: string; quantity: number; unitPricePaise: number; taxAmountPaise: number }[];
 }): ReturnOrderView {
   return {
@@ -47,6 +51,8 @@ function toReturnOrderView(order: {
     userId: order.userId,
     status: order.status,
     deliveredAt: order.deliveredAt,
+    contactEmail: order.contactEmail,
+    orderNumber: order.orderNumber,
     items: order.items.map((item) => ({
       id: item.id,
       variantId: item.variantId,
@@ -70,6 +76,7 @@ const refundIssuer: RefundIssuerPort = {
   markManuallyCompleted: (returnId, orderId) => issueRefundForReturnUseCase.markManuallyCompleted(returnId, orderId),
 };
 const auditLogger: AuditLoggerPort = { log: (entry) => recordAuditLogUseCase.execute(entry) };
+const notificationEnqueuer: NotificationEnqueuerPort = { enqueue: (input) => enqueueNotificationUseCase.execute(input) };
 
 const requestReturnUseCase = new RequestReturnUseCase(orderReader, returnRepository, orderReturnFlagWriter);
 const listMyReturnsUseCase = new ListMyReturnsUseCase(returnRepository);
@@ -78,7 +85,7 @@ const getReturnUseCase = new GetReturnUseCase(returnRepository, orderReader);
 /** Exported for `admin`'s HTTP layer (ADR-025) — same pattern orders'/reviews' own admin-facing exports use. */
 export const listReturnsForAdminUseCase = new ListReturnsForAdminUseCase(returnRepository);
 export const getReturnForAdminUseCase = new GetReturnForAdminUseCase(returnRepository, orderReader);
-export const approveReturnUseCase = new ApproveReturnUseCase(returnRepository, auditLogger);
+export const approveReturnUseCase = new ApproveReturnUseCase(returnRepository, auditLogger, orderReader, notificationEnqueuer);
 export const rejectReturnUseCase = new RejectReturnUseCase(returnRepository, orderReturnFlagWriter, auditLogger);
 export const issueRefundForApprovedReturnUseCase = new IssueRefundForApprovedReturnUseCase(
   returnRepository,
@@ -86,8 +93,16 @@ export const issueRefundForApprovedReturnUseCase = new IssueRefundForApprovedRet
   refundIssuer,
   orderReturnFlagWriter,
   auditLogger,
+  notificationEnqueuer,
 );
-export const markReturnRefundedUseCase = new MarkReturnRefundedUseCase(returnRepository, refundIssuer, orderReturnFlagWriter, auditLogger);
+export const markReturnRefundedUseCase = new MarkReturnRefundedUseCase(
+  returnRepository,
+  refundIssuer,
+  orderReturnFlagWriter,
+  auditLogger,
+  orderReader,
+  notificationEnqueuer,
+);
 
 const returnsController = new ReturnsController(requestReturnUseCase, listMyReturnsUseCase, getReturnUseCase);
 

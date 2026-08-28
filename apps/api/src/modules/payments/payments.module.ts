@@ -5,7 +5,7 @@
 // writes to Order/Inventory directly — every transition goes through the
 // port, which calls the owning module's own use-case (ARCHITECTURE.md §3.3).
 import { finalizeReservationUseCase, releaseReservationUseCase } from "../inventory/inventory.module";
-import { confirmOrderUseCase, getOrderForPaymentUseCase, markOrderPaymentFailedUseCase } from "../orders/orders.module";
+import { confirmOrderUseCase, getOrderForPaymentUseCase, markOrderPaymentFailedUseCase, notifyOrderEventUseCase } from "../orders/orders.module";
 import type { InventoryFinalizationPort } from "./application/ports/inventory-finalization.port";
 import type { OrderPort } from "./application/ports/order-port";
 import { ConfirmCodOrderUseCase } from "./application/use-cases/confirm-cod-order.use-case";
@@ -29,6 +29,7 @@ const orderPort: OrderPort = {
   getOrder: (orderId) => getOrderForPaymentUseCase.execute(orderId),
   confirm: (orderId, tx) => confirmOrderUseCase.execute(orderId, tx),
   markPaymentFailed: (orderId, tx) => markOrderPaymentFailedUseCase.execute(orderId, tx),
+  notifyOrderEvent: (orderId, type) => notifyOrderEventUseCase.execute(orderId, type),
 };
 const inventoryFinalization: InventoryFinalizationPort = {
   finalize: (items, tx) => finalizeReservationUseCase.execute(items, tx),

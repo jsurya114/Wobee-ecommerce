@@ -26,13 +26,16 @@ function buildUseCase(overrides: { changed?: boolean; refundIssued?: boolean } =
   const recordAuditLogUseCase = {
     execute: vi.fn().mockResolvedValue(undefined),
   };
-  const useCase = new CancelOrderWithRefundUseCase(cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase);
-  return { useCase, cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase, cancelled };
+  const notificationEnqueuer = {
+    execute: vi.fn().mockResolvedValue(undefined),
+  };
+  const useCase = new CancelOrderWithRefundUseCase(cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase, notificationEnqueuer);
+  return { useCase, cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase, notificationEnqueuer, cancelled };
 }
 
 describe("CancelOrderWithRefundUseCase", () => {
   it("cancels the order, triggers a refund, and writes the ORDER_CANCELLED audit entry", async () => {
-    const { useCase, cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase } = buildUseCase();
+    const { useCase, cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase, notificationEnqueuer } = buildUseCase();
 
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" }, "Customer request");
 
@@ -44,10 +47,13 @@ describe("CancelOrderWithRefundUseCase", () => {
       actorId: "staff-1", actorRole: "ORDER_PROCESSING_STAFF", action: "ORDER_CANCELLED",
       entityType: "Order", entityId: "order-1", metadata: { reason: "Customer request", refundIssued: true },
     });
+    expect(notificationEnqueuer.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "REFUND_PROCESSED", payload: expect.objectContaining({ contactEmail: "a@a.com" }) }),
+    );
   });
 
-  it("still reports the order as cancelled — and still audits — when the refund attempt fails", async () => {
-    const { useCase, recordAuditLogUseCase } = buildUseCase({ refundIssued: false });
+  it("still reports the order as cancelled — and still audits — when the refund attempt fails, without notifying a refund that never happened", async () => {
+    const { useCase, recordAuditLogUseCase, notificationEnqueuer } = buildUseCase({ refundIssued: false });
 
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
 
@@ -56,6 +62,7 @@ describe("CancelOrderWithRefundUseCase", () => {
     expect(recordAuditLogUseCase.execute).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: { reason: undefined, refundIssued: false } }),
     );
+    expect(notificationEnqueuer.execute).not.toHaveBeenCalled();
   });
 
   it("is idempotent — a concurrent cancel that already won skips the refund and the audit entry entirely", async () => {

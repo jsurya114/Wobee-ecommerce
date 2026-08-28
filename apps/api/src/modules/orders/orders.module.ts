@@ -11,6 +11,7 @@ import { getCartUseCase, getOrCreateCartUseCase, markCartConvertedUseCase } from
 import { recordAuditLogUseCase } from "../audit/audit.module";
 import { redeemCouponUseCase } from "../coupons/coupons.module";
 import { reserveInventoryForCheckoutUseCase, restockFinalizedSaleUseCase } from "../inventory/inventory.module";
+import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { calculateGstUseCase } from "../pricing/pricing.module";
 import { createShipmentUseCase, evaluateShippingUseCase } from "../shipping/shipping.module";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
@@ -21,6 +22,7 @@ import type { CouponRedeemerPort } from "./application/ports/coupon-redeemer.por
 import type { GstReaderPort } from "./application/ports/gst-reader.port";
 import type { InventoryRestockPort } from "./application/ports/inventory-restock.port";
 import type { InventoryReservationPort } from "./application/ports/inventory-reservation.port";
+import type { NotificationEnqueuerPort } from "./application/ports/notification-enqueuer.port";
 import type { ShipmentCreatorPort } from "./application/ports/shipment-creator.port";
 import type { ShippingReaderPort } from "./application/ports/shipping-reader.port";
 import { CancelOrderUseCase } from "./application/use-cases/cancel-order.use-case";
@@ -34,6 +36,7 @@ import { HasPurchasedProductUseCase } from "./application/use-cases/has-purchase
 import { ListMyOrdersUseCase } from "./application/use-cases/list-my-orders.use-case";
 import { ListOrdersUseCase } from "./application/use-cases/list-orders.use-case";
 import { MarkOrderPaymentFailedUseCase } from "./application/use-cases/mark-order-payment-failed.use-case";
+import { NotifyOrderEventUseCase } from "./application/use-cases/notify-order-event.use-case";
 import { SetOrderHasActiveReturnUseCase } from "./application/use-cases/set-order-has-active-return.use-case";
 import { ShipOrderUseCase } from "./application/use-cases/ship-order.use-case";
 import { StartProcessingOrderUseCase } from "./application/use-cases/start-processing-order.use-case";
@@ -75,6 +78,7 @@ const inventoryReservation: InventoryReservationPort = {
 /** Week 2 Day 0 remediation — wired to the restock (not release) operation. See CancelOrderUseCase's own doc comment. */
 const inventoryRestock: InventoryRestockPort = { restock: (items, tx) => restockFinalizedSaleUseCase.execute(items, tx) };
 const auditLogger: AuditLoggerPort = { log: (entry, tx) => recordAuditLogUseCase.execute(entry, tx) };
+const notificationEnqueuer: NotificationEnqueuerPort = { enqueue: (input) => enqueueNotificationUseCase.execute(input) };
 
 const checkoutUseCase = new CheckoutUseCase(
   cartResolver,
@@ -97,11 +101,20 @@ export const listMyOrdersUseCase = new ListMyOrdersUseCase(orderRepository);
 export const confirmOrderUseCase = new ConfirmOrderUseCase(orderRepository);
 export const markOrderPaymentFailedUseCase = new MarkOrderPaymentFailedUseCase(orderRepository);
 export const getOrderForPaymentUseCase = new GetOrderForPaymentUseCase(orderRepository);
+/**
+ * Exported for `payments`' OrderPort.notifyOrderEvent adapter (Week 2 Day
+ * 8) — `payments`' own port deliberately excludes contact PII
+ * (GetOrderForPaymentUseCase's own doc comment), so `payments` calls this
+ * post-commit with just an orderId + event type; this use-case is what
+ * actually re-reads the order (including contactEmail, which `orders` — not
+ * `payments` — owns) and builds the notification payload.
+ */
+export const notifyOrderEventUseCase = new NotifyOrderEventUseCase(orderRepository, notificationEnqueuer);
 
 /** Exported for cross-module use — `admin`'s HTTP layer (ADR-025) calls these directly, same pattern as payments' Day 5 exports above. */
 export const startProcessingOrderUseCase = new StartProcessingOrderUseCase(orderRepository, auditLogger, transactionRunner);
-export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner, shipmentCreator);
-export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner);
+export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner, shipmentCreator, notifyOrderEventUseCase);
+export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner, notifyOrderEventUseCase);
 /**
  * Status transition + inventory restock ONLY. The refund and the
  * `ORDER_CANCELLED` audit entry that a cancellation also implies are

@@ -13,6 +13,9 @@ export interface ReturnOrderView {
   status: string;
   deliveredAt: Date | null;
   items: ReturnOrderItemView[];
+  /** Week 2 Day 8 (week2 (1).md §20) — needed to build the RETURN_APPROVED/REFUND_PROCESSED notification payload; not used for anything else this port already serves. */
+  contactEmail: string;
+  orderNumber: string;
 }
 
 /**

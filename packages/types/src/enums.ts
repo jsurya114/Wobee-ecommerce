@@ -34,6 +34,17 @@ export type PaymentMethod = (typeof PAYMENT_METHOD)[number];
 export const REFUND_STATUS = ["INITIATED", "COMPLETED", "FAILED"] as const;
 export type RefundStatus = (typeof REFUND_STATUS)[number];
 
+/// Week 2 Day 8 (week2 (1).md §20) — the schema's own NotificationChannel has
+/// PUSH, not the spec text's "WhatsApp"; treated as authoritative the same
+/// way every other schema-vs-doc-text mismatch this session has hit was
+/// (the migrated schema is what's real). Only EMAIL is actually wired this
+/// week — see notifications.module.ts's own comment.
+export const NOTIFICATION_CHANNEL = ["EMAIL", "SMS", "PUSH"] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNEL)[number];
+
+export const NOTIFICATION_STATUS = ["PENDING", "SENT", "FAILED"] as const;
+export type NotificationStatus = (typeof NOTIFICATION_STATUS)[number];
+
 /// ADR-024: the four contracted roles (quotation §6). `ADMIN` from Week 1
 /// Day 2 is retired here — the Prisma `Role` enum keeps it as an unused
 /// legacy value (Postgres can't cheaply drop an enum value in place), but

@@ -4,6 +4,7 @@ import type { AuditLoggerPort } from "../ports/audit-logger.port";
 import type { OrderRepositoryPort, TransitionOrderStatusResult } from "../ports/order-repository.port";
 import type { ShipmentCreatorPort } from "../ports/shipment-creator.port";
 import type { TransactionPort } from "../ports/transaction.port";
+import type { OrderNotificationEventType } from "./notify-order-event.use-case";
 
 export interface ShipOrderInput {
   trackingNumber: string;
@@ -29,6 +30,7 @@ export class ShipOrderUseCase {
     private readonly auditLogger: AuditLoggerPort,
     private readonly transaction: TransactionPort,
     private readonly shipmentCreator: ShipmentCreatorPort,
+    private readonly notifyOrderEvent: { execute(orderId: string, type: OrderNotificationEventType): Promise<void> },
   ) {}
 
   async execute(orderId: string, actor: { id: string; role: Role }, input: ShipOrderInput): Promise<TransitionOrderStatusResult> {
@@ -49,19 +51,23 @@ export class ShipOrderUseCase {
       carrier: input.carrier,
     });
 
-    return this.transaction.run(async (tx) => {
-      const result = await this.orderRepository.transitionStatus(orderId, "PROCESSING", "SHIPPED", tx, {
+    const result = await this.transaction.run(async (tx) => {
+      const transitioned = await this.orderRepository.transitionStatus(orderId, "PROCESSING", "SHIPPED", tx, {
         trackingNumber: shipment.trackingNumber,
         carrier: shipment.carrier,
         shippedAt: new Date(),
       });
-      if (result.changed) {
+      if (transitioned.changed) {
         await this.auditLogger.log(
           { actorId: actor.id, actorRole: actor.role, action: "ORDER_SHIPPED", entityType: "Order", entityId: orderId, metadata: input },
           tx,
         );
       }
-      return result;
+      return transitioned;
     });
+    if (result.changed) {
+      await this.notifyOrderEvent.execute(orderId, "ORDER_SHIPPED");
+    }
+    return result;
   }
 }

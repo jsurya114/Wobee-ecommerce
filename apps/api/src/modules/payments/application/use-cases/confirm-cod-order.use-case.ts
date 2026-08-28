@@ -34,7 +34,7 @@ export class ConfirmCodOrderUseCase {
       throw new ConflictError(`Cannot confirm an order in status ${order.status}`);
     }
 
-    return this.transaction.run(async (tx) => {
+    const result = await this.transaction.run(async (tx) => {
       const { changed } = await this.orderPort.confirm(order.id, tx);
       if (!changed) {
         // Raced with another confirmation of the SAME order between our
@@ -51,5 +51,9 @@ export class ConfirmCodOrderUseCase {
 
       return { alreadyConfirmed: false };
     });
+    if (!result.alreadyConfirmed) {
+      await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
+    }
+    return result;
   }
 }

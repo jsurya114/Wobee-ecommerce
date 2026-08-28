@@ -25,6 +25,8 @@ const orderForRefund = {
   userId: "user-1",
   status: "DELIVERED",
   deliveredAt: new Date(),
+  contactEmail: "a@a.com",
+  orderNumber: "WOOBE-1",
   items: [{ id: "item-1", variantId: "v1", productNameSnapshot: "Scarf", quantity: 2, unitPricePaise: 1000, taxAmountPaise: 100 }],
 };
 
@@ -41,8 +43,9 @@ function buildUseCase(refundOutcome: "completed" | "failed" | "not-applicable" =
   const refundIssuer = { issueForReturn: vi.fn().mockResolvedValue({ outcome: refundOutcome }) } as unknown as RefundIssuerPort;
   const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
   const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-  const useCase = new IssueRefundForApprovedReturnUseCase(returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger);
-  return { useCase, returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger };
+  const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const useCase = new IssueRefundForApprovedReturnUseCase(returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger, notificationEnqueuer);
+  return { useCase, returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger, notificationEnqueuer };
 }
 
 describe("IssueRefundForApprovedReturnUseCase", () => {
@@ -55,8 +58,8 @@ describe("IssueRefundForApprovedReturnUseCase", () => {
     expect(refundIssuer.issueForReturn).toHaveBeenCalledWith("return-1", "order-1", 1050);
   });
 
-  it("advances RETURN_APPROVED -> REFUND_INITIATED -> REFUNDED on a completed refund, clears the order's active-return flag, and logs the action", async () => {
-    const { useCase, returnRepository, orderReturnFlagWriter, auditLogger } = buildUseCase("completed");
+  it("advances RETURN_APPROVED -> REFUND_INITIATED -> REFUNDED on a completed refund, clears the order's active-return flag, logs the action, and enqueues REFUND_PROCESSED", async () => {
+    const { useCase, returnRepository, orderReturnFlagWriter, auditLogger, notificationEnqueuer } = buildUseCase("completed");
 
     const result = await useCase.execute("return-1", actor);
 
@@ -66,16 +69,20 @@ describe("IssueRefundForApprovedReturnUseCase", () => {
     expect(result.return.status).toBe("REFUNDED");
     expect(orderReturnFlagWriter.setHasActiveReturn).toHaveBeenCalledWith("order-1", false);
     expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({ action: "RETURN_REFUND_ISSUED" }));
+    expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "REFUND_PROCESSED", payload: expect.objectContaining({ contactEmail: "a@a.com", amountPaise: 1050 }) }),
+    );
   });
 
-  it("leaves the return at REFUND_INITIATED when the gateway reports failure, and does not advance further", async () => {
-    const { useCase, returnRepository } = buildUseCase("failed");
+  it("leaves the return at REFUND_INITIATED when the gateway reports failure, does not advance further, and does not notify a refund that never completed", async () => {
+    const { useCase, returnRepository, notificationEnqueuer } = buildUseCase("failed");
 
     const result = await useCase.execute("return-1", actor);
 
     expect(returnRepository.transitionStatus).toHaveBeenCalledTimes(1);
     expect(result.outcome).toBe("failed");
     expect(result.return.status).toBe("REFUND_INITIATED");
+    expect(notificationEnqueuer.enqueue).not.toHaveBeenCalled();
   });
 
   it("leaves the return at REFUND_INITIATED for a COD order (not-applicable)", async () => {
@@ -95,7 +102,8 @@ describe("IssueRefundForApprovedReturnUseCase", () => {
     const refundIssuer = { issueForReturn: vi.fn() } as unknown as RefundIssuerPort;
     const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-    const useCase = new IssueRefundForApprovedReturnUseCase(returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger);
+    const notificationEnqueuer = { enqueue: vi.fn() };
+    const useCase = new IssueRefundForApprovedReturnUseCase(returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger, notificationEnqueuer);
 
     await expect(useCase.execute("return-1", actor)).rejects.toThrow(/isn't ready for a refund/i);
   });
@@ -108,11 +116,13 @@ describe("IssueRefundForApprovedReturnUseCase", () => {
     const refundIssuer = { issueForReturn: vi.fn() } as unknown as RefundIssuerPort;
     const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-    const useCase = new IssueRefundForApprovedReturnUseCase(returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger);
+    const notificationEnqueuer = { enqueue: vi.fn() };
+    const useCase = new IssueRefundForApprovedReturnUseCase(returnRepository, orderReader, refundIssuer, orderReturnFlagWriter, auditLogger, notificationEnqueuer);
 
     const result = await useCase.execute("return-1", actor);
 
     expect(result.outcome).toBe("completed");
     expect(refundIssuer.issueForReturn).not.toHaveBeenCalled();
+    expect(notificationEnqueuer.enqueue).not.toHaveBeenCalled();
   });
 });
