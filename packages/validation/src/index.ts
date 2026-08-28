@@ -6,4 +6,5 @@ export * from "./collections.schema";
 export * from "./payments.schema";
 export * from "./products.schema";
 export * from "./shared";
+export * from "./users.schema";
 export * from "./wishlist.schema";

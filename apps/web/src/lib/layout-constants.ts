@@ -12,3 +12,23 @@ export const MOBILE_BOTTOM_NAV_HEIGHT_REM = "4.25rem";
 export const ABOVE_MOBILE_BOTTOM_NAV_STYLE = {
   bottom: `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom))`,
 } as const;
+
+/**
+ * `scroll-margin-bottom` for a NORMAL-FLOW element near the end of a page
+ * (a form's submit button, say) whose page is only a little taller than the
+ * viewport — the storefront layout's `pb-20` correctly guarantees clearance
+ * from BottomNav once the page is scrolled all the way down, but on FIRST
+ * render (scrollY 0) an element that close to the bottom can still render
+ * mostly behind the fixed, `z-30` nav (confirmed live, Week 2 Day 3:
+ * `/account/addresses`'s "Add address" button rendered 4px visible / 40px
+ * hidden under BottomNav before any scroll, and a tap on its visible sliver
+ * landed on BottomNav's own link instead — the browser's native
+ * `scrollIntoView`/focus-scroll behavior doesn't know a fixed sibling is
+ * covering part of the viewport, so without this it stops "close enough"
+ * rather than actually clear of the nav). Apply to any submit button (or
+ * other interactive element) that isn't already guaranteed to render well
+ * above the fold on a short-viewport phone.
+ */
+export const SCROLL_MARGIN_ABOVE_BOTTOM_NAV_STYLE = {
+  scrollMarginBottom: `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom))`,
+} as const;

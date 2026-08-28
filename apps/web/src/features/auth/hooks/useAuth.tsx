@@ -14,6 +14,8 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
+  /** Re-fetches /auth/me and updates the in-memory user — for a feature that mutates the profile through a DIFFERENT endpoint (Week 2 Day 3's PATCH /users/me) to refresh what this context holds, without a full re-login. */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -73,8 +75,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    if (!accessToken) return;
+    const { user: freshUser } = await authApi.me(accessToken);
+    setUser(freshUser);
+  }, [accessToken]);
+
   return (
-    <AuthContext.Provider value={{ user, accessToken, status, login, register, logout }}>
+    <AuthContext.Provider value={{ user, accessToken, status, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

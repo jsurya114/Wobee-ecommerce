@@ -58,6 +58,16 @@ export class AuthRepository implements AuthRepositoryPort {
     }
   }
 
+  async updateUserName(id: string, name: string): Promise<UserEntity> {
+    // Not wrapped in a NotFoundError-mapping try/catch like update() elsewhere
+    // in this codebase (e.g. collection.repository.ts) — the caller is always
+    // resolving their OWN id from a verified access token (see
+    // UpdateUserProfileUseCase), so a P2025 here would mean the token outlived
+    // the account, not a normal user-facing 404 path worth a bespoke message for.
+    const user = await prisma.user.update({ where: { id }, data: { name } });
+    return toEntity(user);
+  }
+
   async createRefreshToken(params: {
     userId: string;
     tokenHash: string;

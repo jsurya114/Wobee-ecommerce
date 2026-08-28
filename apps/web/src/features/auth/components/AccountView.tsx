@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Card } from "@woobe/ui";
-import { ChevronRight, Package } from "lucide-react";
+import { ChevronRight, MapPin, Package, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -59,6 +59,22 @@ export function AccountView() {
           </div>
         ) : null}
       </Card>
+
+      <Link href="/account/profile">
+        <Card className="flex items-center gap-3 p-4 transition-colors hover:border-primary">
+          <Pencil className="h-5 w-5 text-primary" aria-hidden="true" />
+          <span className="flex-1 font-body text-sm font-medium text-text-primary">Edit profile</span>
+          <ChevronRight className="h-4 w-4 text-text-secondary" aria-hidden="true" />
+        </Card>
+      </Link>
+
+      <Link href="/account/addresses">
+        <Card className="flex items-center gap-3 p-4 transition-colors hover:border-primary">
+          <MapPin className="h-5 w-5 text-primary" aria-hidden="true" />
+          <span className="flex-1 font-body text-sm font-medium text-text-primary">Your addresses</span>
+          <ChevronRight className="h-4 w-4 text-text-secondary" aria-hidden="true" />
+        </Card>
+      </Link>
 
       <Link href="/account/orders">
         <Card className="flex items-center gap-3 p-4 transition-colors hover:border-primary">

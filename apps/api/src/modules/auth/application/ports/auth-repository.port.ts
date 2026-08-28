@@ -26,6 +26,8 @@ export interface RefreshTokenRecord {
 export interface AuthRepositoryPort {
   findUserByEmail(email: string): Promise<UserEntity | null>;
   findUserById(id: string): Promise<UserEntity | null>;
+  /** Week 2 Day 3 (week2 (1).md §6) — the only User field editable via the profile endpoint; see UpdateUserProfileUseCase's own doc comment for why email/phone aren't here. */
+  updateUserName(id: string, name: string): Promise<UserEntity>;
   /** Includes the PASSWORD auth credential's hash (or null if the user has none — e.g. future OTP-only accounts) in one query. */
   findUserWithPasswordHashByEmail(email: string): Promise<UserWithPasswordHash | null>;
   createUserWithPassword(input: CreateUserInput): Promise<UserEntity>;

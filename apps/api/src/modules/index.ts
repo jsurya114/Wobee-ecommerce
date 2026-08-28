@@ -16,6 +16,7 @@ import { router as refundsRouter } from "./refunds/refunds.module";
 import { router as returnsRouter } from "./returns/returns.module";
 import { router as reviewsRouter } from "./reviews/reviews.module";
 import { router as shippingRouter } from "./shipping/shipping.module";
+import { router as usersRouter } from "./users/users.module";
 import { router as wishlistRouter } from "./wishlist/wishlist.module";
 
 /**
@@ -25,6 +26,7 @@ import { router as wishlistRouter } from "./wishlist/wishlist.module";
  */
 export const moduleRouters: { path: string; router: Router }[] = [
   { path: "/auth", router: authRouter },
+  { path: "/users", router: usersRouter },
   { path: "/products", router: productsRouter },
   { path: "/categories", router: categoriesRouter },
   { path: "/collections", router: collectionsRouter },
