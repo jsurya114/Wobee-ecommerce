@@ -1,8 +1,11 @@
-import { AuthMethod, Prisma, prisma } from "@woobe/database";
+import { AuthMethod, Prisma, prisma, Role } from "@woobe/database";
 import { ConflictError } from "../../../../shared/errors";
 import type {
   AuthRepositoryPort,
   CreateUserInput,
+  CustomerSummary,
+  ListCustomersFilter,
+  ListCustomersResult,
   RefreshTokenRecord,
   UserWithPasswordHash,
 } from "../../application/ports/auth-repository.port";
@@ -93,6 +96,46 @@ export class AuthRepository implements AuthRepositoryPort {
     await prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
+    });
+  }
+
+  async findCustomersForAdmin(filter: ListCustomersFilter): Promise<ListCustomersResult> {
+    const where: Prisma.UserWhereInput = {
+      role: Role.CUSTOMER,
+      ...(filter.isActive !== undefined ? { isActive: filter.isActive } : {}),
+      ...(filter.search
+        ? { OR: [{ name: { contains: filter.search, mode: "insensitive" } }, { email: { contains: filter.search, mode: "insensitive" } }] }
+        : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (filter.page - 1) * filter.pageSize,
+        take: filter.pageSize,
+        select: { id: true, email: true, phone: true, name: true, isActive: true, createdAt: true },
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    const items: CustomerSummary[] = rows;
+    return { items, total };
+  }
+
+  async findCustomerSummaryById(id: string): Promise<CustomerSummary | null> {
+    const user = await prisma.user.findFirst({
+      where: { id, role: Role.CUSTOMER },
+      select: { id: true, email: true, phone: true, name: true, isActive: true, createdAt: true },
+    });
+    return user;
+  }
+
+  async setUserActive(id: string, isActive: boolean): Promise<CustomerSummary> {
+    return prisma.user.update({
+      where: { id },
+      data: { isActive },
+      select: { id: true, email: true, phone: true, name: true, isActive: true, createdAt: true },
     });
   }
 }

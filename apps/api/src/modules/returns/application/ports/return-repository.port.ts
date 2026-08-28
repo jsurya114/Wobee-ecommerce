@@ -38,6 +38,8 @@ export interface AdminReturnSummaryEntity extends ReturnSummaryEntity {
 
 export interface ListReturnsFilter {
   status?: ReturnStatus;
+  /** Narrows the admin queue to one order's own returns — backs the admin order-detail "view return" link (Week 2 Day 7). */
+  orderId?: string;
   page: number;
   pageSize: number;
 }

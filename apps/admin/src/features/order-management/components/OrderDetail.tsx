@@ -2,6 +2,7 @@
 
 import { formatPaiseAsInr } from "@woobe/utils";
 import { Badge, Card } from "@woobe/ui";
+import Link from "next/link";
 import { useAdminOrder } from "../hooks/useAdminOrder";
 import { OrderStatusActions } from "./OrderStatusActions";
 import { OrderTimeline } from "./OrderTimeline";
@@ -22,9 +23,16 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   return (
     <div className="grid gap-6 md:grid-cols-[2fr_1fr]">
       <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="font-display text-xl text-text-primary">{order.orderNumber}</h1>
-          <Badge variant="neutral">{order.status.replace(/_/g, " ").toLowerCase()}</Badge>
+          <div className="flex items-center gap-2">
+            {order.hasActiveReturn ? (
+              <Link href={`/returns?orderId=${order.id}`}>
+                <Badge variant="neutral">return requested</Badge>
+              </Link>
+            ) : null}
+            <Badge variant="neutral">{order.status.replace(/_/g, " ").toLowerCase()}</Badge>
+          </div>
         </div>
 
         <Card className="p-4">

@@ -25,7 +25,8 @@ import { createUsersRouter } from "./interface/http/users.routes";
 
 const addressRepository = new AddressRepository();
 
-const listAddressesUseCase = new ListAddressesUseCase(addressRepository);
+/** Exported for `admin`'s own customer-detail composition (Week 2 Day 7, week2 (1).md §19's "Addresses where authorized" tab) — no ownership gate baked in here either, same reasoning orders.module.ts's own listMyOrdersUseCase export gives. */
+export const listAddressesUseCase = new ListAddressesUseCase(addressRepository);
 const createAddressUseCase = new CreateAddressUseCase(addressRepository);
 const updateAddressUseCase = new UpdateAddressUseCase(addressRepository);
 const deleteAddressUseCase = new DeleteAddressUseCase(addressRepository);

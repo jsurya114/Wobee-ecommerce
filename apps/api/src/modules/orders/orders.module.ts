@@ -90,7 +90,8 @@ const checkoutUseCase = new CheckoutUseCase(
 );
 /** Exported for `returns`' customer-facing OrderReaderPort adapter (Week 2 Day 6) — keeps the exact same ownership-check semantics GetOrderUseCase's own doc comment describes. */
 export const getOrderUseCase = new GetOrderUseCase(orderRepository);
-const listMyOrdersUseCase = new ListMyOrdersUseCase(orderRepository);
+/** Exported for `admin`'s own customer-detail composition (Week 2 Day 7, week2 (1).md §19's "Orders" tab) — same use-case, no ownership gate baked in (that lives at the controller layer via the caller's own req.user.id, or here via admin's own RBAC), so it's safe to reuse for "this customer's orders" too. */
+export const listMyOrdersUseCase = new ListMyOrdersUseCase(orderRepository);
 
 /** Exported for cross-module use — payments (Week 1 Day 5) triggers these instead of writing to Order itself. */
 export const confirmOrderUseCase = new ConfirmOrderUseCase(orderRepository);

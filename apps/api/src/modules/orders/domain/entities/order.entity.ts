@@ -53,6 +53,8 @@ export interface OrderEntity {
   deliveredAt: Date | null;
   cancelledAt: Date | null;
   cancellationReason: string | null;
+  /** True while a non-terminal Return exists against this order (returns' own SetOrderHasActiveReturnUseCase, Week 2 Day 6) — surfaced read-only here for admin order-detail's "view return" link (Week 2 Day 7). */
+  hasActiveReturn: boolean;
   items: OrderItemEntity[];
 }
 

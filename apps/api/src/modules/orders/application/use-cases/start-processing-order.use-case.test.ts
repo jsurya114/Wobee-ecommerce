@@ -12,7 +12,7 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     shippingSnapshot: { fullName: "A", phone: "1", line1: "L1", city: "C", state: "S", pincode: "1" },
     subtotalPaise: 100, discountPaise: 0, shippingFeePaise: 0, taxPaise: 0, totalPaise: 100, totalWeightGrams: 100,
     paymentMethod: "COD", placedAt: new Date(), items: [],
-    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: null, cancellationReason: null,
+    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: null, cancellationReason: null, hasActiveReturn: false,
     ...overrides,
   };
 }

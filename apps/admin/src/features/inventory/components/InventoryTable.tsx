@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge, Button, Input } from "@woobe/ui";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import type { AdminInventoryRow } from "../api/admin-inventory.client";
@@ -14,6 +14,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
   const [delta, setDelta] = useState("");
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   if (items.length === 0) {
     return <p className="py-12 text-center font-body text-sm text-text-secondary">No variants match these filters.</p>;
@@ -23,6 +24,13 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
     setAdjustingId(variantId);
     setDelta("");
     setReason("");
+    // The "Adjust" button lives in this table's own rightmost, horizontally-scrolled
+    // column — without resetting scroll, the expanded form below would open already
+    // scrolled out of view on a narrow viewport. `position: sticky` can't fix this: it
+    // doesn't work on a <td> inside a `border-collapse` table (confirmed live — the
+    // "sticky" cell scrolled exactly like a non-sticky one), so this is a real reset,
+    // not a CSS pin.
+    scrollContainerRef.current?.scrollTo({ left: 0 });
   };
 
   const submitAdjustment = async (variantId: string) => {
@@ -48,7 +56,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div ref={scrollContainerRef} className="overflow-x-auto">
       <table className="w-full min-w-[720px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">
@@ -88,8 +96,9 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
                 </tr>
                 {adjustingId === row.variantId ? (
                   <tr className="border-b border-border bg-primary-tint/20">
+                    {/* This is the one row in this table with an active input, unlike every other read-only row — `max-w` (well under the table's own >=720px rendered width) is what actually forces `flex-wrap` to kick in at a narrow viewport; flex-wrap alone never sees this as constrained, since the table itself is always wide enough to fit everything on one line. `startAdjusting` resets the container's own scroll to 0 on open so this form doesn't appear off-screen if "Adjust" was clicked from a scrolled-right position — `position: sticky` was tried first and doesn't work here: it's a no-op on a <td> inside a `border-collapse` table (confirmed live), not a viable fix. */}
                     <td colSpan={7} className="p-3">
-                      <div className="flex flex-wrap items-end gap-2">
+                      <div className="flex max-w-[320px] flex-wrap items-end gap-2 sm:max-w-none">
                         <div className="flex flex-col gap-1">
                           <label className="font-body text-xs text-text-secondary" htmlFor={`delta-${row.variantId}`}>
                             Adjustment (+/-)

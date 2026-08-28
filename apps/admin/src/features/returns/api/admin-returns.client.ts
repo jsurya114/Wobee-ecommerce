@@ -56,6 +56,8 @@ export interface AdminReturnDetailView {
 
 export interface ListReturnsParams {
   status?: ReturnStatus;
+  /** Narrows to one order's own returns — backs the admin order-detail "return requested" link (Week 2 Day 7). */
+  orderId?: string;
   page?: number;
   pageSize?: number;
 }
@@ -68,6 +70,7 @@ export interface IssueRefundResult {
 function toQuery(params: ListReturnsParams): string {
   const query = new URLSearchParams();
   if (params.status) query.set("status", params.status);
+  if (params.orderId) query.set("orderId", params.orderId);
   query.set("page", String(params.page ?? 1));
   query.set("pageSize", String(params.pageSize ?? 20));
   return query.toString();

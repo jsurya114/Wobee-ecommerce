@@ -11,9 +11,12 @@
 import { Router } from "express";
 import {
   getCurrentUserUseCase,
+  getCustomerForAdminUseCase,
+  listCustomersAdminUseCase,
   loginUserUseCase,
   logoutUserUseCase,
   refreshTokenUseCase,
+  setCustomerActiveUseCase,
 } from "../auth/auth.module";
 import { recordAuditLogUseCase } from "../audit/audit.module";
 import {
@@ -31,6 +34,7 @@ import {
   cancelOrderUseCase,
   deliverOrderUseCase,
   getOrderForAdminUseCase,
+  listMyOrdersUseCase,
   listOrdersUseCase,
   shipOrderUseCase,
   startProcessingOrderUseCase,
@@ -58,11 +62,15 @@ import {
   rejectReturnUseCase,
 } from "../returns/returns.module";
 import { listReviewsAdminUseCase, moderateReviewUseCase } from "../reviews/reviews.module";
+import { listAddressesUseCase } from "../users/users.module";
+import { GetCustomerDetailUseCase } from "./application/use-cases/get-customer-detail.use-case";
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
 import { createAdminAuthRouter } from "./interface/http/admin-auth.routes";
 import { AdminCollectionsController } from "./interface/http/admin-collections.controller";
 import { createAdminCollectionsRouter } from "./interface/http/admin-collections.routes";
+import { AdminCustomersController } from "./interface/http/admin-customers.controller";
+import { createAdminCustomersRouter } from "./interface/http/admin-customers.routes";
 import { AdminInventoryController } from "./interface/http/admin-inventory.controller";
 import { createAdminInventoryRouter } from "./interface/http/admin-inventory.routes";
 import { AdminOrdersController } from "./interface/http/admin-orders.controller";
@@ -128,6 +136,17 @@ const adminProductsController = new AdminProductsController(
 );
 const adminInventoryController = new AdminInventoryController(listInventoryAdminUseCase, adjustInventoryUseCase);
 
+// Cross-module customer detail (week2 (1).md §19) — same "compose in admin,
+// nothing imports it back" reasoning as CancelOrderWithRefundUseCase above,
+// see GetCustomerDetailUseCase's own doc comment for why auth specifically
+// can't compose this itself (users already imports auth).
+const getCustomerDetailUseCase = new GetCustomerDetailUseCase(
+  getCustomerForAdminUseCase,
+  { listForUser: (userId) => listMyOrdersUseCase.execute(userId) },
+  { listForUser: (userId) => listAddressesUseCase.execute(userId) },
+);
+const adminCustomersController = new AdminCustomersController(listCustomersAdminUseCase, getCustomerDetailUseCase, setCustomerActiveUseCase);
+
 export const router = Router();
 router.use("/auth", createAdminAuthRouter(adminAuthController));
 router.use("/orders", createAdminOrdersRouter(adminOrdersController));
@@ -136,3 +155,4 @@ router.use("/reviews", createAdminReviewsRouter(adminReviewsController));
 router.use("/returns", createAdminReturnsRouter(adminReturnsController));
 router.use("/products", createAdminProductsRouter(adminProductsController));
 router.use("/inventory", createAdminInventoryRouter(adminInventoryController));
+router.use("/customers", createAdminCustomersRouter(adminCustomersController));

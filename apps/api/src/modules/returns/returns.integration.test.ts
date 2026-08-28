@@ -169,6 +169,14 @@ describe("returns: customer request + eligibility", () => {
 
     const dbOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     expect(dbOrder.hasActiveReturn).toBe(true);
+
+    // Week 2 Day 7's admin order-detail "return requested" link relies on both of these.
+    const adminOrderRes = await request(app).get(`/api/v1/admin/orders/${order.id}`).set("Authorization", `Bearer ${adminAuth}`);
+    expect(adminOrderRes.body.hasActiveReturn).toBe(true);
+
+    const adminReturnsByOrderRes = await request(app).get(`/api/v1/admin/returns?orderId=${order.id}`).set("Authorization", `Bearer ${adminAuth}`);
+    expect(adminReturnsByOrderRes.status).toBe(200);
+    expect(adminReturnsByOrderRes.body.items.map((r: { id: string }) => r.id)).toEqual([res.body.id]);
   });
 
   it("rejects a return request on an order that hasn't been delivered yet", async () => {

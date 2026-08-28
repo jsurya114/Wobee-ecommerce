@@ -26,6 +26,8 @@ export const RETURN_STATUS_VALUES = ["RETURN_REQUESTED", "RETURN_APPROVED", "RET
 
 export const listReturnsQuerySchema = z.object({
   status: z.enum(RETURN_STATUS_VALUES).optional(),
+  /** `GET /admin/returns?orderId=` — Week 2 Day 7's admin order-detail "view return" link narrows straight to that order's own returns, same reasoning as listMyReturnsQuerySchema's own orderId. */
+  orderId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

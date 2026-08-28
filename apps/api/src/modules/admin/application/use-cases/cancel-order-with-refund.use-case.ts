@@ -1,12 +1,27 @@
 import type { Role } from "@woobe/types";
-import type { RecordAuditLogUseCase } from "../../../audit/application/use-cases/record-audit-log.use-case";
+import type { CreateAuditLogInput } from "../../../audit/application/ports/audit-log-repository.port";
 import type { OrderEntity } from "../../../orders/domain/entities/order.entity";
-import type { CancelOrderUseCase } from "../../../orders/application/use-cases/cancel-order.use-case";
-import type { IssueRefundForCancelledOrderUseCase } from "../../../refunds/application/use-cases/issue-refund-for-cancelled-order.use-case";
+import type { TransitionOrderStatusResult } from "../../../orders/application/ports/order-repository.port";
+import type { IssueRefundResult } from "../../../refunds/application/use-cases/issue-refund-for-cancelled-order.use-case";
 
 export interface CancelOrderWithRefundResult {
   order: OrderEntity;
   refundIssued: boolean;
+}
+
+/** The one method this use-case actually calls on each collaborator — see the class doc comment for why the constructor depends on this shape rather than the concrete `CancelOrderUseCase` class. */
+interface OrderCanceller {
+  execute(orderId: string, actor: { id: string; role: Role }, reason?: string): Promise<TransitionOrderStatusResult>;
+}
+
+/** Matches `IssueRefundForCancelledOrderUseCase`'s own `execute` signature. */
+interface CancelledOrderRefundIssuer {
+  execute(orderId: string): Promise<IssueRefundResult>;
+}
+
+/** Matches `RecordAuditLogUseCase`'s own `execute` signature (its optional `tx` is never passed here — this cancellation's audit write is deliberately its own, untransacted step, same as the rest of this use-case's ordering). */
+interface AuditLogger {
+  execute(input: CreateAuditLogInput): Promise<void>;
 }
 
 /**
@@ -27,9 +42,14 @@ export interface CancelOrderWithRefundResult {
  *
  * `admin` sits above all three (it is the top-level permission-gated HTTP
  * gateway and is imported by nothing but the app root), so composing them
- * here adds no edge that can lead back. That also means no new port
- * interfaces are needed: `admin` imports the concrete exported singletons
- * directly, the same pattern every other composition root uses.
+ * here adds no edge that can lead back. The constructor depends on the
+ * narrow `execute`-shaped interfaces above rather than the concrete
+ * `CancelOrderUseCase`/`IssueRefundForCancelledOrderUseCase`/
+ * `RecordAuditLogUseCase` classes — same DIP posture `GetCustomerDetailUseCase`
+ * already uses for this same "compose in `admin`" pattern (see its own doc
+ * comment). `admin.module.ts`'s wiring is unchanged either way: it still
+ * passes the real exported singletons, which satisfy these interfaces
+ * structurally.
  *
  * Ordering and idempotency mirror the behaviour this replaces exactly: the
  * refund is external I/O attempted only AFTER the cancellation has
@@ -40,9 +60,9 @@ export interface CancelOrderWithRefundResult {
  */
 export class CancelOrderWithRefundUseCase {
   constructor(
-    private readonly cancelOrderUseCase: CancelOrderUseCase,
-    private readonly issueRefundForCancelledOrderUseCase: IssueRefundForCancelledOrderUseCase,
-    private readonly recordAuditLogUseCase: RecordAuditLogUseCase,
+    private readonly cancelOrderUseCase: OrderCanceller,
+    private readonly issueRefundForCancelledOrderUseCase: CancelledOrderRefundIssuer,
+    private readonly recordAuditLogUseCase: AuditLogger,
   ) {}
 
   async execute(orderId: string, actor: { id: string; role: Role }, reason?: string): Promise<CancelOrderWithRefundResult> {

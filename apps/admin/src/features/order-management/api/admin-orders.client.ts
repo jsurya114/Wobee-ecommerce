@@ -39,6 +39,8 @@ export interface AdminOrderView {
   deliveredAt: string | null;
   cancelledAt: string | null;
   cancellationReason: string | null;
+  /** True while a non-terminal Return exists against this order (Week 2 Day 6/7) — drives the "View return" link on this page. */
+  hasActiveReturn: boolean;
   items: AdminOrderItemView[];
 }
 

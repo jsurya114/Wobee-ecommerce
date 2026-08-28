@@ -61,7 +61,10 @@ export class ReturnRepository implements ReturnRepositoryPort {
   }
 
   async findAllPaginated(filter: ListReturnsFilter): Promise<ListReturnsResult> {
-    const where: Prisma.ReturnWhereInput = filter.status ? { status: filter.status } : {};
+    const where: Prisma.ReturnWhereInput = {
+      ...(filter.status ? { status: filter.status } : {}),
+      ...(filter.orderId ? { orderId: filter.orderId } : {}),
+    };
 
     const [returns, total] = await Promise.all([
       prisma.return.findMany({

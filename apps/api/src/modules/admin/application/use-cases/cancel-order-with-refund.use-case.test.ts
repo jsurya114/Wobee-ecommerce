@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CancelOrderWithRefundUseCase } from "./cancel-order-with-refund.use-case";
-import type { RecordAuditLogUseCase } from "../../../audit/application/use-cases/record-audit-log.use-case";
 import type { OrderEntity } from "../../../orders/domain/entities/order.entity";
-import type { CancelOrderUseCase } from "../../../orders/application/use-cases/cancel-order.use-case";
-import type { IssueRefundForCancelledOrderUseCase } from "../../../refunds/application/use-cases/issue-refund-for-cancelled-order.use-case";
 
 function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
   return {
@@ -13,7 +10,7 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     subtotalPaise: 100, discountPaise: 0, shippingFeePaise: 0, taxPaise: 0, totalPaise: 100, totalWeightGrams: 100,
     paymentMethod: "RAZORPAY", placedAt: new Date(),
     items: [{ id: "item-1", variantId: "variant-1", productNameSnapshot: "P", skuSnapshot: "SKU", color: "Red", size: "M", weightGrams: 100, unitRatePerKgPaise: 1000, unitPricePaise: 100, quantity: 2, lineTotalPaise: 200, taxAmountPaise: 10 }],
-    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: new Date(), cancellationReason: null,
+    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: new Date(), cancellationReason: null, hasActiveReturn: false,
     ...overrides,
   };
 }
@@ -22,13 +19,13 @@ function buildUseCase(overrides: { changed?: boolean; refundIssued?: boolean } =
   const cancelled = order();
   const cancelOrderUseCase = {
     execute: vi.fn().mockResolvedValue({ order: cancelled, changed: overrides.changed ?? true }),
-  } as unknown as CancelOrderUseCase;
+  };
   const issueRefundForCancelledOrderUseCase = {
     execute: vi.fn().mockResolvedValue({ refundIssued: overrides.refundIssued ?? true }),
-  } as unknown as IssueRefundForCancelledOrderUseCase;
+  };
   const recordAuditLogUseCase = {
     execute: vi.fn().mockResolvedValue(undefined),
-  } as unknown as RecordAuditLogUseCase;
+  };
   const useCase = new CancelOrderWithRefundUseCase(cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase);
   return { useCase, cancelOrderUseCase, issueRefundForCancelledOrderUseCase, recordAuditLogUseCase, cancelled };
 }

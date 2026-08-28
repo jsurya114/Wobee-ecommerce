@@ -215,6 +215,7 @@ function toEntity(order: OrderWithItems): OrderEntity {
     deliveredAt: order.deliveredAt,
     cancelledAt: order.cancelledAt,
     cancellationReason: order.cancellationReason,
+    hasActiveReturn: order.hasActiveReturn,
     items: order.items.map((item) => ({
       id: item.id,
       variantId: item.variantId,

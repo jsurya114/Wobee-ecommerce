@@ -47,5 +47,12 @@ export type Role = (typeof ROLE)[number];
 /// union alone is shared so apps/admin can gate nav/buttons the same way
 /// (ADR-020) — client-side is a UI convenience, the server route guard is
 /// what actually enforces it.
-export const PERMISSION = ["MANAGE_SETTINGS", "MANAGE_CATALOG", "MANAGE_INVENTORY", "MANAGE_ORDERS", "MANAGE_STAFF"] as const;
+export const PERMISSION = [
+  "MANAGE_SETTINGS",
+  "MANAGE_CATALOG",
+  "MANAGE_INVENTORY",
+  "MANAGE_ORDERS",
+  "MANAGE_STAFF",
+  "MANAGE_CUSTOMERS",
+] as const;
 export type Permission = (typeof PERMISSION)[number];
