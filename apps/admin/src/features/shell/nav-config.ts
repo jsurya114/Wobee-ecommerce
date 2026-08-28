@@ -21,7 +21,7 @@ export const ADMIN_NAV: AdminNavEntry[] = [
   { label: "Inventory", href: "/inventory", status: "coming-soon", permission: "MANAGE_INVENTORY" },
   { label: "Settings", href: "/settings", status: "coming-soon", permission: "MANAGE_SETTINGS" },
   { label: "Staff", href: "/staff", status: "coming-soon", permission: "MANAGE_STAFF" },
-  { label: "Returns", href: "/returns", status: "coming-soon", permission: "MANAGE_ORDERS" },
+  { label: "Returns", href: "/returns", status: "live", permission: "MANAGE_ORDERS" },
 ];
 
 /** Mirrors apps/api/src/config/permissions.ts's ROLE_PERMISSIONS map — duplicated here (client-side convenience only, never the actual enforcement) rather than imported, since apps/admin can't reach into apps/api's internals (ADR-019). The server route guard is what actually enforces access; this only decides what to show. */

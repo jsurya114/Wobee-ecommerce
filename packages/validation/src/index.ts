@@ -6,6 +6,7 @@ export * from "./collections.schema";
 export * from "./coupons.schema";
 export * from "./payments.schema";
 export * from "./products.schema";
+export * from "./returns.schema";
 export * from "./reviews.schema";
 export * from "./shared";
 export * from "./shipping.schema";

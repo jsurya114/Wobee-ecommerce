@@ -170,6 +170,10 @@ export class OrderRepository implements OrderRepositoryPort {
     };
   }
 
+  async setHasActiveReturn(orderId: string, value: boolean): Promise<void> {
+    await prisma.order.update({ where: { id: orderId }, data: { hasActiveReturn: value } });
+  }
+
   async hasUserPurchasedProduct(userId: string, productId: string): Promise<boolean> {
     const match = await prisma.orderItem.findFirst({
       where: {

@@ -34,6 +34,7 @@ import { HasPurchasedProductUseCase } from "./application/use-cases/has-purchase
 import { ListMyOrdersUseCase } from "./application/use-cases/list-my-orders.use-case";
 import { ListOrdersUseCase } from "./application/use-cases/list-orders.use-case";
 import { MarkOrderPaymentFailedUseCase } from "./application/use-cases/mark-order-payment-failed.use-case";
+import { SetOrderHasActiveReturnUseCase } from "./application/use-cases/set-order-has-active-return.use-case";
 import { ShipOrderUseCase } from "./application/use-cases/ship-order.use-case";
 import { StartProcessingOrderUseCase } from "./application/use-cases/start-processing-order.use-case";
 import { OrderRepository } from "./infrastructure/repositories/order.repository";
@@ -87,7 +88,8 @@ const checkoutUseCase = new CheckoutUseCase(
   transactionRunner,
   couponRedeemer,
 );
-const getOrderUseCase = new GetOrderUseCase(orderRepository);
+/** Exported for `returns`' customer-facing OrderReaderPort adapter (Week 2 Day 6) — keeps the exact same ownership-check semantics GetOrderUseCase's own doc comment describes. */
+export const getOrderUseCase = new GetOrderUseCase(orderRepository);
 const listMyOrdersUseCase = new ListMyOrdersUseCase(orderRepository);
 
 /** Exported for cross-module use — payments (Week 1 Day 5) triggers these instead of writing to Order itself. */
@@ -111,6 +113,8 @@ export const listOrdersUseCase = new ListOrdersUseCase(orderRepository);
 export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository);
 /** Exported for `reviews`' verified-purchase check (Week 2 Day 4). */
 export const hasPurchasedProductUseCase = new HasPurchasedProductUseCase(orderRepository);
+/** Exported for `returns`' own OrderReturnFlagWriterPort adapter (Week 2 Day 6). */
+export const setOrderHasActiveReturnUseCase = new SetOrderHasActiveReturnUseCase(orderRepository);
 
 const ordersController = new OrdersController(checkoutUseCase, getOrderUseCase, listMyOrdersUseCase);
 

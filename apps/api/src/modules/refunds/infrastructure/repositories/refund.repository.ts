@@ -9,10 +9,16 @@ export class RefundRepository implements RefundRepositoryPort {
     return refund ? toEntity(refund) : null;
   }
 
+  async findByReturnId(returnId: string): Promise<RefundEntity | null> {
+    const refund = await prisma.refund.findFirst({ where: { returnId }, orderBy: { createdAt: "desc" } });
+    return refund ? toEntity(refund) : null;
+  }
+
   async create(input: CreateRefundInput): Promise<RefundEntity> {
     const refund = await prisma.refund.create({
       data: {
         orderId: input.orderId,
+        returnId: input.returnId,
         provider: input.provider,
         status: input.status,
         amountPaise: input.amountPaise,
@@ -20,6 +26,10 @@ export class RefundRepository implements RefundRepositoryPort {
       },
     });
     return toEntity(refund);
+  }
+
+  async markCompletedByReturnId(returnId: string): Promise<void> {
+    await prisma.refund.updateMany({ where: { returnId }, data: { status: "COMPLETED" } });
   }
 }
 

@@ -17,7 +17,9 @@ function buildUseCase(overrides: {
   };
   const refundRepository: RefundRepositoryPort = {
     findByOrderId: vi.fn().mockResolvedValue(overrides.existingRefund ?? null),
+    findByReturnId: vi.fn().mockResolvedValue(null),
     create: vi.fn().mockImplementation(async (input) => ({ id: "refund-db-1", createdAt: new Date(), ...input })),
+    markCompletedByReturnId: vi.fn().mockResolvedValue(undefined),
   };
   const useCase = new IssueRefundForCancelledOrderUseCase(paymentReader, paymentRefundWriter, gateway, refundRepository);
   return { useCase, paymentReader, paymentRefundWriter, gateway, refundRepository };

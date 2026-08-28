@@ -1,7 +1,7 @@
 "use client";
 
 import { formatPaiseAsInr } from "@woobe/utils";
-import { Badge, Button, Card, Spinner } from "@woobe/ui";
+import { Button, Card, Spinner } from "@woobe/ui";
 import { CheckCircle2, PackageX } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
@@ -13,6 +13,7 @@ import type { OrderView } from "@/features/checkout/api/checkout.client";
 import { openRazorpayCheckout } from "@/features/payments/lib/razorpay-checkout";
 import * as paymentsApi from "@/features/payments/api/payments.client";
 import * as ordersApi from "../api/orders.client";
+import { OrderStatusBadge } from "./OrderStatusBadge";
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 60_000;
@@ -145,7 +146,7 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
           <div className="flex items-center justify-between">
             <dt className="text-text-secondary">Status</dt>
             <dd>
-              <StatusBadge status={order.status} />
+              <OrderStatusBadge status={order.status} />
             </dd>
           </div>
         </dl>
@@ -166,13 +167,6 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
       </Link>
     </div>
   );
-}
-
-function StatusBadge({ status }: { status: OrderView["status"] }) {
-  const label = status.replace(/_/g, " ").toLowerCase();
-  if (status === "CONFIRMED") return <Badge variant="success">{label}</Badge>;
-  if (status === "PAYMENT_FAILED") return <Badge variant="error">{label}</Badge>;
-  return <Badge variant="neutral">{label}</Badge>;
 }
 
 function StatusHeading({ order, stage }: { order: OrderView; stage: PaymentStage }) {

@@ -11,9 +11,9 @@ import * as ordersApi from "../api/orders.client";
 import type { OrderSummary } from "../api/orders.client";
 
 /**
- * "My Orders" (Week 1 Day 5) — status only, no returns/refunds UI yet
- * (week1_excecution_prompt.md's explicit scope for this week). Logged-in
- * only, same protected-route pattern as AccountView.
+ * "My Orders" (Week 1 Day 5) — links to each order's own detail page
+ * (`/account/orders/[id]`, Week 2 Day 6), which is where returns now live.
+ * Logged-in only, same protected-route pattern as AccountView.
  */
 export function MyOrdersList() {
   const router = useRouter();
@@ -67,7 +67,7 @@ export function MyOrdersList() {
     <ul className="flex flex-col gap-3">
       {orders.map((order) => (
         <li key={order.id}>
-          <Link href={`/order-confirmation/${order.id}`} className="block">
+          <Link href={`/account/orders/${order.id}`} className="block">
             <Card className="flex items-center justify-between gap-3 p-4 transition-colors hover:border-primary">
               <div className="min-w-0">
                 <p className="truncate font-body text-sm font-medium text-text-primary">{order.orderNumber}</p>

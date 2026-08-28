@@ -35,6 +35,14 @@ import {
   startProcessingOrderUseCase,
 } from "../orders/orders.module";
 import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
+import {
+  approveReturnUseCase,
+  getReturnForAdminUseCase,
+  issueRefundForApprovedReturnUseCase,
+  listReturnsForAdminUseCase,
+  markReturnRefundedUseCase,
+  rejectReturnUseCase,
+} from "../returns/returns.module";
 import { listReviewsAdminUseCase, moderateReviewUseCase } from "../reviews/reviews.module";
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
@@ -43,6 +51,8 @@ import { AdminCollectionsController } from "./interface/http/admin-collections.c
 import { createAdminCollectionsRouter } from "./interface/http/admin-collections.routes";
 import { AdminOrdersController } from "./interface/http/admin-orders.controller";
 import { createAdminOrdersRouter } from "./interface/http/admin-orders.routes";
+import { AdminReturnsController } from "./interface/http/admin-returns.controller";
+import { createAdminReturnsRouter } from "./interface/http/admin-returns.routes";
 import { AdminReviewsController } from "./interface/http/admin-reviews.controller";
 import { createAdminReviewsRouter } from "./interface/http/admin-reviews.routes";
 
@@ -77,9 +87,18 @@ const adminCollectionsController = new AdminCollectionsController(
 );
 
 const adminReviewsController = new AdminReviewsController(listReviewsAdminUseCase, moderateReviewUseCase);
+const adminReturnsController = new AdminReturnsController(
+  listReturnsForAdminUseCase,
+  getReturnForAdminUseCase,
+  approveReturnUseCase,
+  rejectReturnUseCase,
+  issueRefundForApprovedReturnUseCase,
+  markReturnRefundedUseCase,
+);
 
 export const router = Router();
 router.use("/auth", createAdminAuthRouter(adminAuthController));
 router.use("/orders", createAdminOrdersRouter(adminOrdersController));
 router.use("/collections", createAdminCollectionsRouter(adminCollectionsController));
 router.use("/reviews", createAdminReviewsRouter(adminReviewsController));
+router.use("/returns", createAdminReturnsRouter(adminReturnsController));

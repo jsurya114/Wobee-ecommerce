@@ -85,4 +85,6 @@ export interface OrderRepositoryPort {
    * product to review.
    */
   hasUserPurchasedProduct(userId: string, productId: string): Promise<boolean>;
+  /** Week 2 Day 6 (week2 (1).md §11) — `returns`' one write onto Order, through this exported use-case (ADR-010: `returns` never touches the Order table directly). Purely denormalized for admin filtering (schema.prisma's own comment on `Order.hasActiveReturn`) — never read by any business rule. */
+  setHasActiveReturn(orderId: string, value: boolean): Promise<void>;
 }
