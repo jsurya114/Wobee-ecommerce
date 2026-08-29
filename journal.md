@@ -1515,3 +1515,54 @@ Three non-secret vars added to the job `env:` block, values mirroring `apps/{web
 **A new GitHub Actions run (Run #4) is still required.** Run #3 failed on `04e1a6a`; this build-env fix is a new local commit the remote PR does not have. A green run needs `git push origin dev1`. Until Run #4 goes fully green through Build, **CI remains unverified** and **Week 2 is NOT complete**.
 
 ---
+
+## 2026-08-29 — Week 2 Day 10 (cont. 4): CI Run #4 — FULLY GREEN. GitHub Actions verified.
+
+**Branch:** `dev1` @ `c5d0a28` (= `origin/dev1`). PR #1 (`dev1 → main`) **open, NOT merged**. This journal entry is a local commit — **not pushed**.
+
+### Fourth real GitHub Actions run — SUCCESS
+
+- **PR:** #1 — https://github.com/jsurya114/Wobee-ecommerce/pull/1 (dev1 → main), state `open`, `merged: false`, `mergeable_state: clean`
+- **Workflow:** `CI` (`.github/workflows/ci.yml`), event `pull_request` (push of `c5d0a28` → `synchronize`)
+- **Run #4:** https://github.com/jsurya114/Wobee-ecommerce/actions/runs/33265303448 — attempt 1 — **conclusion: `success`**
+- **Commit tested:** `c5d0a284290ea8f675fe15c730543a3da985220e`
+- **Duration:** 2026-08-29T17:19:00Z → 17:22:02Z (≈3 min)
+
+### Every step (job `ci`) — all green
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Set up job | ✅ |
+| 2 | Initialize containers (postgres:16-alpine :5432, redis:7-alpine :6379) | ✅ |
+| 3 | `actions/checkout@v4` (fetch-depth 0) | ✅ |
+| 4 | `actions/setup-node@v4` (node 22) | ✅ |
+| 5 | Enable corepack (pnpm) | ✅ |
+| 6 | Install dependencies (`pnpm install --frozen-lockfile`) | ✅ |
+| 7 | Check for unreviewed destructive migrations (`check:migrations`) | ✅ |
+| 8 | Generate Prisma client (`db:generate`) | ✅ |
+| 9 | Deploy migrations to the test database (`db:migrate:deploy`) | ✅ |
+| 10 | **Seed the test database (`db:seed`)** | ✅ |
+| 11 | Create shadow database | ✅ |
+| 12 | Check schema matches migration history (`migrate:diff:check`) | ✅ |
+| 13 | Lint (`pnpm run lint`) | ✅ |
+| 14 | Typecheck (`pnpm run typecheck`) | ✅ |
+| 15 | Module boundary check (`boundaries:check`) | ✅ |
+| 16 | **Unit + integration tests (`pnpm run test`)** | ✅ **370/370** |
+| 17 | **Build (`pnpm run build`) — api, web, admin** | ✅ |
+| — | Post-setup-node / post-checkout / Stop containers / Complete job | ✅ |
+
+### Fix history that got here
+
+1. `cb5731b` — `vitest.config.ts`: `process.env.X ?? <local default>` so CI-supplied `DATABASE_URL`/`REDIS_URL` win (Run #1 fix).
+2. `04e1a6a` — `ci.yml`: added `db:seed` step after `db:migrate:deploy` (Run #2 fix).
+3. `c5d0a28` — `ci.yml`: added `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_ADMIN_API_URL` to the job `env:` so `apps/web` `next build` completes (Run #3 fix).
+
+All three are test/CI-configuration only. Zero application-code changes across the entire Day 10 CI-verification effort.
+
+### CI status
+
+**VERIFIED.** GitHub Actions Run #4 (`33265303448`) executed against `c5d0a28` and passed all 16 pipeline steps — tests 370/370 and all three production builds included. `origin/dev1` = `c5d0a28`, `origin/main` unchanged at `4f456df`. PR #1 remains open and unmerged (for review; per instruction, not to be merged here).
+
+**Week 2 is ready to be considered complete, pending final sign-off.**
+
+---
