@@ -1369,3 +1369,60 @@ Each `test.env` value that legitimately differs between local and CI now reads `
 **A new GitHub Actions run is required.** Run #1 failed on `7e681e2`; the fix is a new local commit (new SHA) that the remote PR does not yet have. Getting CI to re-run against the fix needs `git push origin dev1` (updates PR #1's head), which is not authorised in this session. Until that push + a green run, **CI remains unverified for the fixed tree** and Week 2 is **not** complete.
 
 ---
+
+## 2026-08-29 — Week 2 Day 10 (cont. 2): CI Run #2 — config fix worked, exposed a missing seed step
+
+**Branch:** `dev1`. Parent `cb5731b`. Local commit only — **not pushed**. PR #1 (`dev1 → main`) stays open, **not merged**.
+
+### Second real GitHub Actions run — FAILED (but progressed past Run #1's wall)
+
+- **PR:** #1 — https://github.com/jsurya114/Wobee-ecommerce/pull/1 (dev1 → main)
+- **Workflow:** `CI` (`.github/workflows/ci.yml`), event `pull_request` (push of `cb5731b` → `synchronize`)
+- **Run #2:** on commit `cb5731b97515c9d850175b62e31c75a84dcd9f69` — **conclusion: failure** (run URL not captured — GitHub REST API rate-limited from this IP at the time; failure analysed from the full runner log).
+- **Step results:** install / `check:migrations` / `db:generate` / `db:migrate:deploy` / create-shadow-db / **`migrate:diff:check` PASS** / **Lint PASS** / **Typecheck PASS** / **Module boundary check PASS** / **"Unit + integration tests" → FAILURE (exit 1)** / Build → skipped.
+- **The `cb5731b` config fix worked:** Run #1's `connect ECONNREFUSED 127.0.0.1:6380` / `Can't reach database server at localhost:5433` errors are **completely gone**. CI now connects to the runner's Postgres `:5432` / Redis `:6379`. Prisma queries execute.
+- **New failure shape:** `@woobe/api` — 16 files failed / 38 passed; **18 tests failed / 207 passed / 145 skipped (370)**. Two signatures, one cause:
+  - **`beforeAll` throws `PrismaClientKnownRequestError` P2025 "No record was found"** — `prisma.category.findFirstOrThrow()` (admin, cart, collections, home, admin-inventory, orders, payments, admin-products, returns, reviews, wishlist), `prisma.warehouse.findFirstOrThrow()` (products), `prisma.shippingRule.findFirstOrThrow()` (shipping); `coupons` throws its explicit `Error: test setup: need at least 2 active categories seeded`.
+  - **`AssertionError: expected 401 to be 200`** from `loginAdmin` / `loginStaff` — the seeded `admin@woobe.in` / staff accounts don't exist (`admin-customers` 9, `media` 8).
+  - Suites that passed (`users` 20/20, `auth` 8/8) are exactly the ones that register their own users via the API and need no pre-seeded rows.
+
+### Root cause
+
+`.github/workflows/ci.yml` ran `db:migrate:deploy` (schema only) and went **straight to `pnpm run test`** — **no seed step**. The Postgres service container is fresh per run, so `woobe_test` on the runner had all 35 tables but **zero rows**. Integration `beforeAll` hooks read pre-seeded reference data (warehouse, shipping rule, GST slabs, admin + 2 staff accounts, 5 categories, 10 products / 22 variants). `ci.yml` had exactly one commit in its history (`519829e`, Week 1 Day 1) and had **never** contained a seed step; it only mattered now because Run #1 was the first CI run ever and died before the test step. **NOT the shared-`woobe_test` contention flake** — deterministic (empty DB → every seed-dependent `beforeAll` throws).
+
+### Fix — `.github/workflows/ci.yml` only (1 file, +7 / −0)
+
+New step, immediately after "Deploy migrations to the test database" and before the shadow-DB / lint / test steps:
+
+```yaml
+      - name: Seed the test database
+        run: pnpm run db:seed
+```
+
+Uses the existing project command (`db:seed` → `node scripts/with-root-env.mjs pnpm --filter @woobe/database run seed` → `tsx prisma/seed.ts`). No application code, no `vitest.config.ts` change; the `cb5731b` fix is untouched. `seed.ts`'s non-idempotent `.create` calls (pricingSetting / shippingRule / gstSlab) are safe here because the CI service container is fresh each run — seed executes exactly once against the new schema.
+
+### Local verification — true from-scratch CI simulation on a throwaway DB
+
+Created `woobe_ci_verify` (+ `woobe_ci_verify_shadow`) on the local Postgres, ran the exact CI sequence against it, then dropped both. `woobe_dev` and `woobe_test` untouched.
+
+| Step | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | PASS ("Already up to date") |
+| `pnpm run check:migrations` | PASS (destructive marker on the Day-8 reviews migration accepted; exit 0) |
+| `pnpm run db:generate` | PASS |
+| `pnpm run db:migrate:deploy` (fresh `woobe_ci_verify`) | PASS — 35 tables; **categories/warehouses/shipping_rules/users all = 0** (reproduces Run #2's empty-DB state exactly) |
+| **`pnpm run db:seed`** (fresh, freshly-migrated DB — the new step) | **PASS** — after: categories=5, warehouses=1, shipping_rules=1, gst_slabs=2, products=10, variants=22, users=3 (`admin@woobe.in`/SUPER_ADMIN, `orders@woobe.in`, `catalog@woobe.in`) |
+| `pnpm --filter @woobe/database run migrate:diff:check` (exact CI cmd) | PASS — "No difference detected" |
+| `pnpm run lint` | PASS (9/9, `--max-warnings=0`) |
+| `pnpm run typecheck` | PASS (9/9) — after clearing stale gitignored `apps/{web,admin}/.next` macOS `" 2.ts"` duplicate files (not a code defect; a fresh CI checkout never has them) |
+| `pnpm run boundaries:check` | PASS — 433 modules / 1270 deps / 0 violations |
+| `pnpm run test` — against the migrated **+ seeded** `woobe_ci_verify`, `DATABASE_URL` supplied via env | **PASS — 54 files, 370/370** (`@woobe/utils` 12, `@woobe/validation` 7, `@woobe/api` 370→ all 370, incl. every previously-failing integration suite). Also re-proves `cb5731b`'s precedence: env-supplied `DATABASE_URL` wins over the local `:5433` default. |
+| `pnpm run build` | PASS — api, web, admin |
+| Secrets scan of the diff | CLEAN — added lines are one comment + `run: pnpm run db:seed`; no credentials. The `PGPASSWORD=woobe_dev_password` visible on the adjacent shadow-DB line is a pre-existing unchanged context line. |
+| Unrelated changes | NONE — `git status` shows only `M .github/workflows/ci.yml`; no untracked files; generated Prisma client is gitignored. |
+
+### CI status
+
+**A new GitHub Actions run is still required.** Run #2 failed on `cb5731b`; this seed-step fix is a new local commit the remote PR does not have. A green CI run needs `git push origin dev1` (updates PR #1's head), not authorised in this session. Until that push + a fully green run (all steps through Build), **CI remains unverified** and **Week 2 is NOT complete**.
+
+---

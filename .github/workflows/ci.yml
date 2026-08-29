@@ -60,6 +60,13 @@ jobs:
       - name: Deploy migrations to the test database
         run: pnpm run db:migrate:deploy
 
+      # Integration tests read pre-seeded reference data (warehouse, shipping
+      # rule, GST slabs, admin/staff accounts, catalogue) in their beforeAll
+      # hooks — migrations alone leave the DB empty. The service container is
+      # fresh per run, so this seeds exactly once against the new schema.
+      - name: Seed the test database
+        run: pnpm run db:seed
+
       - name: Create shadow database
         run: PGPASSWORD=woobe_dev_password psql -h localhost -U woobe -d postgres -c "CREATE DATABASE woobe_shadow;"
 
