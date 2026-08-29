@@ -27,7 +27,8 @@ import { createCollectionsRouter } from "./interface/http/collections.routes";
 
 const collectionRepository = new CollectionRepository();
 
-const listCollectionsUseCase = new ListCollectionsUseCase(collectionRepository);
+/** Exported for cross-module use — `home`'s Featured Collections rail (Week 2 Day 8 Part 2, week2 (1).md §12) calls this directly instead of duplicating the active-collections query. */
+export const listCollectionsUseCase = new ListCollectionsUseCase(collectionRepository);
 const getCollectionDetailUseCase = new GetCollectionDetailUseCase(collectionRepository);
 
 /** Exported for cross-module use — see the use-case's own doc comment. */

@@ -159,6 +159,8 @@ export class ProductRepository implements ProductRepositoryPort {
       category: row.category,
       images: row.images,
       variants: row.variants,
+      metaTitle: row.metaTitle,
+      metaDescription: row.metaDescription,
     };
   }
 
@@ -230,6 +232,15 @@ export class ProductRepository implements ProductRepositoryPort {
       minPricePaiseCache: row.minPricePaiseCache,
       primaryImage: row.images[0] ?? null,
     }));
+  }
+
+  async findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>> {
+    if (variantIds.length === 0) return new Map();
+    const rows = await prisma.productVariant.findMany({
+      where: { id: { in: variantIds } },
+      select: { id: true, productId: true },
+    });
+    return new Map(rows.map((row) => [row.id, row.productId]));
   }
 
   // ── Week 2 Day 7 admin surface (week2 (1).md §16) ──

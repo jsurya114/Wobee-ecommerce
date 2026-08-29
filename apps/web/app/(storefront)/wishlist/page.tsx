@@ -1,4 +1,8 @@
+import type { Metadata } from "next";
 import { WishlistPageContent } from "@/features/wishlist/components/WishlistPageContent";
+
+/** Week 2 Day 9 — a personal wishlist is per-account private data, not indexable content. */
+export const metadata: Metadata = { title: "Your Wishlist", robots: { index: false, follow: false } };
 
 export default function WishlistPage() {
   return (

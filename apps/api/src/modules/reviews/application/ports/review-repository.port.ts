@@ -52,4 +52,6 @@ export interface ReviewRepositoryPort {
   listForAdmin(filter: AdminListReviewsFilter): Promise<AdminListReviewsResult>;
   /** The one path that ever changes status outside of an author's own edit — RBAC-gated one layer up, not here. */
   setStatus(reviewId: string, status: ReviewStatus): Promise<ReviewEntity>;
+  /** Week 2 Day 8 Part 2 (week2 (1).md §12's "Customer Reviews" homepage section) — site-wide, APPROVED only, highest rating first (ties broken by newest) so the homepage leads with genuine praise rather than an arbitrary/recency-only sample. */
+  listTopApproved(limit: number): Promise<ReviewEntity[]>;
 }

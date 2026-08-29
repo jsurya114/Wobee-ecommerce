@@ -30,6 +30,7 @@ import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-
 import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
 import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-for-cart.use-case";
 import { ListProductsUseCase } from "./application/use-cases/list-products.use-case";
+import { ResolveProductIdsForVariantsUseCase } from "./application/use-cases/resolve-product-ids-for-variants.use-case";
 import { ProductRepository } from "./infrastructure/repositories/product.repository";
 import { ProductsController } from "./interface/http/products.controller";
 import { createProductsRouter } from "./interface/http/products.routes";
@@ -47,13 +48,16 @@ const inventoryInitializer: InventoryInitializerPort = {
   initializeForVariant: (variantId, quantity) => initializeInventoryForVariantUseCase.execute(variantId, quantity),
 };
 
-const listProductsUseCase = new ListProductsUseCase(productRepository, categoryReader, collectionReader, inventoryReader);
 const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, pricingReader, inventoryReader);
 
+/** Exported for cross-module use — `home`'s New Arrivals rail (Week 2 Day 8 Part 2) calls this with `sort: "newest"` instead of duplicating catalogue-listing logic. */
+export const listProductsUseCase = new ListProductsUseCase(productRepository, categoryReader, collectionReader, inventoryReader);
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRepository);
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productRepository);
+/** Exported for cross-module use — see the use-case's own doc comment. */
+export const resolveProductIdsForVariantsUseCase = new ResolveProductIdsForVariantsUseCase(productRepository);
 
 /** Exported for `admin`'s HTTP layer (ADR-025) — Week 2 Day 7 admin product management. */
 export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepository);

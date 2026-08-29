@@ -8,21 +8,25 @@
 module.exports = {
   theme: {
     extend: {
+      // Week 2 Day 9 (week2 (1).md §20) — primary/text.secondary/success
+      // darkened for WCAG AA contrast; see packages/ui/src/tokens/colors.ts's
+      // own comment (the canonical source of truth these values mirror) for
+      // the full reasoning.
       colors: {
         primary: {
-          DEFAULT: "#C77B8A",
-          hover: "#B36473",
+          DEFAULT: "#A54659",
+          hover: "#884350",
           tint: "#F3DEE2",
         },
         background: "#FBF1EC",
         surface: "#FFFFFF",
         text: {
           primary: "#262220",
-          secondary: "#8C7F7A",
+          secondary: "#786D68",
         },
         border: "#EDE3DF",
-        success: "#7A9B76",
-        error: "#B5453F",
+        success: "#4F684C",
+        error: "#AE423D",
       },
       fontFamily: {
         display: ["var(--font-playfair)", "Georgia", "serif"],

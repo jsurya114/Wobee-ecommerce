@@ -81,6 +81,9 @@ export interface ProductDetail {
   category: { id: string; name: string; slug: string };
   images: ProductImage[];
   variants: VariantWithPriceAndStock[];
+  /** Admin-editable SEO overrides (week2 (1).md §19) — null unless set, generateMetadata falls back to name/description when so. */
+  metaTitle: string | null;
+  metaDescription: string | null;
 }
 
 export function getProductBySlug(slug: string): Promise<{ product: ProductDetail }> {

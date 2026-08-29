@@ -13,13 +13,24 @@
 //    (a denormalized cache, not an input).
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/client"
+  provider        = "prisma-client-js"
+  output          = "../generated/client"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // Week 2 Day 9 fix: declares the pg_trgm extension AND the GIN trigram
+  // index on Product.name (below) inside the schema itself, so `migrate
+  // dev`'s diff engine finally knows about both instead of treating the
+  // index as undeclared drift and generating a DROP INDEX for it on every
+  // future migration — see the now-obsolete workaround comment on migration
+  // 20260829080425's own migration.sql for how that was caught before it
+  // reached a shared database. `pg_trgm` itself was already created via raw
+  // SQL in migration 20260827092111 (ADR-012) — `IF NOT EXISTS` in that
+  // migration's own SQL makes this declaration idempotent against it.
+  extensions = [pgTrgm(map: "pg_trgm")]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -310,16 +321,24 @@ model Product {
   wishlistItems  WishlistItem[]
   couponProducts CouponProduct[]
 
-  // Week 2 Day 1 (ADR-012): the pg_trgm GIN index on `name` deferred by the
-  // TODO this comment replaces is added in migration
-  // 20260827_add_catalogue_search_indexes (raw SQL — Prisma has no first-class
-  // trigram-index syntax). Postgres' planner uses it to accelerate the
-  // ILIKE '%term%' query ListProductsUseCase issues via
+  // Week 2 Day 1 (ADR-012): the pg_trgm GIN index on `name`, physically
+  // created via raw SQL in migration 20260827092111_add_catalogue_search_indexes
+  // (Prisma's schema DSL had no first-class trigram-index syntax available
+  // at the time this was written). Postgres' planner uses it to accelerate
+  // the ILIKE '%term%' query ListProductsUseCase issues via
   // `name: { contains, mode: "insensitive" }` — no raw SQL needed in the
-  // query path itself, just the index. `minPricePaiseCache`/`createdAt`
-  // get their own standalone indexes below (same migration) for the
-  // price-only-sort and newest-sort paths this module also adds; the
-  // existing composite index just below stays for the category+price path.
+  // query path itself, just the index. Declared here too, Week 2 Day 9, via
+  // `previewFeatures = ["postgresqlExtensions"]` (now stable, not actually
+  // a preview concern at this Prisma version) — the `map:` name matches the
+  // raw-SQL-created index exactly so this declaration recognizes the
+  // existing index as already satisfied instead of generating a spurious
+  // DROP INDEX on the next `migrate dev` diff (see that migration's own
+  // comment for how this was caught before it reached a shared database).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm_idx")
+  // `minPricePaiseCache`/`createdAt` get their own standalone indexes below
+  // (same migration) for the price-only-sort and newest-sort paths this
+  // module also adds; the existing composite index just below stays for
+  // the category+price path.
   @@index([categoryId])
   @@index([categoryId, minPricePaiseCache])
   @@index([minPricePaiseCache])
@@ -571,6 +590,15 @@ model CouponRedemption {
   user   User   @relation(fields: [userId], references: [id])
   order  Order  @relation(fields: [orderId], references: [id])
 
+  /// Week 2 Day 9 (week2 (1).md §21) — CouponRepository's own
+  /// countGlobalRedemptions(InTx)/countUserRedemptions(InTx) filter by
+  /// `couponId` alone and by `(couponId, userId)` together, on every single
+  /// checkout that applies a coupon, INSIDE the row-locked transaction
+  /// (RedeemCouponUseCase's own `SELECT ... FOR UPDATE` on Coupon) — an
+  /// unindexed scan here directly extends how long that lock is held. One
+  /// composite index serves both shapes via the leftmost-prefix rule; no
+  /// separate `@@index([couponId])` needed alongside it.
+  @@index([couponId, userId])
   @@map("coupon_redemptions")
 }
 
@@ -835,6 +863,12 @@ model Review {
   // WishlistItem's @@unique([wishlistId, productId])).
   @@unique([productId, userId])
   @@index([productId])
+  /// Week 2 Day 9 (week2 (1).md §21) — two real, unbounded-growth query
+  /// paths now filter by `status` alone with no `productId`: the admin
+  /// moderation queue (`listForAdmin`) and the homepage's site-wide
+  /// `listTopApproved` (Week 2 Day 8 Part 2). Same justification Order's
+  /// own `@@index([status])` already used for its admin dashboard filter.
+  @@index([status])
   @@map("reviews")
 }
 

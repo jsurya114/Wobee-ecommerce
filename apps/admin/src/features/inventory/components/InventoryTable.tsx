@@ -60,13 +60,34 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
       <table className="w-full min-w-[720px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">
-            <th className="py-2 pr-4">Product</th>
-            <th className="py-2 pr-4">SKU</th>
-            <th className="py-2 pr-4">Available</th>
-            <th className="py-2 pr-4">Reserved</th>
-            <th className="py-2 pr-4">Sellable</th>
-            <th className="py-2 pr-4">Status</th>
-            <th className="py-2 pr-4" />
+            <th scope="col" className="py-2 pr-4">
+              Product
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              SKU
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Available
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Reserved
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Sellable
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Status
+            </th>
+            {/* Week 2 Day 9 (week2 (1).md §20) — this header was empty (no
+                text, no scope): axe's own td-has-header rule flagged every
+                row's "Adjust" cell as unassociated with any header. Visually
+                still blank (an action-button column is self-evident to a
+                sighted user), but `sr-only` gives it the real accessible
+                name a screen reader user needs to know what that cell's
+                button is for. */}
+            <th scope="col" className="py-2 pr-4">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>

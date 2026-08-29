@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { listCollections } from "@/features/catalog/api/collections.client";
 import { listCategories } from "@/features/catalog/api/categories.client";
 import { listProducts, PRODUCT_SORT_VALUES, type ProductListParams, type ProductListResult, type ProductSort } from "@/features/catalog/api/products.client";
@@ -22,6 +23,50 @@ function first(value: string | string[] | undefined): string | undefined {
 
 function parseSort(value: string | undefined): ProductSort {
   return (PRODUCT_SORT_VALUES as readonly string[]).includes(value ?? "") ? (value as ProductSort) : "price_asc";
+}
+
+/**
+ * Week 2 Day 9 (week2 (1).md §19) — this app has no separate `/categories/
+ * [slug]` route (category filtering has been `/products?category=` since
+ * Week 2 Day 1), so a category-filtered view gets a real title + a
+ * self-canonical URL scoped to just `?category=`, dropping every other
+ * filter param (price/size/color/sort/search/page): those are refinements
+ * of the same listing, not distinct pages worth splitting ranking signal
+ * across. A collection-filtered view instead canonicalizes to
+ * `/collections/[slug]` — that page already exists and shows the same
+ * products, so `?collection=` here is a duplicate view of it, not a
+ * separate canonical one. A search (`?q=`) gets `noindex, follow`: query
+ * strings are unbounded and not something worth asking search engines to
+ * index, but links found on the page (to real product/category pages)
+ * should still be followed.
+ */
+export async function generateMetadata({ searchParams }: { searchParams: Promise<RawSearchParams> }): Promise<Metadata> {
+  const raw = await searchParams;
+  const categorySlug = first(raw.category);
+  const collectionSlug = first(raw.collection);
+  const q = first(raw.q);
+
+  if (q) {
+    return { title: `Search: ${q}`, robots: { index: false, follow: true } };
+  }
+
+  if (collectionSlug) {
+    return { alternates: { canonical: `/collections/${collectionSlug}` } };
+  }
+
+  if (categorySlug) {
+    const { categories } = await listCategories();
+    const category = categories.find((c) => c.slug === categorySlug);
+    const title = category ? category.name : "Shop";
+    return {
+      title,
+      description: category ? `Shop ${category.name} at Woobe — fashion, by weight.` : undefined,
+      alternates: { canonical: `/products?category=${encodeURIComponent(categorySlug)}` },
+      openGraph: { title },
+    };
+  }
+
+  return { title: "Shop", alternates: { canonical: "/products" } };
 }
 
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {

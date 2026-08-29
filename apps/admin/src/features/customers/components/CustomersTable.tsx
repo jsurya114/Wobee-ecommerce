@@ -14,10 +14,18 @@ export function CustomersTable({ items }: { items: AdminCustomerSummary[] }) {
       <table className="w-full min-w-[560px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">
-            <th className="py-2 pr-4">Name</th>
-            <th className="py-2 pr-4">Email</th>
-            <th className="py-2 pr-4">Joined</th>
-            <th className="py-2 pr-4">Status</th>
+            <th scope="col" className="py-2 pr-4">
+              Name
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Email
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Joined
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Status
+            </th>
           </tr>
         </thead>
         <tbody>

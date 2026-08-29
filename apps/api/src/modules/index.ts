@@ -6,6 +6,7 @@ import { router as cartRouter } from "./cart/cart.module";
 import { router as categoriesRouter } from "./categories/categories.module";
 import { router as collectionsRouter } from "./collections/collections.module";
 import { router as couponsRouter } from "./coupons/coupons.module";
+import { router as homeRouter } from "./home/home.module";
 import { router as inventoryRouter } from "./inventory/inventory.module";
 import { router as notificationsRouter } from "./notifications/notifications.module";
 import { router as ordersRouter } from "./orders/orders.module";
@@ -31,6 +32,7 @@ export const moduleRouters: { path: string; router: Router }[] = [
   { path: "/products", router: productsRouter },
   { path: "/categories", router: categoriesRouter },
   { path: "/collections", router: collectionsRouter },
+  { path: "/home", router: homeRouter },
   { path: "/pricing", router: pricingRouter },
   { path: "/inventory", router: inventoryRouter },
   { path: "/cart", router: cartRouter },

@@ -44,7 +44,9 @@ export function WishlistLineItem({ line }: { line: WishlistLine }) {
   return (
     <div className="flex gap-4 border-b border-border py-5 last:border-b-0">
       <Link href={`/products/${line.productSlug}`} className="h-28 w-24 shrink-0 overflow-hidden rounded-control bg-primary-tint/40">
-        {line.image ? <img src={line.image} alt={line.productName} className="h-full w-full object-cover" /> : null}
+        {line.image ? (
+          <img src={line.image} alt={line.productName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        ) : null}
       </Link>
 
       <div className="flex flex-1 flex-col gap-1.5">

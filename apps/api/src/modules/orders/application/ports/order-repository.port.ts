@@ -49,6 +49,12 @@ export interface ListOrdersResult {
   total: number;
 }
 
+/** Week 2 Day 8 Part 2 (week2 (1).md §12's "Best Sellers") — one variant's total units sold, "sold" meaning the same real-purchase status set hasUserPurchasedProduct already uses below. */
+export interface VariantSaleQuantity {
+  variantId: string;
+  quantitySold: number;
+}
+
 /**
  * application depends on this interface, not on Prisma directly — the
  * infrastructure layer implements it (ARCHITECTURE.md §3.1).
@@ -87,4 +93,15 @@ export interface OrderRepositoryPort {
   hasUserPurchasedProduct(userId: string, productId: string): Promise<boolean>;
   /** Week 2 Day 6 (week2 (1).md §11) — `returns`' one write onto Order, through this exported use-case (ADR-010: `returns` never touches the Order table directly). Purely denormalized for admin filtering (schema.prisma's own comment on `Order.hasActiveReturn`) — never read by any business rule. */
   setHasActiveReturn(orderId: string, value: boolean): Promise<void>;
+  /**
+   * Week 2 Day 8 Part 2 (week2 (1).md §12) — top variants by units sold,
+   * across every order in a real-purchase status (same set
+   * hasUserPurchasedProduct uses), highest quantity first. Grouped at the
+   * variant level (this module's own grain — OrderItem has no productId of
+   * its own) because collapsing to product-level requires `products`' own
+   * variant→product mapping, which lives one layer up in the `home` module's
+   * composition, not here (ADR-010: orders never reaches into
+   * product_variants for anything beyond its own foreign key).
+   */
+  findBestSellingVariantQuantities(limit: number): Promise<VariantSaleQuantity[]>;
 }

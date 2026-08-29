@@ -14,6 +14,7 @@ import { ListReviewsAdminUseCase } from "./application/use-cases/admin/list-revi
 import { ModerateReviewUseCase } from "./application/use-cases/admin/moderate-review.use-case";
 import { DeleteOwnReviewUseCase } from "./application/use-cases/delete-own-review.use-case";
 import { ListReviewsForProductUseCase } from "./application/use-cases/list-reviews-for-product.use-case";
+import { ListTopApprovedReviewsUseCase } from "./application/use-cases/list-top-approved-reviews.use-case";
 import { SubmitReviewUseCase } from "./application/use-cases/submit-review.use-case";
 import { UpdateOwnReviewUseCase } from "./application/use-cases/update-own-review.use-case";
 import { ReviewRepository } from "./infrastructure/repositories/review.repository";
@@ -45,6 +46,8 @@ const deleteOwnReviewUseCase = new DeleteOwnReviewUseCase(reviewRepository);
 /** Exported for the `admin` module's HTTP gateway (ADR-025), same pattern as collections' admin use-case exports. */
 export const listReviewsAdminUseCase = new ListReviewsAdminUseCase(reviewRepository);
 export const moderateReviewUseCase = new ModerateReviewUseCase(reviewRepository);
+/** Exported for `home`'s Customer Reviews rail (Week 2 Day 8 Part 2). */
+export const listTopApprovedReviewsUseCase = new ListTopApprovedReviewsUseCase(reviewRepository);
 
 const reviewsController = new ReviewsController(
   listReviewsForProductUseCase,

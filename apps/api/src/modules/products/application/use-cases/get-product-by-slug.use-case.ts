@@ -72,6 +72,8 @@ export class GetProductBySlugUseCase {
       category: product.category,
       images: product.images,
       variants,
+      metaTitle: product.metaTitle,
+      metaDescription: product.metaDescription,
     };
   }
 }

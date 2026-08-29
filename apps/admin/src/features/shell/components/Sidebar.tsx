@@ -24,8 +24,19 @@ export function Sidebar() {
         const isActive = pathname.startsWith(entry.href);
         if (entry.status === "coming-soon") {
           return (
+            // Week 2 Day 9 (week2 (1).md §20) — a Lighthouse audit flagged this
+            // span's low contrast (opacity-50 text against the sidebar
+            // background lands well under 4.5:1). Left as-is rather than
+            // brightened: WCAG 1.4.3's own Understanding doc exempts inactive
+            // UI components from the contrast requirement, and this genuinely
+            // is one — a plain non-interactive <span>, no href/onClick, no
+            // way to activate it. What the audit's automated check can't see
+            // is that nothing here marks it as inactive for assistive tech,
+            // so a screen-reader user got no such signal either — `aria-disabled`
+            // is the real fix that gap needed, not fighting the muted styling.
             <span
               key={entry.href}
+              aria-disabled="true"
               className="flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded-md px-3 py-2 font-body text-sm text-text-secondary opacity-50"
             >
               {entry.label}

@@ -22,12 +22,24 @@ export function OrdersTable({ items }: { items: AdminOrderSummaryView[] }) {
       <table className="w-full min-w-[720px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">
-            <th className="py-2 pr-4">Order</th>
-            <th className="py-2 pr-4">Customer</th>
-            <th className="py-2 pr-4">Items</th>
-            <th className="py-2 pr-4">Total</th>
-            <th className="py-2 pr-4">Status</th>
-            <th className="py-2 pr-4">Placed</th>
+            <th scope="col" className="py-2 pr-4">
+              Order
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Customer
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Items
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Total
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Status
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Placed
+            </th>
           </tr>
         </thead>
         <tbody>

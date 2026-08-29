@@ -123,6 +123,8 @@ export interface ProductRepositoryPort {
     (ProductVariantEntity & { productId: string; categoryId: string; productName: string; productSlug: string; image: string | null })[]
   >;
   findByIds(productIds: string[]): Promise<ProductSummaryWithStatus[]>;
+  /** Week 2 Day 8 Part 2 (week2 (1).md §12) — batched variantId→productId lookup for `home`'s Best Sellers rail (orders' OrderItem only has variantId; resolving to the product it belongs to is `products`' own data). Missing/unknown variant ids are simply absent from the returned map, never an error — a variant sold in the past can be deleted or reassigned since. */
+  findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>>;
 
   // ── Week 2 Day 7 admin surface (week2 (1).md §16) ──
   findAllForAdmin(filter: ListProductsAdminFilter): Promise<ListProductsAdminResult>;

@@ -9,11 +9,21 @@ export function ProductCard({ product }: { product: ProductSummary }) {
     <Link href={`/products/${product.slug}`} className="group block">
       <div className="relative aspect-[4/5] overflow-hidden rounded-card bg-primary-tint/40">
         {product.primaryImage ? (
-          // Placeholder demo images (placehold.co) — next/image domain config isn't worth
-          // adding for Week 1 seed data; real CDN images land with real catalogue content.
+          // Plain <img>, not next/image (Week 2 Day 9 reconsidered this,
+          // not just carried the Week 1 call forward): `product.images[].url`
+          // is an arbitrary admin-entered URL (AddProductImageInput has no
+          // domain restriction), not bounded to one known CDN — next/image's
+          // `remotePatterns` needs a fixed hostname allowlist, and admin's own
+          // ProductsTable/ProductImages thumbnails already made and documented
+          // this exact call for the same reason. `loading="lazy"` still gets
+          // the real, uncontested win from Module 21's own checklist without
+          // that domain-allowlist risk — every ProductCard render is below
+          // the fold or in a carousel, never this page's LCP element.
           <img
             src={product.primaryImage.url}
             alt={product.primaryImage.altText}
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
           />
         ) : null}

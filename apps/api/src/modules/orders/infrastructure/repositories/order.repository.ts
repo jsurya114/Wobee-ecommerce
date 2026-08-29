@@ -1,4 +1,4 @@
-import { Prisma, prisma } from "@woobe/database";
+import { Prisma, prisma, type OrderStatus } from "@woobe/database";
 import type { OrderEntity, OrderAddressSnapshot, OrderSummaryEntity } from "../../domain/entities/order.entity";
 import { OrderNumberCollisionError } from "../../domain/errors/order-number-collision.error";
 import type {
@@ -7,7 +7,11 @@ import type {
   TransitionOrderStatusResult,
   ListOrdersFilter,
   ListOrdersResult,
+  VariantSaleQuantity,
 } from "../../application/ports/order-repository.port";
+
+/** Same "counts as a real sale" status set hasUserPurchasedProduct already uses below — kept as one named constant so both stay in sync by construction. Not `as const`: Prisma's own `OrderStatus[]` filter type wants a plain mutable array, not a readonly tuple. */
+const SOLD_STATUSES: OrderStatus[] = ["CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED"];
 
 /** The only shape `createWithItems`'s opaque `tx` handle is ever cast to — see OrderRepositoryPort's own comment. */
 type PrismaTx = Prisma.TransactionClient;
@@ -180,12 +184,23 @@ export class OrderRepository implements OrderRepositoryPort {
         variant: { productId },
         order: {
           userId,
-          status: { in: ["CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED"] },
+          status: { in: SOLD_STATUSES },
         },
       },
       select: { id: true },
     });
     return match !== null;
+  }
+
+  async findBestSellingVariantQuantities(limit: number): Promise<VariantSaleQuantity[]> {
+    const rows = await prisma.orderItem.groupBy({
+      by: ["variantId"],
+      where: { order: { status: { in: SOLD_STATUSES } } },
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: limit,
+    });
+    return rows.map((row) => ({ variantId: row.variantId, quantitySold: row._sum?.quantity ?? 0 }));
   }
 }
 

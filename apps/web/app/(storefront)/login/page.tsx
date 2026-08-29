@@ -1,6 +1,10 @@
 import { Card } from "@woobe/ui";
+import type { Metadata } from "next";
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import Link from "next/link";
+
+/** Week 2 Day 9 — an auth form has nothing worth indexing, and duplicate login pages across sites are a common thin-content SEO smell. */
+export const metadata: Metadata = { title: "Log In", robots: { index: false, follow: false } };
 
 export default function LoginPage() {
   return (

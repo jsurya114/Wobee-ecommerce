@@ -14,9 +14,15 @@ export function CollectionsTable({ items }: { items: AdminCollection[] }) {
       <table className="w-full min-w-[560px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">
-            <th className="py-2 pr-4">Name</th>
-            <th className="py-2 pr-4">Slug</th>
-            <th className="py-2 pr-4">Status</th>
+            <th scope="col" className="py-2 pr-4">
+              Name
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Slug
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Status
+            </th>
           </tr>
         </thead>
         <tbody>

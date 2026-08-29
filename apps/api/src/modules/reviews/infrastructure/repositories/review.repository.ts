@@ -130,4 +130,13 @@ export class ReviewRepository implements ReviewRepositoryPort {
   async setStatus(reviewId: string, status: ReviewStatus): Promise<ReviewEntity> {
     return prisma.review.update({ where: { id: reviewId }, data: { status }, select: SELECT_FIELDS });
   }
+
+  async listTopApproved(limit: number): Promise<ReviewEntity[]> {
+    return prisma.review.findMany({
+      where: { status: "APPROVED" },
+      orderBy: [{ rating: "desc" }, { createdAt: "desc" }],
+      take: limit,
+      select: SELECT_FIELDS,
+    });
+  }
 }

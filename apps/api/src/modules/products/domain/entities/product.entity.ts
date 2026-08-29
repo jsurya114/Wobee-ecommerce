@@ -34,6 +34,17 @@ export interface ProductDetailEntity {
   category: { id: string; name: string; slug: string };
   images: ProductImageEntity[];
   variants: ProductVariantEntity[];
+  /**
+   * Week 2 Day 9 (week2 (1).md §19) — admin-editable since Day 7
+   * (AdminProductDetailEntity already had these), now finally exposed on
+   * the customer-facing detail too so `generateMetadata` has real
+   * per-product SEO copy to render instead of falling back to name/
+   * description on every page. Falls back to `name`/`description` in the
+   * frontend, not here — this stays a faithful passthrough of what the
+   * admin actually set (or didn't).
+   */
+  metaTitle: string | null;
+  metaDescription: string | null;
 }
 
 /**

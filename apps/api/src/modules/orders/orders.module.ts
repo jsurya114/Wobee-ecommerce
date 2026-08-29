@@ -29,6 +29,7 @@ import { CancelOrderUseCase } from "./application/use-cases/cancel-order.use-cas
 import { CheckoutUseCase } from "./application/use-cases/checkout.use-case";
 import { ConfirmOrderUseCase } from "./application/use-cases/confirm-order.use-case";
 import { DeliverOrderUseCase } from "./application/use-cases/deliver-order.use-case";
+import { GetBestSellingVariantQuantitiesUseCase } from "./application/use-cases/get-best-selling-variant-quantities.use-case";
 import { GetOrderForAdminUseCase } from "./application/use-cases/get-order-for-admin.use-case";
 import { GetOrderForPaymentUseCase } from "./application/use-cases/get-order-for-payment.use-case";
 import { GetOrderUseCase } from "./application/use-cases/get-order.use-case";
@@ -129,6 +130,8 @@ export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderReposito
 export const hasPurchasedProductUseCase = new HasPurchasedProductUseCase(orderRepository);
 /** Exported for `returns`' own OrderReturnFlagWriterPort adapter (Week 2 Day 6). */
 export const setOrderHasActiveReturnUseCase = new SetOrderHasActiveReturnUseCase(orderRepository);
+/** Exported for `home`'s Best Sellers rail (Week 2 Day 8 Part 2, week2 (1).md §12). */
+export const getBestSellingVariantQuantitiesUseCase = new GetBestSellingVariantQuantitiesUseCase(orderRepository);
 
 const ordersController = new OrdersController(checkoutUseCase, getOrderUseCase, listMyOrdersUseCase);
 

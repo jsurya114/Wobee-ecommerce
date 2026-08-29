@@ -32,10 +32,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   }
 
   const description = result.collection.description ?? `Shop the ${result.collection.name} collection at Woobe — fashion, by weight.`;
+  const canonical = `/collections/${slug}`;
   return {
-    title: `${result.collection.name} — Woobe`,
+    title: result.collection.name,
     description,
-    openGraph: { title: result.collection.name, description },
+    alternates: { canonical },
+    openGraph: { type: "website", title: result.collection.name, description, url: canonical },
   };
 }
 

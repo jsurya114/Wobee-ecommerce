@@ -12,7 +12,13 @@ export function ProductDetail({ product }: { product: ProductDetailData }) {
       <div className="grid gap-8 md:grid-cols-2 md:gap-12">
         <div className="relative aspect-[4/5] overflow-hidden rounded-card bg-primary-tint/40">
           {primaryImage ? (
-            <img src={primaryImage.url} alt={primaryImage.altText} className="h-full w-full object-cover" />
+            // Not lazy-loaded, unlike ProductCard's own image (Week 2 Day 9,
+            // week2 (1).md §21) — this is the product page's likely LCP
+            // (Largest Contentful Paint) element; lazy-loading it would
+            // delay browser discovery of exactly the image Core Web Vitals
+            // most wants prioritized. `fetchPriority="high"` makes that
+            // priority explicit rather than left to the browser's own guess.
+            <img src={primaryImage.url} alt={primaryImage.altText} decoding="async" fetchPriority="high" className="h-full w-full object-cover" />
           ) : null}
           <WishlistButton productId={product.id} className="absolute right-3 top-3" />
         </div>

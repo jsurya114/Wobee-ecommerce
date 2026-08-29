@@ -15,11 +15,21 @@ export function ProductsTable({ items }: { items: AdminProductSummary[] }) {
       <table className="w-full min-w-[720px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">
-            <th className="py-2 pr-4">Product</th>
-            <th className="py-2 pr-4">Category</th>
-            <th className="py-2 pr-4">Variants</th>
-            <th className="py-2 pr-4">From</th>
-            <th className="py-2 pr-4">Status</th>
+            <th scope="col" className="py-2 pr-4">
+              Product
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Category
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Variants
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              From
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Status
+            </th>
           </tr>
         </thead>
         <tbody>
