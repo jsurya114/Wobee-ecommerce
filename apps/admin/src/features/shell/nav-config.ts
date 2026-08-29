@@ -16,14 +16,14 @@ export interface AdminNavEntry {
  * touch this file's structure or Sidebar/TopBar at all.
  */
 export const ADMIN_NAV: AdminNavEntry[] = [
-  { label: "Orders", href: "/orders", status: "live", permission: "MANAGE_ORDERS" },
-  { label: "Products", href: "/products", status: "live", permission: "MANAGE_CATALOG" },
-  { label: "Inventory", href: "/inventory", status: "live", permission: "MANAGE_INVENTORY" },
-  { label: "Collections", href: "/collections", status: "live", permission: "MANAGE_CATALOG" },
   { label: "Customers", href: "/customers", status: "live", permission: "MANAGE_CUSTOMERS" },
-  { label: "Settings", href: "/settings", status: "coming-soon", permission: "MANAGE_SETTINGS" },
+  { label: "Products", href: "/products", status: "live", permission: "MANAGE_CATALOG" },
+  { label: "Collections", href: "/collections", status: "live", permission: "MANAGE_CATALOG" },
+  { label: "Orders", href: "/orders", status: "live", permission: "MANAGE_ORDERS" },
+  { label: "Inventory", href: "/inventory", status: "live", permission: "MANAGE_INVENTORY" },
   { label: "Staff", href: "/staff", status: "coming-soon", permission: "MANAGE_STAFF" },
   { label: "Returns", href: "/returns", status: "live", permission: "MANAGE_ORDERS" },
+  { label: "Settings", href: "/settings", status: "coming-soon", permission: "MANAGE_SETTINGS" },
 ];
 
 /** Mirrors apps/api/src/config/permissions.ts's ROLE_PERMISSIONS map — duplicated here (client-side convenience only, never the actual enforcement) rather than imported, since apps/admin can't reach into apps/api's internals (ADR-019). The server route guard is what actually enforces access; this only decides what to show. */

@@ -1566,3 +1566,20 @@ All three are test/CI-configuration only. Zero application-code changes across t
 **Week 2 is ready to be considered complete, pending final sign-off.**
 
 ---
+
+## 2026-08-29 — Post-Week-2: admin shell UI polish (mobile nav + role badge)
+
+**Branch:** `dev1`. Local working-tree changes (uncommitted at time of writing) — `apps/admin` only, no API / schema / test changes.
+
+Follow-up tweaks after the Week 2 close, driven by a mobile-view review of the admin shell:
+
+1. **Mobile nav is now a hamburger menu.** `Sidebar.tsx` below `md:` was a horizontal `overflow-x-auto` strip that clipped its own tail off-screen at 375px ("Collections" cut mid-word). Replaced with a collapsible menu behind a hamburger toggle (`useState` + `useEffect` that closes it on route change; `aria-expanded` / `aria-controls` / labelled toggle). At `md:` and up it is the unchanged permanent `w-56` side column.
+2. **Divider lines removed** from the mobile hamburger bar and the mobile nav panel (`border-b`). Only the desktop `md:border-r` column separator and the desktop `TopBar` `border-b` remain (both hidden on mobile).
+3. **`TopBar` is desktop-only** now (`hidden md:flex`) — on mobile the Sidebar's hamburger bar is the top bar, so the two no longer both render.
+4. **Nav order changed** in `nav-config.ts` to the requested priority: Customers, Products, Collections, Orders, Inventory, Staff, Returns, Settings. Nothing removed — Collections kept (slotted with the catalog group after Products); Staff & Settings stay `coming-soon`.
+5. **"super admin" role text → star badge.** New `BrandMark.tsx` renders the "Woobe Admin" wordmark plus a filled-star badge (`role="img"`, `aria-label="Super admin"`) when `user.role === "SUPER_ADMIN"`. It replaces the old "· super admin" text in both the desktop `TopBar` and the mobile hamburger bar. The standalone "Woobe Admin · super admin" identity line inside the hamburger menu was removed.
+6. **Desktop `TopBar` de-duplicated.** The seeded super-admin's `user.name` is literally "Woobe Admin", so the TopBar showed "Woobe Admin ★" (BrandMark) *and* "Woobe Admin" (the name span) side by side. Dropped the name span entirely — the TopBar is now just `<BrandMark />`, right-aligned (`justify-end`). `TopBar` no longer needs `useAdminAuth` / `"use client"`.
+
+**Verification:** `pnpm --filter @woobe/admin run lint` PASS, `typecheck` PASS, `build` PASS (13/13 pages). Files touched: `apps/admin/src/features/shell/nav-config.ts`, `.../components/Sidebar.tsx`, `.../components/TopBar.tsx`, new `.../components/BrandMark.tsx`.
+
+---
