@@ -80,6 +80,7 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 ### ADR-018: Auth Strategy
 **Decision:** Custom auth for launch — JWT (short-lived access token + rotating refresh token, refresh token in httpOnly secure cookie) with bcrypt password hashing. Not Auth0, despite the plugin being installed — avoids per-MAU cost at ecommerce scale and keeps auth logic in-repo where the rest of the RBAC/session rules already live.
 **Forward compatibility:** Auth credentials live in their own table (`auth_credentials`, keyed to `user_id`, with a `method` column) rather than a password column on `User` directly. This means mobile OTP login (the planned future addition) is an additive new row type later, not a schema migration that touches the `User` table.
+**Cookie policy correction:** the customer `refresh_token` cookie is `SameSite=lax`, not `strict` as originally stated here — `strict` would drop the cookie on the first top-level navigation after an external redirect (e.g. returning from Razorpay's payment page), breaking the session exactly when it matters most. `lax` is correct for a storefront cookie. The separate `admin_refresh_token` (ADR-024/025) uses `SameSite=strict` instead — staff sessions have no legitimate cross-site entry point, so the tighter setting costs nothing for a higher-privilege session.
 
 ### ADR-019: Frontend Data Access Pattern
 **Decision:** `apps/web` and `apps/admin` never import `packages/database` or query Postgres directly — not even from Next.js Server Components/Server Actions as a performance shortcut. All data access, including SSR, goes through `apps/api` over HTTP.
@@ -91,9 +92,9 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 **Rationale:** Directly targets the "build backend and frontend together to minimize API bugs" goal — a changed field becomes a compile error everywhere it's used, not a silent runtime mismatch discovered in QA.
 
 ### ADR-021: Weight-Based Shipping & Minimum Order Threshold
-**Decision:** Minimum cart weight of **1,000g (1kg)** required to checkout — below this, checkout is blocked and the cart/homepage UI shows a progress indicator toward the minimum. Free delivery applies at **1,500g (1.5kg)** and above; between 1,000g–1,499g, a standard shipping fee applies (exact fee structure — flat vs weight-tiered — flagged in `DECISIONS_PENDING.md`, same "needs client confirmation" treatment as GST rates).
-**Resolves:** an inconsistency between two reference mockups — one showed ₹999 value-based free shipping, the other showed the 1.5kg/1kg weight-based rule. Weight-based wins; it's consistent with Woobe's "fashion, by weight" pricing model end to end, value-based doesn't fit the brand mechanic.
-**Implementation:** lives in the `shipping` module (fee/threshold logic) and `cart` module (checkout-blocking validation + progress data) — both server-side. Cart weight and shipping fee are never computed client-side, same rule as price (§6, ADR pricing).
+**Decision:** Checkout requires a minimum cart weight, and free delivery unlocks at a higher weight threshold — both **admin-configurable** (ADR-023), not hardcoded. Seeded defaults: 1,000g minimum to checkout, 1,500g free-delivery threshold, with a standard shipping fee applied between the two (fee amount also admin-configurable — see `DECISIONS_PENDING.md` for the seeded starting value).
+**Resolves:** an inconsistency between two reference mockups — one showed ₹999 value-based free shipping, the other showed a 1.5kg/1kg weight-based rule. Weight-based wins as the underlying mechanic; it's consistent with Woobe's "fashion, by weight" pricing model end to end.
+**Implementation:** thresholds and fee live in the `ShippingRule` settings row (`shipping` module), read live at checkout time — never hardcoded, never computed client-side. The `cart` module validates against current `ShippingRule` values.
 
 ### ADR-022: UI Component Library & Design System Stack
 **Decision:**
@@ -104,6 +105,46 @@ Reservation on checkout: `SELECT ... FOR UPDATE` on the variant's inventory row 
 - **react-hook-form + Zod resolver** for forms — already required by ADR-020.
 - **sonner** for toasts, **lucide-react** for icons.
 **Rationale:** everything here is Tailwind-native and composes with the `packages/ui` token system (`ARCHITECTURE.md` §4.1) instead of fighting it — nothing here is a pre-styled/opinionated kit that would fight the custom rose/blush brand direction. Full design spec lives in `UI_DESIGN_PLAN.md`.
+
+### ADR-023: Admin-Configurable Business Settings
+**Decision:** Operational parameters that legitimately change over time — default ₹/kg rate, GST tax slabs, minimum order weight, free-delivery threshold, standard shipping fee — are **runtime-editable by the super admin role**, not hardcoded constants, env vars, or seed values meant to be "swapped before launch." They live in the database (`PricingSetting`, `GstSlab`, `ShippingRule`) behind an admin-only settings API, with a corresponding admin UI page — so the business can adjust them without a code deploy.
+**Correction to earlier framing:** `DECISIONS_PENDING.md`'s original framing — confirm one value, hardcode it — undersold what these are. They're ongoing business levers, not one-time unknowns. Building them as static values now just means rebuilding this properly later.
+**Non-negotiable even though it's configurable:** every order still snapshots the exact tax rule/version, rate, and thresholds used at checkout time (§6, "Price Snapshot" — this requirement already existed, it just wasn't wired to a settings source yet). Changing a setting tomorrow must never alter what an existing order shows today. Settings are mutable; snapshots are not.
+**Seeded defaults (real-world-grounded, not arbitrary), editable from day one:**
+- GST: tiered — 5% for per-piece price ≤ ₹2,500, 18% above (matches India's current GST structure, effective since the September 2025 reform)
+- Default ₹/kg rate: ₹849/kg (matches the rate already shown in your own mockups)
+- Minimum order weight: 1,000g · Free delivery threshold: 1,500g (ADR-021)
+- Standard shipping fee (1,000g–1,499g band): ₹50 flat, pending your confirmation
+
+### ADR-024: Role-Based Admin Access
+**Correction from the previous draft:** the role list below is wrong — `accountant` and `support_staff` were invented, not contracted. The signed quotation (§6, "Role-Based Staff Access") already specifies the exact role split: **Super Admin, Order Processing Staff, Product Management Staff, Customer**. Building extra roles beyond this is scope the client isn't paying for. Fixed to match:
+
+**Decision:** Replace the binary `customer`/`admin` role from Day 2 with the four contracted roles, each mapped to a permission set — not a linear hierarchy (the two staff roles have different permissions, neither is a subset of the other):
+- `customer` — storefront only
+- `super_admin` — everything: business settings (ADR-023 — GST, pricing rate, shipping thresholds), staff/role management, full product/order/inventory access, all reports. Per standard RBAC practice, assign this to the smallest possible set of people (Gokul & Sabir themselves) — broad-permission roles should have the fewest holders, not the most.
+- `order_processing_staff` — order confirmation, packing, shipping, tracking, cancellations, returns and refunds. "Returns and refunds as permitted" (quotation's own phrasing) maps directly onto the Return/Refund state machine already in §4 — this role executes `RETURN_REQUESTED → RETURN_APPROVED → REFUND_INITIATED`, the state machine's approval step *is* the control, no separate monetary cap needed. Explicitly no catalog/pricing/settings access.
+- `product_management_staff` — product creation/editing, images/360°, categories, pricing (per-product ₹/kg override — distinct from the *default* rate, which stays a Super Admin setting per ADR-023), weight, measurements, stock/SKU. Explicitly no order/payment access, no business settings.
+
+**Implementation:** `role` enum on `User`, plus a small permission-mapping config (`role → Set<Permission>`, e.g. `MANAGE_SETTINGS`, `MANAGE_CATALOG`, `MANAGE_INVENTORY`, `MANAGE_ORDERS`, `MANAGE_STAFF`) that the RBAC middleware checks against — not a raw role-string comparison. This pattern (permissions mapped to roles, not hardcoded per-role checks) matches how e-commerce platforms actually handle this at scale — it's Shopify's own model — and means adding a role later is a config change, not a rebuild.
+**Deliberately not built now:** an `accountant` role (finance-only, read access to orders/payments/GST reports) is a genuinely common pattern at scale — Shopify explicitly supports granting accountants store access — but it's outside this contract's scope. Worth knowing it's a natural, low-effort future addition (one more entry in the permission-mapping config) if the client wants it later; not worth building speculatively now.
+**Retrofit note:** this replaces Day 2's already-shipped binary RBAC — see `PRE_DAY4_PATCH.md`.
+
+### ADR-025: Cross-Module Dependency Resolution — Admin Cancellation Refunds & Audit Logging
+**Context:** `payments` already imports `orders`' use-cases (to confirm/fail orders on webhook receipt). Routing the admin-triggered `CancelOrderUseCase`'s refund (§4 addendum) through `payments` or `refunds` directly from `orders` would create a circular import.
+**Decision:**
+- New leaf `audit` module — touches only Prisma, imports nothing else, exposes `recordAuditLogUseCase`. Every module can import it with zero cycle risk, since it never imports anything back. Owns `AdminAuditLog` (§15's admin-activity-logging requirement — this table didn't actually exist yet despite earlier docs assuming it did; corrected here).
+- `refunds` module pulled forward from Week 4 (minimal build: `Refund` table, refund-creation use-case, Razorpay refund client) — this is contracted scope already (quotation §5: "cancel, return and refund"), resequenced earlier, not new scope. Only the admin-cancellation refund path is pulled forward; the full customer-initiated return request flow (`RETURN_REQUESTED → RETURN_APPROVED`, its own UI) stays Week 4.
+- `refunds` writes `Payment.status` for refund transitions through one narrow method (`markPaymentRefunded()`), not open access to the `Payment` model — this is **split ownership by transition type** (`payments` owns capture-lifecycle writes, `refunds` owns refund-lifecycle writes to the same table), not a blanket boundary exception. `orders`' `CancelOrderUseCase` calls `refunds` only, never `payments` directly.
+- Refund failure (gateway error) doesn't block the cancellation — inventory restocks and the order cancels regardless; the failure is recorded on the `Refund` row for manual follow-up rather than surfaced as a request-level error. COD orders correctly trigger no gateway call, since nothing was captured pre-delivery.
+
+**Correction (Week 2 Day 0):** the bullet above originally said "inventory releases." That word choice mirrored a real bug (fixed in `orders`' `CancelOrderUseCase` and `inventory`'s `restockFinalizedSale` — see `journal.md`, 2026-08-27): a `CONFIRMED`/`PROCESSING` cancellation must *restock* a finalized sale, not *release* a reservation — the two are different operations. Wording corrected here for accuracy; nothing this ADR actually decided has changed.
+
+### ADR-026: Homepage Rendering Strategy — Dynamic, Not Build-Time Static
+**Context:** Week 2's independent review found `apps/web`'s homepage (`app/(storefront)/page.tsx`) is a plain async Server Component with no rendering-mode export, so Next.js attempts to statically generate it at `next build` time. That requires a live, reachable `apps/api` *during the build* — true locally only by coincidence (a dev server happened to be running), false in a clean CI environment, where the build fails outright (`ECONNREFUSED`). CI has never actually run for this repository, so this was never caught before Week 2.
+**Decision:** `export const dynamic = "force-dynamic"` on the homepage — render it per-request against the live API, like `/products` (which already does this, because it reads `searchParams`) and every other data-driven storefront route already does. Rejected the two alternatives the Week 2 plan offered:
+- *CI starts the API before building web* — would fix CI but not the same failure for any other developer running `pnpm build` locally without a running API; treats a symptom, not the cause.
+- *Fallback/error handling around the build-time fetch* — would let the build succeed but ship a homepage frozen with whatever product/price data existed at the last successful build, silently stale until the next deploy. Directly conflicts with `DEVELOPMENT_RULES.md` #1 (price/stock must be live and server-authoritative, never a stale cached value) — the same rule that governs why cart/checkout never trust cached prices applies just as much to the page that's a customer's first look at them.
+**Consequence:** every storefront page that reads live catalogue/pricing data now renders dynamically, consistently — no page silently depends on what happened to be running at build time. Slightly higher per-request latency than a cached static page; not a concern at Week 2 scale, and a `revalidate`-based ISR compromise can be revisited later if homepage traffic ever makes it one — a straightforward change from this same starting point, not a rewrite.
 
 ---
 
@@ -138,6 +179,10 @@ stateDiagram-v2
 ```
 
 Exchanges follow the same Return sub-flow but resolve to a new Order linked via `exchange_of_order_id` instead of a Refund. Refund operations remain idempotent per the original brief's §9 — same `(provider, event_id)`-style dedup pattern as payment webhooks (ADR-014), applied to refund confirmations.
+
+**Addendum — admin-triggered cancellation:** `CONFIRMED`/`PROCESSING` → `CANCELLED` (staff-initiated, via the admin order-management surface) must trigger a refund, not just release the inventory reservation — `CONFIRMED` means payment was already webhook-verified and captured, so cancelling without repaying leaves the customer having paid for a cancelled order. Route this through the same idempotent refund mechanism as a customer-initiated return, not a separate path.
+
+**Addendum — shipment modeling:** `trackingNumber`/`carrier`/`shippedAt` live directly on `Order` rather than a separate `Shipment` table. This is a deliberate simplification for single-warehouse, single-package fulfillment (ADR-015) — the original brief's Order/Payment/Shipment/Return/Refund relationship still holds conceptually, this just collapses Shipment into Order's columns rather than a joined table. Forecloses split-shipment scenarios without a later migration; acceptable trade-off at current scale, worth revisiting if multi-package fulfillment becomes real.
 
 ---
 

@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+packages/database/generated/
+
+# Testing / coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Turbo / cache
+.turbo/
+
+# Prisma
+packages/database/prisma/*.db
+
+# Isolated worktrees for subagent-driven development (Week 2+)
+.claude/worktrees/
+uploads/

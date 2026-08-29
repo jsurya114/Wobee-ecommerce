@@ -1,0 +1,11 @@
+-- Week 2 Day 2 (week2 (1).md §4 "Reorder products"): admin-controlled
+-- display order for a product within a collection's rail.
+--
+-- `prisma migrate dev`'s auto-generated diff for this change also proposed
+-- `DROP INDEX "products_name_trgm_idx"` — that index was created by raw SQL
+-- in 20260827092111_add_catalogue_search_indexes (Prisma's schema DSL has no
+-- syntax for a GIN trigram index, so it isn't represented in schema.prisma
+-- and the diff engine treats it as drift on every subsequent `migrate dev`
+-- run). Removed that line by hand; the trigram index must survive this
+-- migration unchanged — it backs Week 2 Day 1's catalogue search.
+ALTER TABLE "product_collections" ADD COLUMN     "sortOrder" INTEGER NOT NULL DEFAULT 0;

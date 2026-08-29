@@ -1,0 +1,44 @@
+name: woobe
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: woobe-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: woobe
+      POSTGRES_PASSWORD: woobe_dev_password
+      POSTGRES_DB: woobe_dev
+    ports:
+      # Host port 5433, not the default 5432 — this machine already runs a
+      # native (Homebrew) Postgres bound to 127.0.0.1:5432. Container-internal
+      # port is still 5432; only the host mapping changed.
+      - "5433:5432"
+    volumes:
+      - woobe_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U woobe -d woobe_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: woobe-redis
+    restart: unless-stopped
+    ports:
+      # Host port 6380, not the default 6379 — this machine already runs an
+      # unrelated project's Redis container bound to 6379. Container-internal
+      # port is still 6379; only the host mapping changed.
+      - "6380:6379"
+    volumes:
+      - woobe_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  woobe_postgres_data:
+  woobe_redis_data:
