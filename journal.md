@@ -1254,3 +1254,67 @@ Checking the existing unit test exposed that the "depends on concrete classes" c
 **Next:** `week2 (1).md` §27's Day 10 — Security / Integration / Final Verification — remains unstarted. CI verification (a push + PR) is the one outstanding Week 2 acceptance-gate item that can't be done locally.
 
 ---
+
+## 2026-08-29 — Week 2 Day 10: Security / Integration / Final Verification — CI still not executed
+
+**Branch:** `dev1` @ `f9acd5a` (the Day 3–9 re-verification + P0/P1 fix commit). Working tree clean. Local snapshot tag `week2-day10-baseline` set (local only). Committed locally, **not pushed**. `origin/dev1` remains at `ef4107d`.
+
+**Scope of this pass:** run the full Week 2 acceptance checklist against the current committed state, verify the CI workflow configuration, and determine the safest way to execute the real GitHub Actions run. No feature work. No changes to already-verified Week 2 functionality. Week 3 not started.
+
+### CI workflow — verified locally, step by step
+
+`.github/workflows/ci.yml` is unchanged this session (last touched Day 1, `519829e`; `git diff ef4107d..HEAD -- .github/` is empty). Every step was run locally against the current commit:
+
+| CI step | Local command | Result |
+|---|---|---|
+| Install (frozen lockfile) | `pnpm install --frozen-lockfile` | PASS — "Already up to date"; `pnpm-lock.yaml` tracked and unchanged since `ef4107d` (no deps added) |
+| Destructive-migration guard | `pnpm run check:migrations` | PASS — the new migration `20260829124632` is additive only (`ADD VALUE 'SENDING'`, `ADD COLUMN discountPaise … DEFAULT 0`); the script diffs branch-added migrations vs `origin/main` and, with full history in CI, will scan it and pass |
+| Prisma generate | `pnpm run db:generate` | PASS |
+| Deploy migrations | `pnpm run db:migrate:deploy` | PASS — `woobe_test`: 12 migrations, "up to date" |
+| Shadow DB + drift check | `pnpm --filter @woobe/database run migrate:diff:check` | PASS — **"No difference detected"** (zero drift; trigram index intact) |
+| Lint | `pnpm run lint` | PASS — 9/9, `--max-warnings=0` |
+| Typecheck | `pnpm run typecheck` | PASS — 9/9 (see environment note below) |
+| Module boundaries | `pnpm run boundaries:check` | PASS — **433 modules / 1270 dependencies / 0 violations** |
+| Tests | `pnpm run test` | **370/370 in 8 of 10 full runs this session**; 2 runs had 2–3 failures each, every one passing in isolation — the pre-existing shared-`woobe_test` parallel-contention flake, reduced by `fileParallelism: false` but not eliminated. A real CI run can go red on this and need a re-run; it is not a code defect. |
+| Build | `pnpm run build` | PASS — all 3 apps; `apps/web` built with the API deliberately not running (Day-9 `force-dynamic` holds); static pages generated (14/14 web, 13/13 admin) |
+
+**Environment note (not a code defect):** the first Day-10 `pnpm typecheck` failed only in `apps/admin` with `TS2300: Duplicate identifier` on `.next/types/cache-life.d 2.ts` / `routes.d 2.ts` — macOS "… 2.ts" **duplicate copies** of Next's generated type files inside the gitignored `apps/admin/.next/` (and matching " 2." dupes in `apps/web/.next/server/`), an artifact of the earlier browser-subagent's dev-server/build runs. `.next` is gitignored, so a fresh CI checkout never has it. Cleared `apps/{web,admin}/.next` and re-ran — typecheck 9/9 clean. No repo file touched.
+
+### Safest way to execute the real CI run
+
+The workflow triggers on `pull_request` (any) and `push` to `main` only. `dev1` cannot trigger it as-is. The minimal, safe path:
+
+1. `git push origin dev1` — a clean **fast-forward** (`origin/dev1` is `ef4107d`; local adds only `f9acd5a` on top). No force, no history rewrite, `main` untouched.
+2. Open a pull request **`dev1` → `main`** on GitHub. That fires the `pull_request` job against the full Week 2 branch.
+3. Watch the Actions tab; on a flake-only failure of the "Unit + integration tests" step, re-run that job. Record the successful run URL + commit SHA in this journal.
+
+Pushing directly to `main` is rejected (branching model + not authorised). A throwaway branch + PR is equivalent to the above with more noise.
+
+**This requires a push, which is not authorised in this session. Per the Git rule, no workaround was attempted.** CI has therefore **not** been executed and GitHub Actions remains **unverified**. Local execution of every step is not a substitute and is not being claimed as one.
+
+### Week 2 acceptance checklist (final)
+
+| Item | Status |
+|---|---|
+| Tests | 370/370 (8/10 clean full runs; residual pre-existing flake, all isolatable, non-blocking) |
+| Lint | PASS 9/9 |
+| Typecheck | PASS 9/9 |
+| Dependency boundaries | PASS — 433/1270/0 |
+| DB migrations / drift | PASS — 12 applied, `migrate:diff:check` "No difference detected" |
+| Production builds (×3) | PASS — api, web, admin |
+| Security | PASS — no P0/P1; live IDOR sweep (5 resource families) all 404, full RBAC matrix correct, webhook signature enforced, no secret leakage; backlog items all defense-in-depth |
+| Mobile UI | PASS — `apps/web` 375px all Day 3–9 pages, no overflow (prior overflow report was a stale-cache false positive); `apps/admin` renders at both viewports |
+| Test determinism | IMPROVED, not perfect — `fileParallelism: false` takes it from baseline 0/3 clean to ~8/10; full determinism needs per-file test DBs (out of scope) |
+| Secrets scan | CLEAN — `git diff ef4107d..HEAD` has no credentials (only test fixtures / doc prose) |
+| Git cleanliness | CLEAN — `dev1` @ `f9acd5a`, +1/−0 vs `origin/dev1`, working tree clean, commit is 24 intended files, no stray/unrelated files |
+| **CI actually executed** | **NO — blocked; requires a push + PR (see above)** |
+
+### Deferred P2/P3 — re-checked, none is a Week 2 blocker
+
+`Refund.returnId` unique constraint (defended upstream by the atomic state transition), wishlist→cart transactionality (no money/inventory), review-moderation transition guard + audit-log parity, `/admin/auth/me` staff check (non-exploitable), order-breakdown UI (no requirement), dependency CVEs (all pre-existing transitive; bullmq/multer clean), login rate limiting (§37 explicit deferral), zero frontend test coverage (pre-existing). Left unchanged.
+
+### Verdict
+
+**WEEK 2 NOT COMPLETE — CI VERIFICATION BLOCKED.** Days 0–9 are functionally complete, the P0 + three P1 defects are fixed and verified, and every locally runnable acceptance check passes. The sole outstanding acceptance-gate item — an actual successful GitHub Actions run — cannot be satisfied without a push, which is not authorised. Week 2 is not marked complete. Week 3 not started.
+
+---
