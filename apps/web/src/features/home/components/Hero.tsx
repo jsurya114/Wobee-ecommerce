@@ -11,10 +11,10 @@ export function Hero() {
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-primary-tint/70 via-background to-background px-4 pb-14 pt-16 text-center sm:px-6 sm:pt-24">
       <p className="font-body text-xs font-medium uppercase tracking-[0.2em] text-primary">Fashion, by weight</p>
-      <h1 className="mx-auto mt-3 max-w-xl text-balance font-display text-4xl leading-tight text-text-primary sm:text-5xl">
+      <h1 className="mx-auto mt-3 max-w-4xl text-balance font-display text-4xl leading-tight text-text-primary sm:text-5xl">
         Priced by what it&apos;s made of, not what it&apos;s marked up to.
       </h1>
-      <p className="mx-auto mt-4 max-w-md text-balance font-body text-base text-text-secondary">
+      <p className="mx-auto mt-4 max-w-2xl text-pretty font-body text-base text-text-secondary">
         Every piece shows its weight, its rate per kilo, and the exact price that follows — no guesswork, no markup games.
       </p>
       <Link
