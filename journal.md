@@ -1318,3 +1318,54 @@ Pushing directly to `main` is rejected (branching model + not authorised). A thr
 **WEEK 2 NOT COMPLETE — CI VERIFICATION BLOCKED.** Days 0–9 are functionally complete, the P0 + three P1 defects are fixed and verified, and every locally runnable acceptance check passes. The sole outstanding acceptance-gate item — an actual successful GitHub Actions run — cannot be satisfied without a push, which is not authorised. Week 2 is not marked complete. Week 3 not started.
 
 ---
+
+## 2026-08-29 — Week 2 Day 10 (cont.): CI ran for the first time — failed on a test-config bug, fixed
+
+**Branch:** `dev1`. Parent `7e681e2`. Local commit only — **not pushed**. PR #1 (`dev1 → main`) stays open, **not merged**.
+
+### First real GitHub Actions run — FAILED
+
+- **PR:** #1 — https://github.com/jsurya114/Wobee-ecommerce/pull/1 (dev1 → main)
+- **Workflow:** `CI` (`.github/workflows/ci.yml`), event `pull_request`
+- **Run #1 (attempt 1):** https://github.com/jsurya114/Wobee-ecommerce/actions/runs/33255736084 — **conclusion: failure**
+- **Commit tested:** `7e681e2c0ed48893083f8073c092d0a22c90a5e0`
+- **Step results:** Set-up / install / `check:migrations` / `db:generate` / `db:migrate:deploy` / create-shadow-db / **`migrate:diff:check` PASS** / **Lint PASS** / **Typecheck PASS** / **Module boundary check PASS** / **"Unit + integration tests" → FAILURE (exit 1)** / Build → skipped.
+- **Failure shape:** 182 unit tests pass, **43 integration tests fail**, 145 skipped. Errors: `connect ECONNREFUSED 127.0.0.1:6380` (Redis) and `Can't reach database server at localhost:5433` (Postgres). This is **NOT** the shared-`woobe_test` contention flake noted earlier — it is deterministic.
+
+### Root cause
+
+`apps/api/vitest.config.ts`'s `test.env` block **hardcoded** this machine's docker-compose host-port remap:
+
+- `DATABASE_URL: "…@localhost:5433/woobe_test…"`
+- `REDIS_URL: "redis://localhost:6380/1"`
+
+Vitest's `test.env` is injected into `process.env` for the run and **overrode** the values GitHub Actions supplies (`.github/workflows/ci.yml`: Postgres service on `:5432`, Redis on `:6379`, with matching `DATABASE_URL`/`REDIS_URL`). So every CI integration test dialled `:5433` / `:6380`, which don't exist on the runner. It had never surfaced because CI had never run before.
+
+### Fix — `apps/api/vitest.config.ts` only (1 file, +18 / −8)
+
+Each `test.env` value that legitimately differs between local and CI now reads `process.env.X ?? "<existing local default>"` — `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `RAZORPAY_WEBHOOK_SECRET`. `NODE_ENV` stays forced to `"test"`. No test values changed; no application code touched. `env.ts`'s own best-effort root-`.env` loader already "never overrides an already-set var", so a local run still targets `woobe_test` (not `woobe_dev`).
+
+### Local verification of the precedence (all three cases proven, same integration file)
+
+| Case | `process.env` supplied | Result |
+|---|---|---|
+| CI-style **wrong** ports | `DATABASE_URL=…:5999…`, `REDIS_URL=…:6999` | tests fail with `ECONNREFUSED …:6999` — **`process.env` wins over the hardcoded default** (the 5433/6380 fallback never appears) |
+| CI-style **correct** ports (supplied via env) | `DATABASE_URL=…:5433…`, `REDIS_URL=…:6380/1` | 3/3 pass — supplied values honoured |
+| Local (nothing supplied) | — | 3/3 pass on `:5433` / `:6380` — local dev behaviour preserved |
+
+### Full local checklist after the fix
+
+- `pnpm run lint` — **PASS** (9/9, `--max-warnings=0`)
+- `pnpm run typecheck` — **PASS** (9/9)
+- `pnpm run boundaries:check` — **PASS** (433 modules / 1270 deps / 0 violations)
+- `pnpm --filter @woobe/api run test` (local defaults) — **370/370**; determinism: **2 of 3 full runs green**, the one failure a *different* pre-existing intra-file contention flake (`wishlist` IDOR) that passes 16/16 in isolation — the known, documented `fileParallelism: false` residual, unchanged by this fix.
+- `pnpm run test` (workspace-wide — the exact CI command) — **PASS**: `@woobe/utils` 12/12, `@woobe/validation` 7/7, `@woobe/api` 370/370.
+- `pnpm run build` — **PASS**, all 3 apps.
+- `migrate:diff:check` — unchanged, still **"No difference detected"** (this fix adds no migration).
+- Secrets scan of the diff — clean (only env-var names + doc text; the throwaway `test-*-secret` strings are unchanged in value).
+
+### CI status
+
+**A new GitHub Actions run is required.** Run #1 failed on `7e681e2`; the fix is a new local commit (new SHA) that the remote PR does not yet have. Getting CI to re-run against the fix needs `git push origin dev1` (updates PR #1's head), which is not authorised in this session. Until that push + a green run, **CI remains unverified for the fixed tree** and Week 2 is **not** complete.
+
+---
