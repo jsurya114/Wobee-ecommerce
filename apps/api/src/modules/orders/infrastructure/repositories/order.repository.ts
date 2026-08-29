@@ -54,6 +54,7 @@ export class OrderRepository implements OrderRepositoryPort {
               quantity: item.quantity,
               lineTotalPaise: item.lineTotalPaise,
               taxAmountPaise: item.taxAmountPaise,
+              discountPaise: item.discountPaise,
             })),
           },
         },
@@ -244,6 +245,7 @@ function toEntity(order: OrderWithItems): OrderEntity {
       quantity: item.quantity,
       lineTotalPaise: item.lineTotalPaise,
       taxAmountPaise: item.taxAmountPaise,
+      discountPaise: item.discountPaise,
     })),
   };
 }

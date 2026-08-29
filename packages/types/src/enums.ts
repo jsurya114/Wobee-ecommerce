@@ -42,7 +42,9 @@ export type RefundStatus = (typeof REFUND_STATUS)[number];
 export const NOTIFICATION_CHANNEL = ["EMAIL", "SMS", "PUSH"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNEL)[number];
 
-export const NOTIFICATION_STATUS = ["PENDING", "SENT", "FAILED"] as const;
+/// SENDING is a Week 2 review fix — the atomic in-flight claim taken before the
+/// provider send (PENDING -> SENDING), so a redelivered BullMQ job can't double-send.
+export const NOTIFICATION_STATUS = ["PENDING", "SENDING", "SENT", "FAILED"] as const;
 export type NotificationStatus = (typeof NOTIFICATION_STATUS)[number];
 
 /// ADR-024: the four contracted roles (quotation §6). `ADMIN` from Week 1

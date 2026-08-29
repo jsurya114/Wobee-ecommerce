@@ -12,6 +12,8 @@ export interface CreateOrderItemInput {
   quantity: number;
   lineTotalPaise: number;
   taxAmountPaise: number;
+  /** Coupon discount allocated to this line (largest-remainder split of the order-level discount across eligible lines). 0 when no coupon. */
+  discountPaise: number;
 }
 
 export interface CreateOrderInput {

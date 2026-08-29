@@ -5,6 +5,8 @@ export interface ReturnOrderItemView {
   quantity: number;
   unitPricePaise: number;
   taxAmountPaise: number;
+  /** Coupon discount snapshotted on this order line at checkout — subtracted from the refund so it never exceeds what the customer paid (Week 2 review fix, P0). */
+  discountPaise: number;
 }
 
 export interface ReturnOrderView {

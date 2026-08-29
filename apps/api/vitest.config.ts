@@ -3,6 +3,17 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    // Every integration test in this package runs against the ONE real
+    // `woobe_test` Postgres (no mocking — this repo's own convention). Vitest's
+    // default multi-file parallelism let unrelated files contend for the same
+    // seed rows / FKs / connections, producing a reproducible ~60% flake rate
+    // (scattered assertion / FK-violation / HTTP-parse failures, no single
+    // culprit). Running files sequentially cuts that sharply — clean-DB
+    // measurement: 4/5 full runs green, the one failure a pre-existing
+    // intra-file race (home Best-Sellers ordering) that passes in isolation.
+    // Full determinism would need a per-file database — out of scope here.
+    // Tests within a file still run concurrently.
+    fileParallelism: false,
     env: {
       NODE_ENV: "test",
       // Ports match this repo's docker-compose.yml remap (5433/6380) — see journal.md.

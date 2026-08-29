@@ -23,6 +23,8 @@ export interface OrderItemEntity {
   quantity: number;
   lineTotalPaise: number;
   taxAmountPaise: number;
+  /** Coupon discount allocated to this line at checkout (snapshot). 0 when no coupon applied. Week 2 review fix (P0) — returns/refunds subtract this so they never refund more than was paid. */
+  discountPaise: number;
 }
 
 /**

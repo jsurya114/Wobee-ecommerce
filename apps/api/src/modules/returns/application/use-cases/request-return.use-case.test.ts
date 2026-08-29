@@ -9,7 +9,7 @@ const deliveredOrder = {
   userId: "user-1",
   status: "DELIVERED",
   deliveredAt: new Date(),
-  items: [{ id: "item-1", variantId: "v1", productNameSnapshot: "Scarf", quantity: 2, unitPricePaise: 1000, taxAmountPaise: 100 }],
+  items: [{ id: "item-1", variantId: "v1", productNameSnapshot: "Scarf", quantity: 2, unitPricePaise: 1000, taxAmountPaise: 100, discountPaise: 0 }],
 };
 
 function buildUseCase(overrides: { orderReader?: Partial<OrderReaderPort>; existingLines?: unknown[] } = {}) {

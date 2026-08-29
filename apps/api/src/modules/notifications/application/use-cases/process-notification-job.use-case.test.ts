@@ -17,55 +17,85 @@ function buildNotification(overrides: Partial<NotificationEntity> = {}): Notific
   };
 }
 
+function buildRepo(notification: NotificationEntity | null, claimResult = true) {
+  return {
+    create: vi.fn(),
+    findById: vi.fn().mockResolvedValue(notification),
+    claimForSending: vi.fn().mockResolvedValue(claimResult),
+    releaseClaim: vi.fn(),
+    markSent: vi.fn(),
+    markFailed: vi.fn(),
+  };
+}
+
 describe("ProcessNotificationJobUseCase", () => {
-  it("sends and marks the notification SENT", async () => {
+  it("claims the row, sends, then marks it SENT — in that order", async () => {
     const notification = buildNotification();
-    const notificationRepository = { create: vi.fn(), findById: vi.fn().mockResolvedValue(notification), markSent: vi.fn(), markFailed: vi.fn() };
+    const notificationRepository = buildRepo(notification);
     const notificationProvider = { send: vi.fn().mockResolvedValue(undefined) };
     const useCase = new ProcessNotificationJobUseCase(notificationRepository, notificationProvider);
 
     await useCase.execute("notif-1");
 
+    expect(notificationRepository.claimForSending).toHaveBeenCalledWith("notif-1");
     expect(notificationProvider.send).toHaveBeenCalledWith(notification);
     expect(notificationRepository.markSent).toHaveBeenCalledWith("notif-1");
+    // Claim strictly precedes the provider send — this is the anti-double-send guarantee.
+    expect(notificationRepository.claimForSending.mock.invocationCallOrder[0]).toBeLessThan(
+      notificationProvider.send.mock.invocationCallOrder[0]!,
+    );
+    expect(notificationRepository.releaseClaim).not.toHaveBeenCalled();
   });
 
-  it("is idempotent — a notification that's already SENT is never re-sent", async () => {
-    const notification = buildNotification({ status: "SENT" });
-    const notificationRepository = { create: vi.fn(), findById: vi.fn().mockResolvedValue(notification), markSent: vi.fn(), markFailed: vi.fn() };
+  it("does not send when the claim is lost — a concurrent worker / redelivery already took it", async () => {
+    const notification = buildNotification();
+    const notificationRepository = buildRepo(notification, /* claimResult */ false);
     const notificationProvider = { send: vi.fn() };
     const useCase = new ProcessNotificationJobUseCase(notificationRepository, notificationProvider);
 
     await useCase.execute("notif-1");
 
+    expect(notificationRepository.claimForSending).toHaveBeenCalledWith("notif-1");
+    expect(notificationProvider.send).not.toHaveBeenCalled();
+    expect(notificationRepository.markSent).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent — a notification that's already SENT is never claimed or re-sent", async () => {
+    const notificationRepository = buildRepo(buildNotification({ status: "SENT" }));
+    const notificationProvider = { send: vi.fn() };
+    const useCase = new ProcessNotificationJobUseCase(notificationRepository, notificationProvider);
+
+    await useCase.execute("notif-1");
+
+    expect(notificationRepository.claimForSending).not.toHaveBeenCalled();
     expect(notificationProvider.send).not.toHaveBeenCalled();
     expect(notificationRepository.markSent).not.toHaveBeenCalled();
   });
 
   it("is idempotent — a notification that's already terminally FAILED is never re-attempted", async () => {
-    const notification = buildNotification({ status: "FAILED" });
-    const notificationRepository = { create: vi.fn(), findById: vi.fn().mockResolvedValue(notification), markSent: vi.fn(), markFailed: vi.fn() };
+    const notificationRepository = buildRepo(buildNotification({ status: "FAILED" }));
     const notificationProvider = { send: vi.fn() };
     const useCase = new ProcessNotificationJobUseCase(notificationRepository, notificationProvider);
 
     await useCase.execute("notif-1");
 
+    expect(notificationRepository.claimForSending).not.toHaveBeenCalled();
     expect(notificationProvider.send).not.toHaveBeenCalled();
   });
 
-  it("re-throws the provider's error and never marks it failed itself — that's the worker's own job", async () => {
-    const notification = buildNotification();
-    const notificationRepository = { create: vi.fn(), findById: vi.fn().mockResolvedValue(notification), markSent: vi.fn(), markFailed: vi.fn() };
-    const notificationProvider = { send: vi.fn().mockRejectedValue(new NotificationDeliveryError("no contact email", false)) };
+  it("releases the claim and re-throws on a provider failure — never marks it failed itself (that's the worker's job)", async () => {
+    const notificationRepository = buildRepo(buildNotification());
+    const notificationProvider = { send: vi.fn().mockRejectedValue(new NotificationDeliveryError("smtp down", true)) };
     const useCase = new ProcessNotificationJobUseCase(notificationRepository, notificationProvider);
 
     await expect(useCase.execute("notif-1")).rejects.toThrow(NotificationDeliveryError);
+    expect(notificationRepository.releaseClaim).toHaveBeenCalledWith("notif-1");
     expect(notificationRepository.markFailed).not.toHaveBeenCalled();
     expect(notificationRepository.markSent).not.toHaveBeenCalled();
   });
 
   it("404s on an unknown notification id", async () => {
-    const notificationRepository = { create: vi.fn(), findById: vi.fn().mockResolvedValue(null), markSent: vi.fn(), markFailed: vi.fn() };
+    const notificationRepository = buildRepo(null);
     const notificationProvider = { send: vi.fn() };
     const useCase = new ProcessNotificationJobUseCase(notificationRepository, notificationProvider);
 

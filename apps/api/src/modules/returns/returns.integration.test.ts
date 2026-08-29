@@ -24,6 +24,7 @@ const createdUserIds: string[] = [];
 const createdProductIds: string[] = [];
 const createdVariantIds: string[] = [];
 const createdOrderIds: string[] = [];
+const createdCouponIds: string[] = [];
 
 beforeAll(async () => {
   const category = await prisma.category.findFirstOrThrow({ where: { isActive: true } });
@@ -38,6 +39,7 @@ afterAll(async () => {
     await prisma.return.deleteMany({ where: { orderId: { in: createdOrderIds } } }); // cascades ReturnItem
     await prisma.refund.deleteMany({ where: { orderId: { in: createdOrderIds } } });
     await prisma.payment.deleteMany({ where: { orderId: { in: createdOrderIds } } });
+    await prisma.couponRedemption.deleteMany({ where: { orderId: { in: createdOrderIds } } }); // the coupon-discounted P0 test creates one
     await prisma.order.deleteMany({ where: { id: { in: createdOrderIds } } });
   }
   if (createdVariantIds.length > 0) {
@@ -50,6 +52,10 @@ afterAll(async () => {
   if (createdUserIds.length > 0) {
     await prisma.cart.deleteMany({ where: { userId: { in: createdUserIds } } });
     await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+  }
+  if (createdCouponIds.length > 0) {
+    await prisma.couponRedemption.deleteMany({ where: { couponId: { in: createdCouponIds } } });
+    await prisma.coupon.deleteMany({ where: { id: { in: createdCouponIds } } });
   }
   await prisma.$disconnect();
 });
@@ -304,6 +310,63 @@ describe("returns: admin review + refund (COD — manual completion path)", () =
 
     const second = await agent.post("/api/v1/returns").send({ orderId: order.id, reason: "actually wrong colour", items: [{ orderItemId: order.items[0]!.id, quantity: 1 }] });
     expect(second.status).toBe(201);
+  });
+});
+
+describe("returns: refund amount on a coupon-discounted order (Week 2 review fix, P0)", () => {
+  it("refunds what was actually paid for the returned goods, not the undiscounted line price", async () => {
+    const { agent } = await createTestCustomer();
+    const { variantId } = await createTestVariant(5);
+    const adminAuth = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${adminAuth}` };
+
+    // A 10% cart-wide coupon, applied before checkout.
+    const code = `${TEST_PREFIX.toUpperCase().replace(/-/g, "")}${randomUUID().slice(0, 8).toUpperCase()}`;
+    const coupon = await prisma.coupon.create({
+      data: { code, type: "PERCENTAGE", value: 10, validFrom: new Date("2020-01-01"), validTo: new Date("2999-01-01"), isActive: true },
+    });
+    createdCouponIds.push(coupon.id);
+
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 3 });
+    expect((await agent.post("/api/v1/cart/coupon").send({ code })).status).toBe(200);
+
+    const checkoutRes = await agent
+      .post("/api/v1/orders/checkout")
+      .send({ contactEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod: "COD" });
+    expect(checkoutRes.status).toBe(201);
+    const order = checkoutRes.body as {
+      id: string;
+      subtotalPaise: number;
+      discountPaise: number;
+      taxPaise: number;
+      items: { id: string; quantity: number; discountPaise: number }[];
+    };
+    createdOrderIds.push(order.id);
+    await agent.post("/api/v1/payments/cod/confirm").send({ orderId: order.id });
+
+    // The coupon really applied, and the per-line discount was snapshotted on the OrderItem.
+    expect(order.discountPaise).toBeGreaterThan(0);
+    expect(order.items).toHaveLength(1);
+    expect(order.items[0]!.discountPaise).toBe(order.discountPaise);
+
+    await deliverOrder(order.id, adminAuth);
+
+    const created = await agent.post("/api/v1/returns").send({
+      orderId: order.id,
+      reason: "wrong size",
+      items: [{ orderItemId: order.items[0]!.id, quantity: order.items[0]!.quantity }],
+    });
+    const returnId = created.body.id as string;
+    expect((await request(app).post(`/api/v1/admin/returns/${returnId}/approve`).set(auth)).status).toBe(200);
+    expect((await request(app).post(`/api/v1/admin/returns/${returnId}/refund`).set(auth)).status).toBe(200);
+
+    const dbRefund = await prisma.refund.findFirstOrThrow({ where: { returnId } });
+
+    // Correct amount = goods actually paid for (subtotal − coupon discount) + tax
+    // (tax was already computed on the post-discount base at checkout); never shipping.
+    expect(dbRefund.amountPaise).toBe(order.subtotalPaise - order.discountPaise + order.taxPaise);
+    // Pre-fix this refunded `subtotal + tax` — over-refunding by exactly the coupon discount.
+    expect(order.subtotalPaise + order.taxPaise - dbRefund.amountPaise).toBe(order.discountPaise);
   });
 });
 

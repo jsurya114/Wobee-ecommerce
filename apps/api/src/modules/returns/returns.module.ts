@@ -44,7 +44,15 @@ function toReturnOrderView(order: {
   deliveredAt: Date | null;
   contactEmail: string;
   orderNumber: string;
-  items: { id: string; variantId: string; productNameSnapshot: string; quantity: number; unitPricePaise: number; taxAmountPaise: number }[];
+  items: {
+    id: string;
+    variantId: string;
+    productNameSnapshot: string;
+    quantity: number;
+    unitPricePaise: number;
+    taxAmountPaise: number;
+    discountPaise: number;
+  }[];
 }): ReturnOrderView {
   return {
     id: order.id,
@@ -60,6 +68,7 @@ function toReturnOrderView(order: {
       quantity: item.quantity,
       unitPricePaise: item.unitPricePaise,
       taxAmountPaise: item.taxAmountPaise,
+      discountPaise: item.discountPaise,
     })),
   };
 }

@@ -21,9 +21,24 @@ export class NotificationRepository implements NotificationRepositoryPort {
     return notification ? toEntity(notification) : null;
   }
 
+  async claimForSending(id: string): Promise<boolean> {
+    const { count } = await prisma.notification.updateMany({
+      where: { id, status: "PENDING" },
+      data: { status: "SENDING" },
+    });
+    return count === 1;
+  }
+
+  async releaseClaim(id: string): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { id, status: "SENDING" },
+      data: { status: "PENDING" },
+    });
+  }
+
   async markSent(id: string): Promise<void> {
     await prisma.notification.updateMany({
-      where: { id, status: "PENDING" },
+      where: { id, status: "SENDING" },
       data: { status: "SENT", sentAt: new Date() },
     });
   }
@@ -32,8 +47,11 @@ export class NotificationRepository implements NotificationRepositoryPort {
     const existing = await prisma.notification.findUnique({ where: { id }, select: { payload: true } });
     if (!existing) return;
     const payload = (existing.payload && typeof existing.payload === "object" ? existing.payload : {}) as Record<string, unknown>;
-    await prisma.notification.update({
-      where: { id },
+    // Guarded: only a non-terminal row moves to FAILED — a row that already
+    // reached SENT (e.g. a redelivery that succeeded while the worker's
+    // failed-handler was still running) must never be flipped to FAILED.
+    await prisma.notification.updateMany({
+      where: { id, status: { in: ["PENDING", "SENDING"] } },
       data: { status: "FAILED", payload: { ...payload, lastError } as Prisma.InputJsonValue },
     });
   }

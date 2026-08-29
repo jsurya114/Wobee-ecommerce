@@ -74,13 +74,14 @@ export class CheckoutUseCase {
     }
 
     // Pre-transaction check for a fast, friendly error on the common case —
-    // NOT the authoritative stock decision. That's the row-locked
-    // reservation below; this can still race and lose to it, which is fine
-    // (the transaction's reservation failure is the real, always-correct guard).
-    const shipping = await this.shippingReader.evaluate(cart.totalWeightGrams);
-    if (!shipping.meetsMinimum) {
+    // NOT the authoritative stock/fee decision. That's the row-locked
+    // reservation below plus the in-transaction shipping re-read; this can
+    // still race and lose to them, which is fine (the transaction's own
+    // checks are the real, always-correct guards).
+    const preCheckShipping = await this.shippingReader.evaluate(cart.totalWeightGrams);
+    if (!preCheckShipping.meetsMinimum) {
       throw new UnprocessableEntityError(
-        `Add ${shipping.gramsToMinimum}g more to your bag to check out (ADR-021 minimum order weight)`,
+        `Add ${preCheckShipping.gramsToMinimum}g more to your bag to check out (ADR-021 minimum order weight)`,
       );
     }
 
@@ -111,6 +112,14 @@ export class CheckoutUseCase {
 
       const discountPaise = couponResult?.discountPaise ?? 0;
       const lineDiscounts = couponResult ? allocateCouponDiscount(discountPaise, couponResult.eligibleLines) : new Map<string, number>();
+
+      // Week 2 review fix (P1) — re-evaluate the shipping fee INSIDE the
+      // transaction, exactly like GST is (recomputed in buildOrderItems, also
+      // inside `tx`). The pre-transaction call above is only a fast-fail on the
+      // minimum-weight rule; using its fee here would let an admin editing
+      // ShippingRule mid-checkout commit an order against a stale fee. §9's own
+      // flow is "Calculate discount -> Recalculate tax/shipping -> Final total".
+      const shipping = await this.shippingReader.evaluate(cart.totalWeightGrams);
 
       const items = await this.buildOrderItems(cart.items, lineDiscounts);
       const subtotalPaise = items.reduce((sum, item) => sum + item.lineTotalPaise, 0);
@@ -187,6 +196,10 @@ export class CheckoutUseCase {
       quantity: line.quantity,
       lineTotalPaise: line.subtotalPaise,
       taxAmountPaise: gstLines[i]!.taxAmountPaise,
+      // Week 2 review fix (P0) — snapshot the coupon discount allocated to this
+      // line (already computed above for the GST recompute, previously discarded).
+      // returns/refunds subtract it so a refund never exceeds what was paid.
+      discountPaise: lineDiscounts.get(line.variantId) ?? 0,
     }));
   }
 

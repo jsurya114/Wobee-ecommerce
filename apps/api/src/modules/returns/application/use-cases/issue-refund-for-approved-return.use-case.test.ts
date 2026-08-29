@@ -27,7 +27,7 @@ const orderForRefund = {
   deliveredAt: new Date(),
   contactEmail: "a@a.com",
   orderNumber: "WOOBE-1",
-  items: [{ id: "item-1", variantId: "v1", productNameSnapshot: "Scarf", quantity: 2, unitPricePaise: 1000, taxAmountPaise: 100 }],
+  items: [{ id: "item-1", variantId: "v1", productNameSnapshot: "Scarf", quantity: 2, unitPricePaise: 1000, taxAmountPaise: 100, discountPaise: 0 }],
 };
 
 function buildUseCase(refundOutcome: "completed" | "failed" | "not-applicable" = "completed") {

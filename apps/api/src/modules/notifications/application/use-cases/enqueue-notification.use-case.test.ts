@@ -26,6 +26,8 @@ describe("EnqueueNotificationUseCase", () => {
         return created;
       }),
       findById: vi.fn(),
+      claimForSending: vi.fn(),
+      releaseClaim: vi.fn(),
       markSent: vi.fn(),
       markFailed: vi.fn(),
     };

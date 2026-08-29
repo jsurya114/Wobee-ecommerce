@@ -53,7 +53,13 @@ export class IssueRefundForApprovedReturnUseCase {
 
     const order = await this.orderReader.forAdmin(existing.orderId);
     const amountPaise = calculateReturnRefundAmount(
-      order.items.map((item) => ({ orderItemId: item.id, orderedQuantity: item.quantity, unitPricePaise: item.unitPricePaise, taxAmountPaise: item.taxAmountPaise })),
+      order.items.map((item) => ({
+        orderItemId: item.id,
+        orderedQuantity: item.quantity,
+        unitPricePaise: item.unitPricePaise,
+        taxAmountPaise: item.taxAmountPaise,
+        discountPaise: item.discountPaise,
+      })),
       existing.items.map((line) => ({ orderItemId: line.orderItemId, quantity: line.quantity })),
     );
 

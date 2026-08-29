@@ -120,6 +120,11 @@ enum NotificationChannel {
 
 enum NotificationStatus {
   PENDING
+  /// Week 2 review fix — an in-flight claim taken atomically (PENDING -> SENDING via a
+  /// conditional UPDATE) BEFORE the provider send, so a worker crash / BullMQ
+  /// at-least-once redelivery can never fire the same email twice. A retryable
+  /// failure releases it back to PENDING; success advances to SENT.
+  SENDING
   SENT
   FAILED
 }
@@ -701,6 +706,11 @@ model OrderItem {
   quantity            Int
   lineTotalPaise      Int
   taxAmountPaise      Int
+  /// Week 2 review fix (P0) — the coupon discount ALLOCATED to this line at checkout
+  /// (largest-remainder split of Order.discountPaise across eligible lines). Persisted
+  /// as a snapshot so returns/refunds refund the amount actually paid for these goods,
+  /// not the undiscounted unitPricePaise * qty. 0 when no coupon applied.
+  discountPaise       Int @default(0)
 
   order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   variant ProductVariant @relation(fields: [variantId], references: [id])
