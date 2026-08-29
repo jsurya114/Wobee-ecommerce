@@ -1426,3 +1426,92 @@ Created `woobe_ci_verify` (+ `woobe_ci_verify_shadow`) on the local Postgres, ra
 **A new GitHub Actions run is still required.** Run #2 failed on `cb5731b`; this seed-step fix is a new local commit the remote PR does not have. A green CI run needs `git push origin dev1` (updates PR #1's head), not authorised in this session. Until that push + a fully green run (all steps through Build), **CI remains unverified** and **Week 2 is NOT complete**.
 
 ---
+
+## 2026-08-29 — Week 2 Day 10 (cont. 3): CI Run #3 — seed step works, 370/370 on CI, Build failed on a missing NEXT_PUBLIC_* var
+
+**Branch:** `dev1`. Parent `04e1a6a`. Local commit only — **not pushed**. PR #1 (`dev1 → main`) stays open, **not merged**.
+
+### Third real GitHub Actions run — 15/16 steps green, Build failed
+
+- **PR:** #1 — https://github.com/jsurya114/Wobee-ecommerce/pull/1 (dev1 → main)
+- **Workflow:** `CI` (`.github/workflows/ci.yml`), event `pull_request` (push of `04e1a6a` → `synchronize`)
+- **Run #3:** https://github.com/jsurya114/Wobee-ecommerce/actions/runs/33264517743 — commit `04e1a6afc990eee0a9788b6b8e4927e706760c77`, attempt 1 — **conclusion: failure**
+- **Per-step results (job `ci`, 3m18s):**
+
+  | # | Step | Result |
+  |---|---|---|
+  | 6 | Install dependencies | ✅ success |
+  | 7 | Check for unreviewed destructive migrations (`check:migrations`) | ✅ success |
+  | 8 | Generate Prisma client (`db:generate`) | ✅ success |
+  | 9 | Deploy migrations to the test database (`db:migrate:deploy`) | ✅ success |
+  | 10 | **Seed the test database (`db:seed`)** | ✅ **success** — the Run-#2 fix works |
+  | 11 | Create shadow database | ✅ success |
+  | 12 | Check schema matches migration history (`migrate:diff:check`) | ✅ success |
+  | 13 | Lint | ✅ success |
+  | 14 | Typecheck | ✅ success |
+  | 15 | Module boundary check (`boundaries:check`) | ✅ success |
+  | 16 | **Unit + integration tests** | ✅ **success — 370/370** (Run #2's P2025 / 401 seed failures gone) |
+  | 17 | **Build** | ❌ **failure** |
+
+  First time CI ever reached Build (Run #1 died at DB connect, Run #2 at the test step).
+
+### Exact Build failure
+
+`apps/web` `next build`, "Collecting page data" phase:
+
+```
+[Error: Failed to collect configuration for /products]
+  [cause]: Error: NEXT_PUBLIC_SITE_URL is not set —
+           copy apps/web/.env.example to apps/web/.env.local
+      ...  ← apps/web/src/lib/site-url.ts:10
+> Build error occurred
+[Error: Failed to collect page data for /products]
+```
+
+`apps/api` (`tsc`) and `apps/admin` (`next build`) built fine.
+
+### Root cause
+
+`apps/web/src/lib/site-url.ts` (Week 2 Day 9 SEO — `metadataBase`, canonical URLs, `robots.txt`, `sitemap.xml`) throws at build time if `NEXT_PUBLIC_SITE_URL` is unset; `apps/web/src/lib/api-client.ts` does the same for `NEXT_PUBLIC_API_URL`. Locally these come from `apps/web/.env.local` (gitignored). CI has no `.env.local` and `.github/workflows/ci.yml` set no `NEXT_PUBLIC_*` vars. Pre-existing `ci.yml` gap, deterministic — never hit before because CI never reached Build. **Not** the shared-DB test flake.
+
+### Fix — `.github/workflows/ci.yml` only (1 file, +8 / −0)
+
+Three non-secret vars added to the job `env:` block, values mirroring `apps/{web,admin}/.env.example` exactly:
+
+```yaml
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_ADMIN_API_URL: http://localhost:4000
+```
+
+`NEXT_PUBLIC_*` is inlined into the client bundle at build time — `apps/web/.env.example` states nothing secret belongs there. No application code, no `vitest.config.ts`, seed step unchanged.
+
+### Value cross-check
+
+| Var | ci.yml | `apps/web/.env.example` | `apps/admin/.env.example` |
+|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:4000` | `http://localhost:4000` | — |
+| `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | `http://localhost:3000` | — |
+| `NEXT_PUBLIC_ADMIN_API_URL` | `http://localhost:4000` | — | `http://localhost:4000` |
+
+(User's request note said `:3001` for the admin var; corrected to `:4000` on review to match `apps/admin/.env.example` — `:3001` is the admin app's own port, not the API it calls. Confirmed with the user before committing.)
+
+### Local verification
+
+| Check | Result |
+|---|---|
+| CI-equivalent build (`NODE_ENV=test`, CI env vars **+ the 3 new `NEXT_PUBLIC_*`**, `apps/{web,admin}/.env.local` moved aside) | **PASS** — all 3 apps build; `/products` (the Run-#3 failure) now builds as `ƒ` dynamic |
+| CI-equivalent build **without** the 3 vars (control) | FAILS with the exact Run #3 error — confirms root cause |
+| `pnpm run lint` | PASS (9/9, `--max-warnings=0`) |
+| `pnpm run typecheck` | PASS (9/9) |
+| `pnpm run boundaries:check` | PASS — 433 modules / 1270 deps / 0 violations |
+| `pnpm run test` | **370/370** (run 2 of 2). Run 1 had 1 failure — `admin-customers` RBAC `socket hang up` + scattered unique-constraint errors on different tests — the documented shared-`woobe_test` `fileParallelism: false` residual flake; green on rerun. Unrelated to this `env:`-only change (those vars aren't read by the API test suite). CI Run #3 itself passed this step 370/370 on a fresh seeded DB. |
+| `pnpm run build` (standard local) | PASS — api, web, admin |
+| Secrets scan of the diff | CLEAN — added lines are three `http://localhost:*` URLs + a comment; the word "secret" appears only in the explanatory comment |
+| Unrelated changes | NONE — `git status` shows only `M .github/workflows/ci.yml` |
+
+### CI status
+
+**A new GitHub Actions run (Run #4) is still required.** Run #3 failed on `04e1a6a`; this build-env fix is a new local commit the remote PR does not have. A green run needs `git push origin dev1`. Until Run #4 goes fully green through Build, **CI remains unverified** and **Week 2 is NOT complete**.
+
+---
