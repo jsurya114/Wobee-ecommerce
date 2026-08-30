@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Toaster } from "sonner";
+import { GuestLoginPrompt } from "@/features/auth/components/GuestLoginPrompt";
 import { AuthProvider } from "@/features/auth/hooks/useAuth";
 import { CartProvider } from "@/features/cart/hooks/useCart";
 import { WishlistProvider } from "@/features/wishlist/hooks/useWishlist";
@@ -13,6 +14,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <CartProvider>
         <WishlistProvider>
           {children}
+          <GuestLoginPrompt />
           <Toaster position="top-center" richColors />
         </WishlistProvider>
       </CartProvider>
