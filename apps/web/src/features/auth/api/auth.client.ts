@@ -1,9 +1,13 @@
 import type { Role } from "@woobe/types";
 import type {
+  ForgotPasswordInput,
   LoginInput,
   RegisterStartInput,
   ResendOtpInput,
+  ResendPasswordResetOtpInput,
+  ResetPasswordInput,
   VerifyOtpInput,
+  VerifyResetOtpInput,
 } from "@woobe/validation";
 import { apiFetch } from "@/lib/api-client";
 
@@ -20,8 +24,12 @@ export interface AuthSession {
   accessToken: string;
 }
 
-/** Returned by register/start + register/resend — no session yet, the account is created on verify. */
-export interface RegistrationOtpChallenge {
+/**
+ * The response every OTP "send a code" endpoint returns — no session yet.
+ * Shared by register/start + register/resend (account created on verify)
+ * and forgot-password + reset-password/resend (password changed on reset).
+ */
+export interface OtpChallenge {
   pending: true;
   expiresAt: string; // ISO
   resendAvailableAt: string; // ISO
@@ -31,8 +39,8 @@ export interface RegistrationOtpChallenge {
 /** Step 1 of email-OTP registration — sends the code, creates nothing. */
 export function startRegistration(
   input: RegisterStartInput,
-): Promise<RegistrationOtpChallenge> {
-  return apiFetch<RegistrationOtpChallenge>("/api/v1/auth/register/start", {
+): Promise<OtpChallenge> {
+  return apiFetch<OtpChallenge>("/api/v1/auth/register/start", {
     method: "POST",
     body: input,
   });
@@ -50,8 +58,46 @@ export function verifyRegistrationOtp(
 
 export function resendRegistrationOtp(
   input: ResendOtpInput,
-): Promise<RegistrationOtpChallenge> {
-  return apiFetch<RegistrationOtpChallenge>("/api/v1/auth/register/resend", {
+): Promise<OtpChallenge> {
+  return apiFetch<OtpChallenge>("/api/v1/auth/register/resend", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * Step 1 of forgot-password — emails a reset code. Always resolves the same
+ * way whether or not the email has an account (no enumeration).
+ */
+export function requestPasswordReset(
+  input: ForgotPasswordInput,
+): Promise<OtpChallenge> {
+  return apiFetch<OtpChallenge>("/api/v1/auth/forgot-password", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** Step 2 — confirms the code is right before the new-password screen. Resolves on success, throws (422) otherwise. Doesn't consume the code. */
+export function verifyPasswordResetOtp(input: VerifyResetOtpInput): Promise<void> {
+  return apiFetch<void>("/api/v1/auth/reset-password/verify", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** Step 3 — submits the verified code with the new password. No session is returned; the user logs in afterwards. */
+export function resetPassword(input: ResetPasswordInput): Promise<void> {
+  return apiFetch<void>("/api/v1/auth/reset-password", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function resendPasswordResetOtp(
+  input: ResendPasswordResetOtpInput,
+): Promise<OtpChallenge> {
+  return apiFetch<OtpChallenge>("/api/v1/auth/reset-password/resend", {
     method: "POST",
     body: input,
   });

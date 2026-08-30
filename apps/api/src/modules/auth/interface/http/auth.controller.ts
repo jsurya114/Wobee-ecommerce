@@ -1,14 +1,28 @@
-import type { LoginInput, RegisterInput, RegisterStartInput, ResendOtpInput, VerifyOtpInput } from "@woobe/validation";
+import type {
+  ForgotPasswordInput,
+  LoginInput,
+  RegisterInput,
+  RegisterStartInput,
+  ResendOtpInput,
+  ResendPasswordResetOtpInput,
+  ResetPasswordInput,
+  VerifyOtpInput,
+  VerifyResetOtpInput,
+} from "@woobe/validation";
 import type { Request, Response } from "express";
 import { UnauthorizedError } from "../../../../shared/errors";
+import type { ForgotPasswordUseCase } from "../../application/use-cases/forgot-password.use-case";
 import type { GetCurrentUserUseCase } from "../../application/use-cases/get-current-user.use-case";
 import type { LoginUserUseCase } from "../../application/use-cases/login-user.use-case";
 import type { LogoutUserUseCase } from "../../application/use-cases/logout-user.use-case";
 import type { RefreshTokenUseCase } from "../../application/use-cases/refresh-token.use-case";
 import type { RegisterUserUseCase } from "../../application/use-cases/register-user.use-case";
+import type { ResendPasswordResetOtpUseCase } from "../../application/use-cases/resend-password-reset-otp.use-case";
 import type { ResendRegistrationOtpUseCase } from "../../application/use-cases/resend-registration-otp.use-case";
+import type { ResetPasswordUseCase } from "../../application/use-cases/reset-password.use-case";
 import type { StartRegistrationUseCase } from "../../application/use-cases/start-registration.use-case";
 import type { VerifyRegistrationOtpUseCase } from "../../application/use-cases/verify-registration-otp.use-case";
+import type { VerifyResetPasswordOtpUseCase } from "../../application/use-cases/verify-reset-password-otp.use-case";
 import { clearRefreshTokenCookie, REFRESH_TOKEN_COOKIE, setRefreshTokenCookie } from "./refresh-cookie";
 
 /** Controllers stay thin — parse request, call use-case, map result to response. */
@@ -22,6 +36,10 @@ export class AuthController {
     private readonly startRegistrationUseCase: StartRegistrationUseCase,
     private readonly verifyRegistrationOtpUseCase: VerifyRegistrationOtpUseCase,
     private readonly resendRegistrationOtpUseCase: ResendRegistrationOtpUseCase,
+    private readonly forgotPasswordUseCase: ForgotPasswordUseCase,
+    private readonly verifyResetPasswordOtpUseCase: VerifyResetPasswordOtpUseCase,
+    private readonly resetPasswordUseCase: ResetPasswordUseCase,
+    private readonly resendPasswordResetOtpUseCase: ResendPasswordResetOtpUseCase,
   ) {}
 
   async register(req: Request, res: Response): Promise<void> {
@@ -55,6 +73,46 @@ export class AuthController {
   async resendRegistrationOtp(req: Request, res: Response): Promise<void> {
     const input = req.body as ResendOtpInput;
     const { expiresAt, resendAvailableAt, devCode } = await this.resendRegistrationOtpUseCase.execute(input);
+    res.status(200).json({
+      pending: true,
+      expiresAt: expiresAt.toISOString(),
+      resendAvailableAt: resendAvailableAt.toISOString(),
+      ...(devCode ? { devCode } : {}),
+    });
+  }
+
+  /**
+   * Forgot-password, step 1 — emails a reset code. Always 200 with the same
+   * body shape whether or not the email has an account (no enumeration).
+   */
+  async forgotPassword(req: Request, res: Response): Promise<void> {
+    const input = req.body as ForgotPasswordInput;
+    const { expiresAt, resendAvailableAt, devCode } = await this.forgotPasswordUseCase.execute(input);
+    res.status(200).json({
+      pending: true,
+      expiresAt: expiresAt.toISOString(),
+      resendAvailableAt: resendAvailableAt.toISOString(),
+      ...(devCode ? { devCode } : {}),
+    });
+  }
+
+  /** Step 2 — confirms the code is correct so the client can show the "new password" screen. Doesn't consume the code. 204 on success, 422 otherwise. */
+  async verifyResetPasswordOtp(req: Request, res: Response): Promise<void> {
+    const input = req.body as VerifyResetOtpInput;
+    await this.verifyResetPasswordOtpUseCase.execute(input);
+    res.status(204).send();
+  }
+
+  /** Step 3 — verifies the code and sets the new password. 204; the user logs in fresh afterwards. */
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    const input = req.body as ResetPasswordInput;
+    await this.resetPasswordUseCase.execute(input);
+    res.status(204).send();
+  }
+
+  async resendPasswordResetOtp(req: Request, res: Response): Promise<void> {
+    const input = req.body as ResendPasswordResetOtpInput;
+    const { expiresAt, resendAvailableAt, devCode } = await this.resendPasswordResetOtpUseCase.execute(input);
     res.status(200).json({
       pending: true,
       expiresAt: expiresAt.toISOString(),

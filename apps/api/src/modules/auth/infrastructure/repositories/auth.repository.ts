@@ -7,9 +7,12 @@ import type {
   EmailVerificationRecord,
   ListCustomersFilter,
   ListCustomersResult,
+  PasswordResetRecord,
   RefreshEmailVerificationInput,
+  RefreshPasswordResetInput,
   RefreshTokenRecord,
   UpsertEmailVerificationInput,
+  UpsertPasswordResetInput,
   UserWithPasswordHash,
 } from "../../application/ports/auth-repository.port";
 import type { UserEntity } from "../../domain/entities/user.entity";
@@ -160,6 +163,63 @@ export class AuthRepository implements AuthRepositoryPort {
     await prisma.emailVerification.deleteMany({ where: { email } });
   }
 
+  async upsertPasswordReset(input: UpsertPasswordResetInput): Promise<void> {
+    const row = {
+      userId: input.userId,
+      codeHash: input.codeHash,
+      expiresAt: input.expiresAt,
+      lastSentAt: input.lastSentAt,
+    };
+    await prisma.passwordReset.upsert({
+      where: { email: input.email },
+      create: { email: input.email, ...row },
+      // Only ever reached when the previous row is dead (expired/consumed) —
+      // the use-case checks that first. A genuine fresh request, so the
+      // counters (including `attempts`, the hard lifetime cap) reset to zero.
+      update: { ...row, attempts: 0, resendCount: 0, consumedAt: null },
+    });
+  }
+
+  async findPasswordResetByEmail(email: string): Promise<PasswordResetRecord | null> {
+    const row = await prisma.passwordReset.findUnique({ where: { email } });
+    return row ? toPasswordResetRecord(row) : null;
+  }
+
+  async incrementPasswordResetAttempts(email: string): Promise<void> {
+    // updateMany so a row that vanished mid-flight is a no-op, not a P2025.
+    await prisma.passwordReset.updateMany({
+      where: { email },
+      data: { attempts: { increment: 1 } },
+    });
+  }
+
+  async refreshPasswordReset(input: RefreshPasswordResetInput): Promise<void> {
+    // `attempts` is deliberately NOT reset — it's a hard lifetime cap, so a
+    // resend or a re-submitted `forgot` while the row is still live cannot
+    // buy the caller a fresh set of guesses (see MAX_VERIFY_ATTEMPTS).
+    await prisma.passwordReset.updateMany({
+      where: { email: input.email },
+      data: {
+        codeHash: input.codeHash,
+        expiresAt: input.expiresAt,
+        lastSentAt: input.lastSentAt,
+        resendCount: { increment: 1 },
+      },
+    });
+  }
+
+  async deletePasswordReset(email: string): Promise<void> {
+    await prisma.passwordReset.deleteMany({ where: { email } });
+  }
+
+  async updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+    await prisma.authCredential.upsert({
+      where: { userId_method: { userId, method: AuthMethod.PASSWORD } },
+      create: { userId, method: AuthMethod.PASSWORD, passwordHash },
+      update: { passwordHash },
+    });
+  }
+
   async findCustomersForAdmin(filter: ListCustomersFilter): Promise<ListCustomersResult> {
     const where: Prisma.UserWhereInput = {
       role: Role.CUSTOMER,
@@ -256,6 +316,28 @@ function toRefreshTokenRecord(row: {
     userId: row.userId,
     expiresAt: row.expiresAt,
     revokedAt: row.revokedAt,
+  };
+}
+
+function toPasswordResetRecord(row: {
+  email: string;
+  userId: string;
+  codeHash: string;
+  expiresAt: Date;
+  consumedAt: Date | null;
+  attempts: number;
+  resendCount: number;
+  lastSentAt: Date;
+}): PasswordResetRecord {
+  return {
+    email: row.email,
+    userId: row.userId,
+    codeHash: row.codeHash,
+    expiresAt: row.expiresAt,
+    consumedAt: row.consumedAt,
+    attempts: row.attempts,
+    resendCount: row.resendCount,
+    lastSentAt: row.lastSentAt,
   };
 }
 

@@ -1,4 +1,14 @@
-import { loginSchema, registerSchema, registerStartSchema, resendOtpSchema, verifyOtpSchema } from "@woobe/validation";
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  registerSchema,
+  registerStartSchema,
+  resendOtpSchema,
+  resendPasswordResetOtpSchema,
+  resetPasswordSchema,
+  verifyOtpSchema,
+  verifyResetOtpSchema,
+} from "@woobe/validation";
 import { Router } from "express";
 import { asyncHandler } from "../../../../middleware/async-handler";
 import { authGuard } from "../../../../middleware/auth-guard";
@@ -32,6 +42,28 @@ export function createAuthRouter(controller: AuthController): Router {
     "/register",
     validate(registerSchema),
     asyncHandler((req, res) => controller.register(req, res)),
+  );
+
+  // Forgot / reset password — reuses the registration OTP machinery.
+  router.post(
+    "/forgot-password",
+    validate(forgotPasswordSchema),
+    asyncHandler((req, res) => controller.forgotPassword(req, res)),
+  );
+  router.post(
+    "/reset-password/verify",
+    validate(verifyResetOtpSchema),
+    asyncHandler((req, res) => controller.verifyResetPasswordOtp(req, res)),
+  );
+  router.post(
+    "/reset-password",
+    validate(resetPasswordSchema),
+    asyncHandler((req, res) => controller.resetPassword(req, res)),
+  );
+  router.post(
+    "/reset-password/resend",
+    validate(resendPasswordResetOtpSchema),
+    asyncHandler((req, res) => controller.resendPasswordResetOtp(req, res)),
   );
 
   router.post(

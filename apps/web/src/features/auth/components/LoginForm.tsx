@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginInput } from "@woobe/validation";
 import { Button } from "@woobe/ui";
 import { Lock, Mail } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -26,7 +27,7 @@ export function LoginForm() {
     try {
       await login(data);
       toast.success("Welcome back!");
-      router.push("/account");
+      router.push("/");
     } catch (error) {
       if (error instanceof ApiError) {
         // Deliberately field-agnostic — the API already collapses "no such
@@ -65,9 +66,9 @@ export function LoginForm() {
           <input type="checkbox" className="h-4 w-4 rounded border-border accent-primary" />
           Remember me
         </label>
-        <a href="mailto:support@woobe.in?subject=Password%20reset" className="font-body text-sm font-medium text-primary hover:underline">
+        <Link href="/forgot-password" className="font-body text-sm font-medium text-primary hover:underline">
           Forgot password?
-        </a>
+        </Link>
       </div>
 
       {errors.root?.message ? (

@@ -145,6 +145,7 @@ model User {
 
   authCredentials   AuthCredential[]
   refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
   addresses         Address[]
   cart              Cart?
   wishlist          Wishlist?
@@ -209,6 +210,34 @@ model EmailVerification {
   updatedAt   DateTime  @updatedAt
 
   @@map("email_verifications")
+}
+
+/// Forgot-password email-OTP. Reuses the same code machinery as
+/// EmailVerification (sha256(code) only, never the raw code; 5-min TTL,
+/// resend cooldown + caps in the shared domain policy) but for an account
+/// that already exists — so unlike EmailVerification it carries a real
+/// `userId` FK. One row per email (`@unique`); "forgot" upserts, so a fresh
+/// request replaces any prior in-progress reset. The row is deleted the
+/// moment the code is verified and the password changed, and every refresh
+/// token for that user is revoked. Postgres, not Redis (ADR-017).
+model PasswordReset {
+  id       String @id @default(uuid())
+  email    String @unique
+  userId   String
+  codeHash String
+
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0) // failed verify attempts, capped in the domain policy
+  resendCount Int       @default(0) // resends, capped in the domain policy
+  lastSentAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 /// Auth credentials live in their own table, keyed to userId with a method
