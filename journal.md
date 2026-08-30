@@ -1636,7 +1636,21 @@ Search now reachable from every page, not just the PLP:
 - **`HeaderSearch`** (new) — a magnifier button that shows **only on `/` and `/products`** (`SEARCH_ROUTES` in `SiteHeader`; every other page — cart, checkout, account, auth, PDP — has no header search). It sits in the **right cluster** just **before the Home nav item** — search + nav + mobile cart are wrapped in one `md:ml-auto md:flex-none` group so they right-align together (a single auto-margin, not one on the search *and* one on the nav, which split the free space and floated the search to centre). The mobile cart carries its own `ml-auto` for the search-hidden case. It **expands an inline input** (`transition-[width,opacity] duration-300 ease-in-out`). The button is anchored right (`justify-end`); the input grows from it toward the logo. Below `md` the wrapper is `flex-1` so the open input fills the gap without pushing the cart off-screen; the `min-w-0` on the animating div is load-bearing (flexbox's `min-width:auto` otherwise kept the collapsed input at its intrinsic width and hid the cart). At `md+` it's a fixed `w-64` slot; the nav is pushed right with `md:ml-auto`. Collapsed wrapper is `inert`. Header input gets `focus-visible:ring-0` (the default rose focus ring read as a stray pink outline in the bar). Submit routes to `/products?q=…` via `buildProductsHref` and collapses; also collapses on Escape / outside pointer-down.
 - **Backend:** unchanged — `/products` already reads `?q=` server-side → `listProducts({ q })` → `GET /api/v1/products?q=` → repo `name contains`, case-insensitive (`product.repository.ts`). No API change.
 
+### Guest "log in to explore more" prompt
+
+- **`useGuestLoginPrompt`** (new hook, `features/auth/hooks/`) — the policy: one `setInterval` (5 min) armed **only while `useAuth().status === "unauthenticated"`**, torn down the moment they authenticate / dismiss / it unmounts. Each tick opens the prompt; dismissal is persisted in `sessionStorage` (`woobe.guestLoginPromptDismissed`, try/caught) so it never re-nags, and a dismissed flag also `clearInterval`s on the next tick. Suppressed on `/login`, `/register`, `/checkout`.
+- **`GuestLoginPrompt`** (new component) — the view: a small centred modal (`role="dialog"`, `aria-modal`, Escape to close, backdrop-click to dismiss, body-scroll lock while open, primary button auto-focused). "Log in to explore more" + a `Link` to `/login` + "Not now". Returns `null` while hidden.
+- Mounted once in `providers.tsx` inside `AuthProvider` (needs `useAuth`), next to `<Toaster>`.
+- **Cost:** one 5-min timer for guests only, no network, no per-render work, `null` DOM while hidden. **SOLID:** hook = when, component = what, composed via `Providers`; depends on the `useAuth` abstraction only.
+
 **Verification:** `pnpm --filter @woobe/web run lint` PASS, `typecheck` PASS. No `build` — web dev server live.
+
+### Product imagery in the seed
+
+- Every seeded product now gets **2 topically-related demo photos** instead of one grey `placehold.co` card. `seed.ts` — each `ProductDef` gains an `imageTags` string (comma-joined keywords); the product loop drops the inline `images.create` and instead, after the upsert, always **re-syncs** images (`productImage.deleteMany` → `createMany`) so editing `imageTags` takes effect on a re-run, not just a fresh insert. URLs: `https://loremflickr.com/800/1000/<tags>?lock=<n>` — real Flickr-CC photos, `?lock=` pins each so it's stable. The repo already renders product images with a plain `<img>` (no `next/image` remote-host allowlist, see `ProductCard`), so an external host is fine; swap for real photography via the admin catalogue.
+- Applied to the existing `woobe_dev` out-of-band (a throwaway `deleteMany`/`createMany` pass) so current local data has the images without a full re-seed (which would duplicate the non-idempotent `PricingSetting`/`ShippingRule`/`GstSlab` rows).
+
+**Verification:** `pnpm --filter @woobe/database run typecheck` PASS, `lint` PASS. Two sample URLs return `200 image/jpeg`.
 
 ---
 
