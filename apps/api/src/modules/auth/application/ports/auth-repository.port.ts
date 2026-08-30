@@ -1,3 +1,5 @@
+import type { EmailVerificationEntity } from "../../domain/entities/email-verification.entity";
+import type { PasswordResetEntity } from "../../domain/entities/password-reset.entity";
 import type { UserEntity } from "../../domain/entities/user.entity";
 
 export interface CreateUserInput {
@@ -7,9 +9,65 @@ export interface CreateUserInput {
   passwordHash: string;
 }
 
+/** A pending email-OTP registration row (see EmailVerification model / EmailVerificationEntity). */
+export type EmailVerificationRecord = EmailVerificationEntity;
+
+export interface UpsertEmailVerificationInput {
+  email: string;
+  codeHash: string;
+  name: string;
+  phone?: string;
+  passwordHash: string;
+  expiresAt: Date;
+  lastSentAt: Date;
+}
+
+/**
+ * A new code for an EXISTING live pending row — from `resend`, or from a
+ * re-submitted `start` while the previous code is still valid. Bumps
+ * `resendCount`, sets the new code/expiry/lastSentAt, and — critically —
+ * does NOT reset `attempts` (that stays a hard lifetime cap, see
+ * MAX_VERIFY_ATTEMPTS). `name`/`phone`/`passwordHash` are only supplied by
+ * the re-`start` path, where the form may have changed.
+ */
+export interface RefreshEmailVerificationInput {
+  email: string;
+  codeHash: string;
+  expiresAt: Date;
+  lastSentAt: Date;
+  name?: string;
+  phone?: string | null;
+  passwordHash?: string;
+}
+
 export interface UserWithPasswordHash {
   user: UserEntity;
   passwordHash: string | null;
+}
+
+/** An in-progress forgot-password reset row (see PasswordReset model / PasswordResetEntity). */
+export type PasswordResetRecord = PasswordResetEntity;
+
+export interface UpsertPasswordResetInput {
+  email: string;
+  userId: string;
+  codeHash: string;
+  expiresAt: Date;
+  lastSentAt: Date;
+}
+
+/**
+ * A new code for an EXISTING live reset row — from `resend`, or from a
+ * re-submitted `forgot` while the previous code is still valid. Bumps
+ * `resendCount`, sets the new code/expiry/lastSentAt, and — like the
+ * registration flow — does NOT reset `attempts` (a hard lifetime cap, see
+ * MAX_VERIFY_ATTEMPTS).
+ */
+export interface RefreshPasswordResetInput {
+  email: string;
+  codeHash: string;
+  expiresAt: Date;
+  lastSentAt: Date;
 }
 
 export interface RefreshTokenRecord {
@@ -54,6 +112,28 @@ export interface AuthRepositoryPort {
   /** Includes the PASSWORD auth credential's hash (or null if the user has none — e.g. future OTP-only accounts) in one query. */
   findUserWithPasswordHashByEmail(email: string): Promise<UserWithPasswordHash | null>;
   createUserWithPassword(input: CreateUserInput): Promise<UserEntity>;
+
+  // ── Email-OTP registration (a pending registration lives on this row
+  //    until the code is verified; no `users` row exists until then). ──
+  /** Fresh start — used only when there's no live pending row (none, or the prior code expired/was consumed). Resets attempts/resendCount to 0 and clears consumedAt. */
+  upsertEmailVerification(input: UpsertEmailVerificationInput): Promise<void>;
+  findEmailVerificationByEmail(email: string): Promise<EmailVerificationRecord | null>;
+  incrementEmailVerificationAttempts(email: string): Promise<void>;
+  /** New code for an existing LIVE row (resend, or re-submitted start). resendCount++, new code/expiry/lastSentAt; `attempts` is deliberately NOT reset. */
+  refreshEmailVerification(input: RefreshEmailVerificationInput): Promise<void>;
+  deleteEmailVerification(email: string): Promise<void>;
+
+  // ── Forgot-password email-OTP (an in-progress reset for an existing
+  //    account; the row is deleted the moment the password is changed). ──
+  /** Fresh reset request — used when there's no live row (none, or the prior code expired/was consumed). Resets attempts/resendCount to 0 and clears consumedAt. */
+  upsertPasswordReset(input: UpsertPasswordResetInput): Promise<void>;
+  findPasswordResetByEmail(email: string): Promise<PasswordResetRecord | null>;
+  incrementPasswordResetAttempts(email: string): Promise<void>;
+  /** New code for an existing LIVE row (resend, or re-submitted forgot). resendCount++, new code/expiry/lastSentAt; `attempts` is deliberately NOT reset. */
+  refreshPasswordReset(input: RefreshPasswordResetInput): Promise<void>;
+  deletePasswordReset(email: string): Promise<void>;
+  /** Replace (or create) the user's PASSWORD credential hash — the reset flow's final write. */
+  updateUserPassword(userId: string, passwordHash: string): Promise<void>;
 
   /** tokenHash is the sha256 hex digest of the raw token — the raw token is never persisted (see RefreshToken model comment). */
   createRefreshToken(params: { userId: string; tokenHash: string; expiresAt: Date }): Promise<RefreshTokenRecord>;

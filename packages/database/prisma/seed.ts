@@ -130,6 +130,9 @@ async function main() {
     description: string;
     categorySlug: string;
     collections: string[];
+    /** Comma-joined keywords — used to pull a topically-related demo photo
+     * from loremflickr (real product photography replaces this in admin). */
+    imageTags: string;
     variants: VariantDef[];
   };
 
@@ -140,6 +143,7 @@ async function main() {
       description: "Lightweight floral wrap dress with a flattering tie waist.",
       categorySlug: "dresses",
       collections: ["new-drops"],
+      imageTags: "floral,dress,fashion",
       variants: [
         { color: "Rose", size: "S", weightGrams: 320, stock: 25 },
         { color: "Rose", size: "M", weightGrams: 340, stock: 30 },
@@ -152,6 +156,7 @@ async function main() {
       description: "Breathable linen top and trouser co-ord set, perfect for warm days.",
       categorySlug: "tops",
       collections: ["new-drops", "most-loved"],
+      imageTags: "linen,outfit,fashion",
       variants: [
         { color: "Ivory", size: "S", weightGrams: 480, stock: 20 },
         { color: "Ivory", size: "M", weightGrams: 500, stock: 22 },
@@ -164,6 +169,7 @@ async function main() {
       description: "Classic cropped denim jacket with contrast stitching.",
       categorySlug: "tops",
       collections: ["most-loved"],
+      imageTags: "denim,jacket,fashion",
       variants: [
         { color: "Indigo", size: "M", weightGrams: 620, stock: 20 },
         { color: "Indigo", size: "L", weightGrams: 650, stock: 16 },
@@ -175,6 +181,7 @@ async function main() {
       description: "Hand-finished mulberry silk scarf with a hand-rolled edge.",
       categorySlug: "accessories",
       collections: ["new-drops"],
+      imageTags: "silk,scarf,fashion",
       variants: [
         { color: "Blush", size: "One Size", weightGrams: 60, stock: 40 },
         { color: "Charcoal", size: "One Size", weightGrams: 60, stock: 35 },
@@ -186,6 +193,7 @@ async function main() {
       description: "Hand block-printed cotton kurta, breathable everyday ethnic wear.",
       categorySlug: "ethnic-wear",
       collections: ["most-loved"],
+      imageTags: "kurta,ethnic,fashion",
       variants: [
         { color: "Mustard", size: "S", weightGrams: 280, stock: 24 },
         { color: "Mustard", size: "M", weightGrams: 300, stock: 28 },
@@ -198,6 +206,7 @@ async function main() {
       description: "Fluid pleated midi skirt that moves with you.",
       categorySlug: "bottoms",
       collections: ["new-drops"],
+      imageTags: "skirt,fashion,woman",
       variants: [
         { color: "Dusty Rose", size: "S", weightGrams: 260, stock: 18 },
         { color: "Dusty Rose", size: "M", weightGrams: 280, stock: 22 },
@@ -209,6 +218,7 @@ async function main() {
       description: "Delicately embroidered cotton top with a relaxed silhouette.",
       categorySlug: "tops",
       collections: [],
+      imageTags: "blouse,top,fashion",
       variants: [
         { color: "White", size: "S", weightGrams: 220, stock: 20 },
         { color: "White", size: "M", weightGrams: 230, stock: 20 },
@@ -220,6 +230,7 @@ async function main() {
       description: "Wide-leg palazzo pants in flowy rayon.",
       categorySlug: "bottoms",
       collections: ["most-loved"],
+      imageTags: "trousers,pants,fashion",
       variants: [
         { color: "Olive", size: "M", weightGrams: 310, stock: 24 },
         { color: "Olive", size: "L", weightGrams: 330, stock: 18 },
@@ -231,6 +242,7 @@ async function main() {
       description: "Hand-woven jute tote with a leather-trimmed handle.",
       categorySlug: "accessories",
       collections: ["new-drops"],
+      imageTags: "tote,bag,handbag",
       variants: [{ color: "Natural", size: "One Size", weightGrams: 380, stock: 30 }],
     },
     {
@@ -239,6 +251,7 @@ async function main() {
       description: "Handcrafted brass statement earrings with a matte finish.",
       categorySlug: "accessories",
       collections: [],
+      imageTags: "earrings,jewelry,accessory",
       variants: [
         { color: "Gold", size: "One Size", weightGrams: 25, stock: 50 },
         { color: "Silver", size: "One Size", weightGrams: 25, stock: 45 },
@@ -246,7 +259,7 @@ async function main() {
     },
   ];
 
-  for (const p of productDefs) {
+  for (const [pIndex, p] of productDefs.entries()) {
     const variantPrices = p.variants.map((v) => priceForWeight(v.weightGrams, DEFAULT_RATE_PER_KG_PAISE));
     const minPrice = Math.min(...variantPrices);
 
@@ -259,21 +272,27 @@ async function main() {
         description: p.description,
         categoryId: categories[p.categorySlug]!.id,
         minPricePaiseCache: minPrice,
-        images: {
-          create: [
-            {
-              url: `https://placehold.co/800x1000?text=${encodeURIComponent(p.name)}`,
-              altText: p.name,
-              sortOrder: 0,
-            },
-          ],
-        },
         collections: {
           create: p.collections.map((slug) => ({
             collection: { connect: { id: slug === "new-drops" ? newDrops.id : mostLoved.id } },
           })),
         },
       },
+    });
+
+    // Demo imagery — a topically-related photo per product from loremflickr
+    // (`?lock=` pins it so it's stable across renders). Re-synced on every
+    // seed run rather than only on first insert, so changing `imageTags`
+    // above actually takes effect. Replace with real product photography
+    // via the admin catalogue.
+    await prisma.productImage.deleteMany({ where: { productId: product.id } });
+    await prisma.productImage.createMany({
+      data: [0, 1].map((n) => ({
+        productId: product.id,
+        url: `https://loremflickr.com/800/1000/${p.imageTags}?lock=${pIndex * 10 + n}`,
+        altText: `${p.name} — view ${n + 1}`,
+        sortOrder: n,
+      })),
     });
 
     for (const v of p.variants) {

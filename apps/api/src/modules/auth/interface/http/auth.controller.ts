@@ -1,11 +1,28 @@
-import type { LoginInput, RegisterInput } from "@woobe/validation";
+import type {
+  ForgotPasswordInput,
+  LoginInput,
+  RegisterInput,
+  RegisterStartInput,
+  ResendOtpInput,
+  ResendPasswordResetOtpInput,
+  ResetPasswordInput,
+  VerifyOtpInput,
+  VerifyResetOtpInput,
+} from "@woobe/validation";
 import type { Request, Response } from "express";
 import { UnauthorizedError } from "../../../../shared/errors";
+import type { ForgotPasswordUseCase } from "../../application/use-cases/forgot-password.use-case";
 import type { GetCurrentUserUseCase } from "../../application/use-cases/get-current-user.use-case";
 import type { LoginUserUseCase } from "../../application/use-cases/login-user.use-case";
 import type { LogoutUserUseCase } from "../../application/use-cases/logout-user.use-case";
 import type { RefreshTokenUseCase } from "../../application/use-cases/refresh-token.use-case";
 import type { RegisterUserUseCase } from "../../application/use-cases/register-user.use-case";
+import type { ResendPasswordResetOtpUseCase } from "../../application/use-cases/resend-password-reset-otp.use-case";
+import type { ResendRegistrationOtpUseCase } from "../../application/use-cases/resend-registration-otp.use-case";
+import type { ResetPasswordUseCase } from "../../application/use-cases/reset-password.use-case";
+import type { StartRegistrationUseCase } from "../../application/use-cases/start-registration.use-case";
+import type { VerifyRegistrationOtpUseCase } from "../../application/use-cases/verify-registration-otp.use-case";
+import type { VerifyResetPasswordOtpUseCase } from "../../application/use-cases/verify-reset-password-otp.use-case";
 import { clearRefreshTokenCookie, REFRESH_TOKEN_COOKIE, setRefreshTokenCookie } from "./refresh-cookie";
 
 /** Controllers stay thin — parse request, call use-case, map result to response. */
@@ -16,6 +33,13 @@ export class AuthController {
     private readonly refreshTokenUseCase: RefreshTokenUseCase,
     private readonly logoutUserUseCase: LogoutUserUseCase,
     private readonly getCurrentUserUseCase: GetCurrentUserUseCase,
+    private readonly startRegistrationUseCase: StartRegistrationUseCase,
+    private readonly verifyRegistrationOtpUseCase: VerifyRegistrationOtpUseCase,
+    private readonly resendRegistrationOtpUseCase: ResendRegistrationOtpUseCase,
+    private readonly forgotPasswordUseCase: ForgotPasswordUseCase,
+    private readonly verifyResetPasswordOtpUseCase: VerifyResetPasswordOtpUseCase,
+    private readonly resetPasswordUseCase: ResetPasswordUseCase,
+    private readonly resendPasswordResetOtpUseCase: ResendPasswordResetOtpUseCase,
   ) {}
 
   async register(req: Request, res: Response): Promise<void> {
@@ -23,6 +47,78 @@ export class AuthController {
     const { user, accessToken, refreshToken, refreshTokenExpiresAt } = await this.registerUserUseCase.execute(input);
     setRefreshTokenCookie(res, refreshToken, refreshTokenExpiresAt);
     res.status(201).json({ user: toPublicUser(user), accessToken });
+  }
+
+  /** Email-OTP registration, step 1 — no account created yet. */
+  async startRegistration(req: Request, res: Response): Promise<void> {
+    const input = req.body as RegisterStartInput;
+    const { expiresAt, resendAvailableAt, devCode } = await this.startRegistrationUseCase.execute(input);
+    res.status(200).json({
+      pending: true,
+      expiresAt: expiresAt.toISOString(),
+      resendAvailableAt: resendAvailableAt.toISOString(),
+      ...(devCode ? { devCode } : {}),
+    });
+  }
+
+  /** Step 2 — verifies the code and finishes account creation (same response as `register`). */
+  async verifyRegistrationOtp(req: Request, res: Response): Promise<void> {
+    const input = req.body as VerifyOtpInput;
+    const { user, accessToken, refreshToken, refreshTokenExpiresAt } =
+      await this.verifyRegistrationOtpUseCase.execute(input);
+    setRefreshTokenCookie(res, refreshToken, refreshTokenExpiresAt);
+    res.status(201).json({ user: toPublicUser(user), accessToken });
+  }
+
+  async resendRegistrationOtp(req: Request, res: Response): Promise<void> {
+    const input = req.body as ResendOtpInput;
+    const { expiresAt, resendAvailableAt, devCode } = await this.resendRegistrationOtpUseCase.execute(input);
+    res.status(200).json({
+      pending: true,
+      expiresAt: expiresAt.toISOString(),
+      resendAvailableAt: resendAvailableAt.toISOString(),
+      ...(devCode ? { devCode } : {}),
+    });
+  }
+
+  /**
+   * Forgot-password, step 1 — emails a reset code. Always 200 with the same
+   * body shape whether or not the email has an account (no enumeration).
+   */
+  async forgotPassword(req: Request, res: Response): Promise<void> {
+    const input = req.body as ForgotPasswordInput;
+    const { expiresAt, resendAvailableAt, devCode } = await this.forgotPasswordUseCase.execute(input);
+    res.status(200).json({
+      pending: true,
+      expiresAt: expiresAt.toISOString(),
+      resendAvailableAt: resendAvailableAt.toISOString(),
+      ...(devCode ? { devCode } : {}),
+    });
+  }
+
+  /** Step 2 — confirms the code is correct so the client can show the "new password" screen. Doesn't consume the code. 204 on success, 422 otherwise. */
+  async verifyResetPasswordOtp(req: Request, res: Response): Promise<void> {
+    const input = req.body as VerifyResetOtpInput;
+    await this.verifyResetPasswordOtpUseCase.execute(input);
+    res.status(204).send();
+  }
+
+  /** Step 3 — verifies the code and sets the new password. 204; the user logs in fresh afterwards. */
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    const input = req.body as ResetPasswordInput;
+    await this.resetPasswordUseCase.execute(input);
+    res.status(204).send();
+  }
+
+  async resendPasswordResetOtp(req: Request, res: Response): Promise<void> {
+    const input = req.body as ResendPasswordResetOtpInput;
+    const { expiresAt, resendAvailableAt, devCode } = await this.resendPasswordResetOtpUseCase.execute(input);
+    res.status(200).json({
+      pending: true,
+      expiresAt: expiresAt.toISOString(),
+      resendAvailableAt: resendAvailableAt.toISOString(),
+      ...(devCode ? { devCode } : {}),
+    });
   }
 
   async login(req: Request, res: Response): Promise<void> {
@@ -59,5 +155,11 @@ export class AuthController {
 function toPublicUser(user: { id: string; email: string; name: string; role: string; phone: string | null }) {
   // Deliberately not spreading `user` — an explicit allowlist so a future
   // field (e.g. an internal flag) doesn't leak to the client by accident.
-  return { id: user.id, email: user.email, name: user.name, role: user.role, phone: user.phone };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    phone: user.phone,
+  };
 }

@@ -31,7 +31,10 @@ export function BottomNav() {
   const items = [
     { href: "/", label: "Home", icon: Home, isActive: pathname === "/" },
     { href: "/products", label: "Shop", icon: Store, isActive: pathname.startsWith("/products") },
-    { href: "/wishlist", label: "Wishlist", icon: Heart, isActive: pathname === "/wishlist", count: wishlistCount },
+    // Wishlist needs an account (no guest wishlist) — dropped from the bar for guests (4 tabs) so it isn't a dead-end.
+    ...(status === "authenticated"
+      ? [{ href: "/wishlist", label: "Wishlist", icon: Heart, isActive: pathname === "/wishlist", count: wishlistCount }]
+      : []),
     { href: "/cart", label: "Bag", icon: ShoppingBag, isActive: pathname === "/cart", count: itemCount },
     {
       href: accountHref,

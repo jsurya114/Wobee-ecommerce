@@ -7,38 +7,32 @@ import type { Category } from "@/features/catalog/api/categories.client";
 const TONES = ["bg-primary-tint text-primary", "bg-background text-text-primary", "bg-primary-tint text-primary", "bg-background text-text-primary"];
 
 /**
- * "Shop by category" tile row — the real 5 seeded categories, styled in the
- * doc's circular-tile pattern (§8, item 3) but honestly labeled as
- * categories rather than the doc's fictional "Shop by Vibe" style dataset,
- * which doesn't exist yet (Week 2+ scope decision, see the UI styling plan).
+ * "Shop by category" tile row — the real 5 seeded categories in the doc's
+ * circular-tile pattern (§8, item 3). `flex-wrap justify-center`: the row is
+ * centred on every width, and wraps to more centred rows on narrow screens
+ * rather than overflowing or needing a scroll.
  */
 export function CategoryTiles({ categories }: { categories: Category[] }) {
   if (categories.length === 0) return null;
 
   return (
     <section className="px-4 py-10 sm:px-6">
-      <h2 className="mb-5 text-center font-display text-2xl text-text-primary">Shop by category</h2>
-      {/*
-        `justify-[safe_center]`, not `justify-center`: centering an
-        overflowing flex row makes the overflow on one side permanently
-        unreachable by scroll (scrollLeft can't go negative) — the row's
-        first tile gets clipped with no way to scroll back to it. `safe`
-        (CSS Box Alignment) falls back to start-alignment whenever content
-        overflows, so mobile scrolls to reveal every tile and desktop (no
-        overflow there) still gets the centered look.
-      */}
-      <div className="mx-auto flex max-w-4xl justify-[safe_center] gap-4 overflow-x-auto pb-1 sm:gap-6 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <h2 className="mb-6 text-center font-display text-2xl text-text-primary">Shop by category</h2>
+
+      <ul className="mx-auto flex max-w-4xl flex-wrap justify-center gap-x-8 gap-y-6 sm:gap-x-12">
         {categories.map((category, i) => (
-          <Link key={category.id} href={`/products?category=${encodeURIComponent(category.slug)}`} className="group flex shrink-0 flex-col items-center gap-2">
-            <span
-              className={`flex h-20 w-20 items-center justify-center rounded-full font-display text-lg transition-transform duration-200 group-hover:scale-105 sm:h-24 sm:w-24 ${TONES[i % TONES.length]}`}
-            >
-              {category.name.slice(0, 1)}
-            </span>
-            <span className="font-body text-xs text-text-primary">{category.name}</span>
-          </Link>
+          <li key={category.id}>
+            <Link href={`/products?category=${encodeURIComponent(category.slug)}`} className="group flex flex-col items-center gap-2">
+              <span
+                className={`flex h-20 w-20 items-center justify-center rounded-full font-display text-lg transition-transform duration-200 group-hover:scale-105 sm:h-24 sm:w-24 ${TONES[i % TONES.length]}`}
+              >
+                {category.name.slice(0, 1)}
+              </span>
+              <span className="font-body text-xs text-text-primary">{category.name}</span>
+            </Link>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }

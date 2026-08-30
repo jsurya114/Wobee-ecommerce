@@ -145,6 +145,7 @@ model User {
 
   authCredentials   AuthCredential[]
   refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
   addresses         Address[]
   cart              Cart?
   wishlist          Wishlist?
@@ -176,6 +177,67 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+/// Email-OTP-gated customer registration. A pending registration lives ONLY
+/// here until the 6-digit code is verified — no `users` row is created on
+/// "start". Mirrors RefreshToken: the raw code is never stored, only its
+/// sha256 hex digest (`codeHash`); the row is deleted on a successful
+/// verify. Postgres, not Redis (ADR-017: Redis is never the source of
+/// truth). One row per pending email — "start" upserts, so re-submitting
+/// the form replaces any prior pending attempt. `AuthMethod.OTP` stays
+/// reserved for a future passwordless login; this flow still creates a
+/// PASSWORD credential.
+model EmailVerification {
+  id       String @id @default(uuid())
+  email    String @unique
+  codeHash String
+
+  // Pending registration captured at "start" so "verify" creates the user
+  // without the client re-sending the password. Explicit typed columns,
+  // never a JSON blob. `passwordHash` is the bcrypt hash of the chosen
+  // password.
+  name         String
+  phone        String?
+  passwordHash String
+
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0) // failed verify attempts, capped in the domain policy
+  resendCount Int       @default(0) // resends, capped in the domain policy
+  lastSentAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("email_verifications")
+}
+
+/// Forgot-password email-OTP. Reuses the same code machinery as
+/// EmailVerification (sha256(code) only, never the raw code; 5-min TTL,
+/// resend cooldown + caps in the shared domain policy) but for an account
+/// that already exists — so unlike EmailVerification it carries a real
+/// `userId` FK. One row per email (`@unique`); "forgot" upserts, so a fresh
+/// request replaces any prior in-progress reset. The row is deleted the
+/// moment the code is verified and the password changed, and every refresh
+/// token for that user is revoked. Postgres, not Redis (ADR-017).
+model PasswordReset {
+  id       String @id @default(uuid())
+  email    String @unique
+  userId   String
+  codeHash String
+
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0) // failed verify attempts, capped in the domain policy
+  resendCount Int       @default(0) // resends, capped in the domain policy
+  lastSentAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 /// Auth credentials live in their own table, keyed to userId with a method
