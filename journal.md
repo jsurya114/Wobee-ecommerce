@@ -1617,6 +1617,27 @@ Rebuilt `/login` and `/register` to the supplied mock: split panel (`lg:grid-col
 
 **Verification:** `pnpm --filter @woobe/web run lint` PASS, `typecheck` PASS (after clearing iCloud `" 2"` dupes in `.next/types`). No `build` — web dev server was live.
 
+## 2026-08-30 — Post-Week-2: marketplace-style homepage + "Home" nav link
+
+**Branch:** `dev1`. `apps/web` only.
+
+- **Homepage `Hero` removed.** Per a marketplace-convention steer (limeroad reference — no brand-story pitch, open on product): `Hero.tsx` deleted, dropped from `(storefront)/page.tsx`. `TrustStrip` moved from the top to below the product rails (kept, not deleted — it's product-trust signalling, not a mission statement). Page now opens `CategoryTiles → New arrivals → Best sellers → FeaturedCollections → TrustStrip → CustomerReviews`.
+- **`(storefront)/loading.tsx`** skeleton reworked to match — was a Hero-shaped block (eyebrow + 2 headline lines + pill), now a category-row + product-rail skeleton.
+- **"Home" link added to the desktop `SiteHeader` nav** (`<Home/>` icon → `/`), before "Shop". `BottomNav` already had a Home tab; the logo already linked home, but an explicit nav item was requested.
+
+(A marketplace-style header — persistent category strip + a header search box, `SiteHeader` fed `categories` from an `async` `(storefront)/layout.tsx` — was built as a limeroad-structure experiment and then reverted at the user's request. Header is back to logo + nav + mobile cart.)
+
+### Header search — icon button, shared component
+
+Search now reachable from every page, not just the PLP:
+
+- **`ProductSearchForm`** (new, `features/catalog/components/`) — the one search `<form>` + input. `forwardRef` → `<input>` (so the header can focus it); `hideIcon` drops the built-in prefix magnifier for callers with their own toggle. Owns no routing; the caller's `onSubmit(query)` decides where a search goes. Re-syncs its value from `initialQuery` when that changes for a reason other than its own submit (the PLP "Clear filters" case, moved here from `SearchBar`).
+- **`SearchBar`** (PLP) rewritten to a thin wrapper: `<ProductSearchForm initialQuery={currentParams.q} onSubmit={q => router.push(buildProductsHref({ ...currentParams, q }))} />`. Same navigation, same filter preservation, same `page` drop — external behaviour unchanged.
+- **`HeaderSearch`** (new) — a magnifier button that shows **only on `/` and `/products`** (`SEARCH_ROUTES` in `SiteHeader`; every other page — cart, checkout, account, auth, PDP — has no header search). It sits in the **right cluster** just **before the Home nav item** — search + nav + mobile cart are wrapped in one `md:ml-auto md:flex-none` group so they right-align together (a single auto-margin, not one on the search *and* one on the nav, which split the free space and floated the search to centre). The mobile cart carries its own `ml-auto` for the search-hidden case. It **expands an inline input** (`transition-[width,opacity] duration-300 ease-in-out`). The button is anchored right (`justify-end`); the input grows from it toward the logo. Below `md` the wrapper is `flex-1` so the open input fills the gap without pushing the cart off-screen; the `min-w-0` on the animating div is load-bearing (flexbox's `min-width:auto` otherwise kept the collapsed input at its intrinsic width and hid the cart). At `md+` it's a fixed `w-64` slot; the nav is pushed right with `md:ml-auto`. Collapsed wrapper is `inert`. Header input gets `focus-visible:ring-0` (the default rose focus ring read as a stray pink outline in the bar). Submit routes to `/products?q=…` via `buildProductsHref` and collapses; also collapses on Escape / outside pointer-down.
+- **Backend:** unchanged — `/products` already reads `?q=` server-side → `listProducts({ q })` → `GET /api/v1/products?q=` → repo `name contains`, case-insensitive (`product.repository.ts`). No API change.
+
+**Verification:** `pnpm --filter @woobe/web run lint` PASS, `typecheck` PASS. No `build` — web dev server live.
+
 ---
 
 ## 2026-08-30 — Reconciliation: two independent sessions had duplicated the Week 2 review fix, plus a new cart bug fixed
