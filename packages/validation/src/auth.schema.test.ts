@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { loginSchema, registerSchema } from "./auth.schema";
+import {
+  loginSchema,
+  OTP_CODE_LENGTH,
+  registerSchema,
+  registerStartSchema,
+  resendOtpSchema,
+  verifyOtpSchema,
+} from "./auth.schema";
 
 describe("registerSchema", () => {
   it("accepts a valid registration payload", () => {
@@ -64,5 +71,45 @@ describe("loginSchema", () => {
 
   it("rejects a missing password", () => {
     expect(loginSchema.safeParse({ email: "a@b.com", password: "" }).success).toBe(false);
+  });
+});
+
+describe("registerStartSchema", () => {
+  it("is the register payload shape (aliased, so it can't drift)", () => {
+    expect(registerStartSchema).toBe(registerSchema);
+  });
+});
+
+describe("verifyOtpSchema", () => {
+  it("accepts an OTP_CODE_LENGTH-digit code and lowercases the email", () => {
+    const result = verifyOtpSchema.safeParse({
+      email: "Asha@Example.com",
+      code: "1".repeat(OTP_CODE_LENGTH),
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.email).toBe("asha@example.com");
+  });
+
+  it("rejects a code that isn't exactly OTP_CODE_LENGTH digits", () => {
+    for (const code of ["1".repeat(OTP_CODE_LENGTH - 1), "1".repeat(OTP_CODE_LENGTH + 1), "12a4", ""]) {
+      expect(verifyOtpSchema.safeParse({ email: "a@b.com", code }).success).toBe(false);
+    }
+  });
+
+  it("rejects an invalid email", () => {
+    expect(verifyOtpSchema.safeParse({ email: "not-an-email", code: "1234" }).success).toBe(false);
+  });
+});
+
+describe("resendOtpSchema", () => {
+  it("accepts an email and lowercases it", () => {
+    const result = resendOtpSchema.safeParse({ email: "Asha@Example.com" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.email).toBe("asha@example.com");
+  });
+
+  it("rejects a missing/invalid email", () => {
+    expect(resendOtpSchema.safeParse({}).success).toBe(false);
+    expect(resendOtpSchema.safeParse({ email: "x" }).success).toBe(false);
   });
 });

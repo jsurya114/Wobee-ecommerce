@@ -1,3 +1,4 @@
+import type { EmailVerificationEntity } from "../../domain/entities/email-verification.entity";
 import type { UserEntity } from "../../domain/entities/user.entity";
 
 export interface CreateUserInput {
@@ -5,6 +6,37 @@ export interface CreateUserInput {
   name: string;
   phone?: string;
   passwordHash: string;
+}
+
+/** A pending email-OTP registration row (see EmailVerification model / EmailVerificationEntity). */
+export type EmailVerificationRecord = EmailVerificationEntity;
+
+export interface UpsertEmailVerificationInput {
+  email: string;
+  codeHash: string;
+  name: string;
+  phone?: string;
+  passwordHash: string;
+  expiresAt: Date;
+  lastSentAt: Date;
+}
+
+/**
+ * A new code for an EXISTING live pending row — from `resend`, or from a
+ * re-submitted `start` while the previous code is still valid. Bumps
+ * `resendCount`, sets the new code/expiry/lastSentAt, and — critically —
+ * does NOT reset `attempts` (that stays a hard lifetime cap, see
+ * MAX_VERIFY_ATTEMPTS). `name`/`phone`/`passwordHash` are only supplied by
+ * the re-`start` path, where the form may have changed.
+ */
+export interface RefreshEmailVerificationInput {
+  email: string;
+  codeHash: string;
+  expiresAt: Date;
+  lastSentAt: Date;
+  name?: string;
+  phone?: string | null;
+  passwordHash?: string;
 }
 
 export interface UserWithPasswordHash {
@@ -54,6 +86,16 @@ export interface AuthRepositoryPort {
   /** Includes the PASSWORD auth credential's hash (or null if the user has none — e.g. future OTP-only accounts) in one query. */
   findUserWithPasswordHashByEmail(email: string): Promise<UserWithPasswordHash | null>;
   createUserWithPassword(input: CreateUserInput): Promise<UserEntity>;
+
+  // ── Email-OTP registration (a pending registration lives on this row
+  //    until the code is verified; no `users` row exists until then). ──
+  /** Fresh start — used only when there's no live pending row (none, or the prior code expired/was consumed). Resets attempts/resendCount to 0 and clears consumedAt. */
+  upsertEmailVerification(input: UpsertEmailVerificationInput): Promise<void>;
+  findEmailVerificationByEmail(email: string): Promise<EmailVerificationRecord | null>;
+  incrementEmailVerificationAttempts(email: string): Promise<void>;
+  /** New code for an existing LIVE row (resend, or re-submitted start). resendCount++, new code/expiry/lastSentAt; `attempts` is deliberately NOT reset. */
+  refreshEmailVerification(input: RefreshEmailVerificationInput): Promise<void>;
+  deleteEmailVerification(email: string): Promise<void>;
 
   /** tokenHash is the sha256 hex digest of the raw token — the raw token is never persisted (see RefreshToken model comment). */
   createRefreshToken(params: { userId: string; tokenHash: string; expiresAt: Date }): Promise<RefreshTokenRecord>;

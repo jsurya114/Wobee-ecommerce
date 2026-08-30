@@ -1,7 +1,14 @@
 "use client";
 
-import type { LoginInput, RegisterInput } from "@woobe/validation";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import type { LoginInput, VerifyOtpInput } from "@woobe/validation";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import * as authApi from "../api/auth.client";
 import type { AuthUser } from "../api/auth.client";
 
@@ -12,7 +19,8 @@ interface AuthContextValue {
   accessToken: string | null;
   status: AuthStatus;
   login: (input: LoginInput) => Promise<void>;
-  register: (input: RegisterInput) => Promise<void>;
+  /** Finishes email-OTP registration: verifies the code, which is what actually creates the account and starts the session. Step 1 (send code) is a plain authApi call — it touches no auth state. */
+  verifyRegistrationOtp: (input: VerifyOtpInput) => Promise<void>;
   logout: () => Promise<void>;
   /** Re-fetches /auth/me and updates the in-memory user — for a feature that mutates the profile through a DIFFERENT endpoint (Week 2 Day 3's PATCH /users/me) to refresh what this context holds, without a full re-login. */
   refreshUser: () => Promise<void>;
@@ -58,8 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
-  const register = useCallback(async (input: RegisterInput) => {
-    const session = await authApi.register(input);
+  const verifyRegistrationOtp = useCallback(async (input: VerifyOtpInput) => {
+    const session = await authApi.verifyRegistrationOtp(input);
     setAccessToken(session.accessToken);
     setUser(session.user);
     setStatus("authenticated");
@@ -82,7 +90,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [accessToken]);
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, status, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        accessToken,
+        status,
+        login,
+        verifyRegistrationOtp,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

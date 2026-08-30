@@ -62,6 +62,21 @@ const envSchema = z.object({
   // later replaces this entirely; nothing else in the codebase reads it.
   API_PUBLIC_URL: z.string().url().default("http://localhost:4000"),
   MEDIA_UPLOAD_DIR: z.string().default("uploads"),
+
+  // Registration-OTP email delivery (SmtpOtpNotifier). All optional — when
+  // SMTP_HOST is unset the auth module falls back to DevOtpNotifier (logs
+  // the code in dev; the API also returns it as `devCode` in non-prod).
+  // Provider-agnostic: any SMTP endpoint (Gmail app password, SES SMTP,
+  // Mailtrap, Postmark, …). See DECISIONS_PENDING.md #7.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default("Woobe <no-reply@woobe.local>"),
 });
 
 const parsed = envSchema.safeParse(process.env);

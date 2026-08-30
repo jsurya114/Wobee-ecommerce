@@ -9,12 +9,19 @@ import { LoginUserUseCase } from "./application/use-cases/login-user.use-case";
 import { LogoutUserUseCase } from "./application/use-cases/logout-user.use-case";
 import { RefreshTokenUseCase } from "./application/use-cases/refresh-token.use-case";
 import { RegisterUserUseCase } from "./application/use-cases/register-user.use-case";
+import { ResendRegistrationOtpUseCase } from "./application/use-cases/resend-registration-otp.use-case";
 import { SetCustomerActiveUseCase } from "./application/use-cases/set-customer-active.use-case";
+import { StartRegistrationUseCase } from "./application/use-cases/start-registration.use-case";
 import { UpdateUserProfileUseCase } from "./application/use-cases/update-user-profile.use-case";
+import { VerifyRegistrationOtpUseCase } from "./application/use-cases/verify-registration-otp.use-case";
+import { env } from "../../config/env";
 import { AuthRepository } from "./infrastructure/repositories/auth.repository";
 import { BcryptService } from "./infrastructure/services/bcrypt.service";
+import { DevOtpNotifier } from "./infrastructure/services/dev-otp-notifier";
 import { JwtService } from "./infrastructure/services/jwt.service";
+import { OtpCodeService } from "./infrastructure/services/otp-code.service";
 import { RefreshTokenService } from "./infrastructure/services/refresh-token.service";
+import { SmtpOtpNotifier } from "./infrastructure/services/smtp-otp-notifier";
 import { AuthController } from "./interface/http/auth.controller";
 import { createAuthRouter } from "./interface/http/auth.routes";
 
@@ -22,9 +29,19 @@ const authRepository = new AuthRepository();
 const bcryptService = new BcryptService();
 const jwtService = new JwtService();
 const refreshTokenService = new RefreshTokenService();
+const otpCodeService = new OtpCodeService();
+// Real email when SMTP is configured, otherwise the dev stub (logs the code;
+// the API also returns it as `devCode` in non-prod). Both implement the same
+// OtpNotifierPort — see DECISIONS_PENDING.md #7.
+const otpNotifier = env.SMTP_HOST ? new SmtpOtpNotifier() : new DevOtpNotifier();
 
 /** Exported for cross-module use — the admin module (ADR-025) reuses these directly for staff login, same pattern as orders/payments' own exports. */
-export const registerUserUseCase = new RegisterUserUseCase(authRepository, bcryptService, jwtService, refreshTokenService);
+export const registerUserUseCase = new RegisterUserUseCase(
+  authRepository,
+  bcryptService,
+  jwtService,
+  refreshTokenService,
+);
 export const loginUserUseCase = new LoginUserUseCase(authRepository, bcryptService, jwtService, refreshTokenService);
 export const refreshTokenUseCase = new RefreshTokenUseCase(authRepository, jwtService, refreshTokenService);
 export const logoutUserUseCase = new LogoutUserUseCase(authRepository, refreshTokenService);
@@ -36,12 +53,33 @@ export const listCustomersAdminUseCase = new ListCustomersAdminUseCase(authRepos
 export const getCustomerForAdminUseCase = new GetCustomerForAdminUseCase(authRepository);
 export const setCustomerActiveUseCase = new SetCustomerActiveUseCase(authRepository);
 
+export const startRegistrationUseCase = new StartRegistrationUseCase(
+  authRepository,
+  bcryptService,
+  otpCodeService,
+  otpNotifier,
+);
+export const verifyRegistrationOtpUseCase = new VerifyRegistrationOtpUseCase(
+  authRepository,
+  otpCodeService,
+  jwtService,
+  refreshTokenService,
+);
+export const resendRegistrationOtpUseCase = new ResendRegistrationOtpUseCase(
+  authRepository,
+  otpCodeService,
+  otpNotifier,
+);
+
 const authController = new AuthController(
   registerUserUseCase,
   loginUserUseCase,
   refreshTokenUseCase,
   logoutUserUseCase,
   getCurrentUserUseCase,
+  startRegistrationUseCase,
+  verifyRegistrationOtpUseCase,
+  resendRegistrationOtpUseCase,
 );
 
 export const router = createAuthRouter(authController);

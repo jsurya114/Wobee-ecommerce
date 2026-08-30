@@ -178,6 +178,39 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+/// Email-OTP-gated customer registration. A pending registration lives ONLY
+/// here until the 6-digit code is verified — no `users` row is created on
+/// "start". Mirrors RefreshToken: the raw code is never stored, only its
+/// sha256 hex digest (`codeHash`); the row is deleted on a successful
+/// verify. Postgres, not Redis (ADR-017: Redis is never the source of
+/// truth). One row per pending email — "start" upserts, so re-submitting
+/// the form replaces any prior pending attempt. `AuthMethod.OTP` stays
+/// reserved for a future passwordless login; this flow still creates a
+/// PASSWORD credential.
+model EmailVerification {
+  id       String @id @default(uuid())
+  email    String @unique
+  codeHash String
+
+  // Pending registration captured at "start" so "verify" creates the user
+  // without the client re-sending the password. Explicit typed columns,
+  // never a JSON blob. `passwordHash` is the bcrypt hash of the chosen
+  // password.
+  name         String
+  phone        String?
+  passwordHash String
+
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0) // failed verify attempts, capped in the domain policy
+  resendCount Int       @default(0) // resends, capped in the domain policy
+  lastSentAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("email_verifications")
+}
+
 /// Auth credentials live in their own table, keyed to userId with a method
 /// column, rather than a password column on User directly (ADR-018).
 model AuthCredential {

@@ -26,3 +26,27 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+const emailField = z.string().trim().toLowerCase().email("Enter a valid email address");
+
+/**
+ * Email-OTP registration is a two-step flow (see apps/api auth module).
+ * Step 1 takes the same payload the account is ultimately created from —
+ * aliased, not re-declared, so the shared shape can't drift.
+ */
+export const registerStartSchema = registerSchema;
+export type RegisterStartInput = z.infer<typeof registerStartSchema>;
+
+/** Number of digits in the registration OTP. Single source for the schema, the web input, and the API generator/policy. */
+export const OTP_CODE_LENGTH = 4;
+
+/** Step 2 — the code plus the email it was sent to. */
+export const verifyOtpSchema = z.object({
+  email: emailField,
+  code: z.string().regex(new RegExp(`^\\d{${OTP_CODE_LENGTH}}$`), `Enter the ${OTP_CODE_LENGTH}-digit code`),
+});
+export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
+
+/** "Resend code" — just the pending email. */
+export const resendOtpSchema = z.object({ email: emailField });
+export type ResendOtpInput = z.infer<typeof resendOtpSchema>;
