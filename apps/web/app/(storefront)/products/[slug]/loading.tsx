@@ -5,7 +5,7 @@ export default function ProductDetailLoading() {
   return (
     <main className="mx-auto max-w-5xl px-4 pb-28 pt-8 sm:px-6 md:pb-8">
       <div className="grid gap-8 md:grid-cols-2 md:gap-12">
-        <Skeleton className="aspect-[4/5] w-full rounded-card" />
+        <Skeleton className="aspect-[3/4] w-full rounded-card" />
         <div className="flex flex-col gap-6">
           <div>
             <Skeleton className="mb-3 h-6 w-24 rounded-pill" />

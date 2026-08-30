@@ -29,6 +29,23 @@ export function formatPaiseAsInr(paise: number): string {
   }).format(paise / 100);
 }
 
+/**
+ * Compact INR display — drops the `.00` for whole-rupee amounts, keeps two
+ * decimals otherwise. For trust-signal figures like the per-kg rate on a
+ * product card ("₹1,200/kg"), where the accounting-precise "₹1,200.00/kg"
+ * reads as clutter. Never use for a payable total or a line item.
+ */
+export function formatPaiseAsInrCompact(paise: number): string {
+  assertInt(paise, "paise");
+  const isWholeRupee = paise % 100 === 0;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: isWholeRupee ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(paise / 100);
+}
+
 /** Apply a percentage (e.g. GST) to a paise amount, rounding to the nearest paisa. */
 export function applyPercentage(paise: number, percentage: number): number {
   assertInt(paise, "paise");

@@ -1,7 +1,7 @@
 "use client";
 
-import { formatPaiseAsInr } from "@woobe/utils";
 import { Button, Card, Spinner } from "@woobe/ui";
+import { OrderPriceBreakdown } from "./OrderPriceBreakdown";
 import { CheckCircle2, PackageX } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
@@ -150,9 +150,8 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
             </dd>
           </div>
         </dl>
-        <div className="mt-3 flex justify-between border-t border-border pt-3 font-body text-base font-medium">
-          <span className="text-text-primary">Total</span>
-          <span className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
+        <div className="mt-4 border-t border-border pt-4">
+          <OrderPriceBreakdown order={order} />
         </div>
       </Card>
 

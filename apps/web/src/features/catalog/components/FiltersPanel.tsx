@@ -1,28 +1,19 @@
 "use client";
 
+import { Button, Chip, Label, Sheet, cn } from "@woobe/ui";
+import { SlidersHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
-import { Button, Input, Label, cn } from "@woobe/ui";
+import { useEffect, useState } from "react";
 import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
 import type { ProductSort } from "../api/products.client";
 
 /**
- * Sort + size/color facets + in-stock + price range + clear, collapsed
- * behind a "Filters" disclosure toggle on every breakpoint. The design plan
- * (woobe_ui_design_plan.md §9) calls for this as a bottom sheet on mobile;
- * packages/ui has no Modal/Sheet primitive yet (its own index.ts says those
- * "arrive when a real feature needs that specific behavior" — ADR-022).
- * Building one from scratch wasn't this Day's scope, so this is a plain
- * inline disclosure instead — same filtering behavior, full-width panel
- * under the toggle rather than a portal/overlay sheet. Easy to swap for a
- * real Sheet once packages/ui has one; documented as a deliberate scope
- * call, not an oversight (see journal.md).
- *
- * Size options are a fixed, standard apparel set (exact match). Color is a
- * free-text exact-match input, not a curated swatch list — ProductVariant
- * .color is a freeform string, not an enum, and there's no facet-values
- * endpoint in Day 1's scope to source real options from; a hardcoded color
- * list risked silently not matching the actual catalogue. See journal.md.
+ * PLP filters + sort (redesign spec §G). Filters open in a bottom `Sheet`
+ * (accessible dialog — focus trap, Esc, scroll lock, returns focus): the
+ * shopper adjusts size / colour / price / availability and commits with
+ * "Apply", or "Clear". Sort is a compact inline control that navigates
+ * immediately. Only backend-supported facets are exposed — no fabricated
+ * filters, no weight facet (deferred, see spec §O).
  */
 const SIZE_OPTIONS = ["S", "M", "L", "XL", "XXL", "One Size"];
 const SORT_OPTIONS: { value: ProductSort; label: string }[] = [
@@ -32,10 +23,9 @@ const SORT_OPTIONS: { value: ProductSort; label: string }[] = [
 ];
 
 function activeFilterCount(params: ProductsQueryParams): number {
-  return [params.q, params.size, params.color, params.inStock, params.minPrice, params.maxPrice].filter(Boolean).length;
+  return [params.size, params.color, params.inStock, params.minPrice, params.maxPrice].filter(Boolean).length;
 }
 
-/** Filter inputs work in whole rupees — the API's minPrice/maxPrice are paise (DEVELOPMENT_RULES.md #4: money is always Int paise everywhere except this display boundary). */
 function paiseToRupeeString(paise: string | undefined): string {
   if (!paise) return "";
   const value = Number(paise);
@@ -45,166 +35,160 @@ function paiseToRupeeString(paise: string | undefined): string {
 export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryParams }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [color, setColor] = useState(currentParams.color ?? "");
-  const [minPrice, setMinPrice] = useState(paiseToRupeeString(currentParams.minPrice));
-  const [maxPrice, setMaxPrice] = useState(paiseToRupeeString(currentParams.maxPrice));
 
-  const activeSizes = currentParams.size ? currentParams.size.split(",") : [];
+  // Pending sheet state — committed only on "Apply".
+  const [sizes, setSizes] = useState<string[]>([]);
+  const [color, setColor] = useState("");
+  const [inStock, setInStock] = useState(false);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+
+  // Re-seed the pending state from the URL every time the sheet opens.
+  useEffect(() => {
+    if (!open) return;
+    setSizes(currentParams.size ? currentParams.size.split(",") : []);
+    setColor(currentParams.color ?? "");
+    setInStock(Boolean(currentParams.inStock));
+    setMinPrice(paiseToRupeeString(currentParams.minPrice));
+    setMaxPrice(paiseToRupeeString(currentParams.maxPrice));
+  }, [open, currentParams]);
+
   const count = activeFilterCount(currentParams);
 
-  function navigate(next: Partial<ProductsQueryParams>) {
-    router.push(buildProductsHref({ ...currentParams, ...next }));
+  function apply() {
+    const minRupees = minPrice !== "" ? Number(minPrice) : undefined;
+    const maxRupees = maxPrice !== "" ? Number(maxPrice) : undefined;
+    router.push(
+      buildProductsHref({
+        ...currentParams,
+        size: sizes.length > 0 ? sizes.join(",") : undefined,
+        color: color.trim() || undefined,
+        inStock: inStock ? "true" : undefined,
+        minPrice: minRupees != null && Number.isFinite(minRupees) ? String(Math.round(minRupees * 100)) : undefined,
+        maxPrice: maxRupees != null && Number.isFinite(maxRupees) ? String(Math.round(maxRupees * 100)) : undefined,
+      }),
+    );
+    setOpen(false);
+  }
+
+  function clearAll() {
+    // Category / collection have their own "All" reset and read as page navigation, not part of this set.
+    router.push(
+      buildProductsHref({ category: currentParams.category, collection: currentParams.collection, q: currentParams.q, sort: currentParams.sort }),
+    );
+    setOpen(false);
   }
 
   function toggleSize(size: string) {
-    const next = activeSizes.includes(size) ? activeSizes.filter((s) => s !== size) : [...activeSizes, size];
-    navigate({ size: next.length > 0 ? next.join(",") : undefined });
+    setSizes((prev) => (prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size]));
   }
-
-  function applyPriceAndColor(event: FormEvent) {
-    event.preventDefault();
-    const minRupees = minPrice !== "" ? Number(minPrice) : undefined;
-    const maxRupees = maxPrice !== "" ? Number(maxPrice) : undefined;
-    navigate({
-      color: color.trim() || undefined,
-      minPrice: minRupees !== undefined && Number.isFinite(minRupees) ? String(Math.round(minRupees * 100)) : undefined,
-      maxPrice: maxRupees !== undefined && Number.isFinite(maxRupees) ? String(Math.round(maxRupees * 100)) : undefined,
-    });
-  }
-
-  function clearFilters() {
-    setColor("");
-    setMinPrice("");
-    setMaxPrice("");
-    // Category/collection stay — those have their own "All" reset link and
-    // read as page-level navigation, not part of this filter set.
-    navigate({ q: undefined, size: undefined, color: undefined, inStock: undefined, minPrice: undefined, maxPrice: undefined, sort: undefined });
-  }
-
-  const pill = (isActive: boolean) =>
-    cn(
-      "shrink-0 rounded-pill border px-3 py-1.5 font-body text-sm transition-colors",
-      isActive ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:border-primary hover:bg-primary-tint",
-    );
 
   return (
-    <div className="mb-6">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => setOpen((prev) => !prev)}
-          aria-expanded={open}
-          aria-controls="catalogue-filters-panel"
-        >
-          Filters{count > 0 ? ` (${count})` : ""}
+    <div className="mb-5 flex flex-wrap items-center gap-2">
+      <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)}>
+        <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+        Filters{count > 0 ? ` (${count})` : ""}
+      </Button>
+
+      <label htmlFor="product-sort" className="sr-only">
+        Sort by
+      </label>
+      <select
+        id="product-sort"
+        value={currentParams.sort ?? "price_asc"}
+        onChange={(e) => router.push(buildProductsHref({ ...currentParams, sort: e.target.value as ProductSort }))}
+        className="h-9 rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        {SORT_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+
+      {count > 0 ? (
+        <Button type="button" variant="ghost" size="sm" onClick={clearAll}>
+          Clear
         </Button>
+      ) : null}
 
-        <label htmlFor="product-sort" className="sr-only">
-          Sort by
-        </label>
-        <select
-          id="product-sort"
-          value={currentParams.sort ?? "price_asc"}
-          onChange={(e) => navigate({ sort: e.target.value as ProductSort })}
-          className="h-9 rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          {SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        {count > 0 ? (
-          <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
-            Clear filters
-          </Button>
-        ) : null}
-      </div>
-
-      {open ? (
-        <div id="catalogue-filters-panel" className="mt-4 flex flex-col gap-4 rounded-card border border-border p-4">
+      <Sheet
+        open={open}
+        onOpenChange={setOpen}
+        title="Filters"
+        footer={
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" size="sm" onClick={clearAll} className="flex-1">
+              Clear
+            </Button>
+            <Button type="button" size="sm" onClick={apply} className="flex-1">
+              Apply
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-5">
           <fieldset>
-            {/* A <label> here (rather than <legend>) isn't associated with
-                any single field — this groups several toggle buttons, not
-                one form control — and was flagged as a real a11y issue by
-                live browser verification (DevTools "No label associated
-                with a form field"), not a hypothetical. */}
             <legend className="mb-2 font-body text-sm font-medium text-text-primary">Size</legend>
             <div className="flex flex-wrap gap-2">
               {SIZE_OPTIONS.map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  aria-pressed={activeSizes.includes(size)}
-                  className={pill(activeSizes.includes(size))}
-                  onClick={() => toggleSize(size)}
-                >
+                <Chip key={size} size="sm" active={sizes.includes(size)} onClick={() => toggleSize(size)}>
                   {size}
-                </button>
+                </Chip>
               ))}
             </div>
           </fieldset>
 
-          <button
-            type="button"
-            aria-pressed={Boolean(currentParams.inStock)}
-            className={pill(Boolean(currentParams.inStock))}
-            onClick={() => navigate({ inStock: currentParams.inStock ? undefined : "true" })}
-          >
-            In stock only
-          </button>
+          <div>
+            <Chip size="sm" active={inStock} onClick={() => setInStock((v) => !v)}>
+              In stock only
+            </Chip>
+          </div>
 
-          <form onSubmit={applyPriceAndColor} className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-3">
-            <div className="flex-1">
-              <Label htmlFor="filter-color" className="mb-1.5 block">
-                Color
-              </Label>
-              <Input
-                id="filter-color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                placeholder="e.g. Rose"
+          <div>
+            <Label htmlFor="filter-color" className="mb-1.5 block">
+              Colour
+            </Label>
+            <input
+              id="filter-color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              placeholder="e.g. Rose"
+              className={cn(
+                "h-10 w-full rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+              )}
+            />
+          </div>
+
+          <div>
+            <Label className="mb-1.5 block">Price (₹)</Label>
+            <div className="flex items-center gap-3">
+              <input
+                aria-label="Minimum price in rupees"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                placeholder="Min"
+                className="h-10 w-full rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              />
+              <span className="text-text-secondary">–</span>
+              <input
+                aria-label="Maximum price in rupees"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                placeholder="Max"
+                className="h-10 w-full rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               />
             </div>
-            <div className="flex gap-3">
-              <div>
-                <Label htmlFor="filter-min-price" className="mb-1.5 block">
-                  Min ₹
-                </Label>
-                <Input
-                  id="filter-min-price"
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
-                  value={minPrice}
-                  onChange={(e) => setMinPrice(e.target.value)}
-                  className="w-24"
-                />
-              </div>
-              <div>
-                <Label htmlFor="filter-max-price" className="mb-1.5 block">
-                  Max ₹
-                </Label>
-                <Input
-                  id="filter-max-price"
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
-                  value={maxPrice}
-                  onChange={(e) => setMaxPrice(e.target.value)}
-                  className="w-24"
-                />
-              </div>
-            </div>
-            <Button type="submit" size="sm">
-              Apply
-            </Button>
-          </form>
+          </div>
         </div>
-      ) : null}
+      </Sheet>
     </div>
   );
 }

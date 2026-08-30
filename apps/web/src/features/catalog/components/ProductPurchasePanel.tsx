@@ -1,26 +1,24 @@
 "use client";
 
+import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact } from "@woobe/utils";
 import { Button, PriceTag } from "@woobe/ui";
-import { Check, Minus, Plus } from "lucide-react";
+import { Check, ChevronDown, Minus, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useCart } from "@/features/cart/hooks/useCart";
+import { getShippingEstimate, type ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import { ABOVE_MOBILE_BOTTOM_NAV_STYLE } from "@/lib/layout-constants";
 import type { ProductDetail } from "../api/products.client";
 
 /**
- * Client island — variant selection + add-to-cart needs interactivity and
- * useCart(); the rest of the product page (images, description) stays a
- * Server Component (ARCHITECTURE.md §4.2: page composes feature
- * components, feature components hold the interactive/data logic).
+ * Client island (redesign spec §F) — variant selection, quantity, add to
+ * cart, plus the weight-based-price explainer, a free-text details
+ * disclosure, and an informational delivery estimate. The rest of the PDP
+ * (gallery, name, description) stays server-rendered.
  *
- * The "Add to bag" action renders twice on purpose: once inline (desktop's
- * primary placement, and mobile's fallback before JS/hydration), and once
- * in a `fixed` bar pinned above BottomNav on mobile — the sticky
- * always-visible purchase action woobe_ui_design_plan.md §2/§12 calls for
- * (`position: sticky`-style, not a scroll listener). `md:hidden` on the
- * fixed bar avoids a redundant second button once the two-column desktop
- * layout already keeps the inline one on screen.
+ * "Add to bag" renders twice on purpose: inline (desktop primary + mobile
+ * pre-hydration fallback) and in a `fixed` bar pinned above BottomNav on
+ * mobile so the purchase action is always in reach.
  */
 export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   const { addItem } = useCart();
@@ -30,6 +28,10 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   const [isAdding, setIsAdding] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
+  const [pincode, setPincode] = useState("");
+  const [estimate, setEstimate] = useState<ShippingEstimate | null>(null);
+  const [checkingPincode, setCheckingPincode] = useState(false);
+
   const colors = useMemo(() => Array.from(new Set(product.variants.map((v) => v.color))), [product.variants]);
   const selectedVariant = product.variants.find((v) => v.id === selectedVariantId);
   const selectedColor = selectedVariant?.color;
@@ -37,7 +39,6 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   const maxQuantity = selectedVariant?.availableQuantity ?? 1;
 
   function selectColor(color: string) {
-    // Keep the same size if that combination exists, otherwise fall back to the first available size for the new color.
     const sameSize = product.variants.find((v) => v.color === color && v.size === selectedVariant?.size);
     const next = sameSize ?? product.variants.find((v) => v.color === color);
     if (next) setSelectedVariantId(next.id);
@@ -67,20 +68,53 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
     }
   }
 
+  async function checkPincode() {
+    const trimmed = pincode.trim();
+    if (!/^\d{6}$/.test(trimmed)) {
+      setEstimate(null);
+      return;
+    }
+    setCheckingPincode(true);
+    try {
+      setEstimate(await getShippingEstimate(trimmed));
+    } catch {
+      setEstimate(null);
+    } finally {
+      setCheckingPincode(false);
+    }
+  }
+
   if (!selectedVariant) {
     return <p className="font-body text-sm text-text-secondary">This product is currently unavailable.</p>;
   }
 
   const addToBagLabel = selectedVariant.inStock ? "Add to bag" : "Out of stock";
+  const details = [
+    ["Fabric", selectedVariant.fabric],
+    ["Fit", selectedVariant.fit],
+    ["Measurements", selectedVariant.measurements],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
 
   return (
-    <div className="flex flex-col gap-6 pb-4 md:pb-0">
-      <PriceTag
-        pricePaise={selectedVariant.pricePaise}
-        weightGrams={selectedVariant.weightGrams}
-        ratePerKgPaise={selectedVariant.ratePerKgPaise}
-        size="detail"
-      />
+    <div className="flex flex-col gap-5 pb-4 md:pb-0">
+      <div className="flex flex-col gap-2">
+        <PriceTag
+          pricePaise={selectedVariant.pricePaise}
+          weightGrams={selectedVariant.weightGrams}
+          ratePerKgPaise={selectedVariant.ratePerKgPaise}
+          size="lg"
+        />
+        <details className="group">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 font-body text-xs font-medium text-text-secondary transition-colors hover:text-primary">
+            How is this priced?
+            <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <p className="mt-1.5 font-body text-xs text-text-secondary">
+            {formatGrams(selectedVariant.weightGrams)} × {formatPaiseAsInrCompact(selectedVariant.ratePerKgPaise)}/kg ={" "}
+            <span className="font-medium text-text-primary">{formatPaiseAsInr(selectedVariant.pricePaise)}</span>
+          </p>
+        </details>
+      </div>
 
       <div>
         <p className="mb-2 font-body text-sm font-medium text-text-primary">Colour: {selectedVariant.color}</p>
@@ -93,7 +127,7 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
                 type="button"
                 onClick={() => selectColor(color)}
                 aria-pressed={isSelected}
-                className={`flex h-11 items-center gap-1.5 rounded-pill border px-4 font-body text-sm transition-colors ${
+                className={`flex h-10 items-center gap-1.5 rounded-pill border px-3.5 font-body text-sm transition-colors ${
                   isSelected ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:bg-primary-tint"
                 }`}
               >
@@ -115,12 +149,11 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
               disabled={!variant.inStock}
               aria-pressed={variant.id === selectedVariantId}
               onClick={() => selectVariant(variant.id)}
-              className={`flex h-11 min-w-11 items-center justify-center rounded-pill border px-4 font-body text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`flex h-10 min-w-10 items-center justify-center rounded-pill border px-3.5 font-body text-sm transition-colors disabled:cursor-not-allowed disabled:line-through disabled:opacity-40 ${
                 variant.id === selectedVariantId ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:bg-primary-tint"
               }`}
             >
               {variant.size}
-              {!variant.inStock ? " (out)" : ""}
             </button>
           ))}
         </div>
@@ -134,7 +167,51 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         </Button>
       </div>
 
-      {/* Mobile sticky purchase bar — pinned above BottomNav, always visible while scrolling. */}
+      {details.length > 0 ? (
+        <details className="group border-t border-border pt-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between font-body text-sm font-medium text-text-primary">
+            Details
+            <ChevronDown className="h-4 w-4 text-text-secondary transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <dl className="mt-3 flex flex-col gap-2">
+            {details.map(([label, value]) => (
+              <div key={label} className="flex gap-3 font-body text-sm">
+                <dt className="w-28 shrink-0 text-text-secondary">{label}</dt>
+                <dd className="text-text-primary">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
+
+      <div className="border-t border-border pt-4">
+        <p className="mb-2 font-body text-sm font-medium text-text-primary">Delivery</p>
+        <div className="flex gap-2">
+          <input
+            value={pincode}
+            onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void checkPincode();
+            }}
+            inputMode="numeric"
+            placeholder="Delivery pincode"
+            aria-label="Delivery pincode"
+            className="h-10 w-40 rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          />
+          <Button type="button" variant="secondary" size="sm" onClick={() => void checkPincode()} isLoading={checkingPincode}>
+            Check
+          </Button>
+        </div>
+        {estimate ? (
+          <p className={`mt-2 font-body text-xs ${estimate.serviceable ? "text-text-secondary" : "text-error"}`}>
+            {estimate.serviceable
+              ? `Delivers in ${estimate.estimatedDeliveryDaysMin}–${estimate.estimatedDeliveryDaysMax} days`
+              : (estimate.reason ?? "Not serviceable at this pincode")}
+          </p>
+        ) : null}
+      </div>
+
+      {/* Mobile sticky purchase bar — pinned above BottomNav, always visible. */}
       <div
         className="fixed inset-x-0 z-20 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur md:hidden"
         style={ABOVE_MOBILE_BOTTOM_NAV_STYLE}
@@ -151,7 +228,7 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   );
 }
 
-/** Same pill-shaped +/- pattern as CartLineItem's quantity control, reused here pre-add-to-cart. */
+/** Same pill-shaped +/- pattern as CartLineItem's quantity control. */
 function QuantityStepper({
   quantity,
   max,

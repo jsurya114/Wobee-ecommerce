@@ -1,4 +1,4 @@
-import { productListQuerySchema } from "@woobe/validation";
+import { productListQuerySchema, productSuggestionQuerySchema } from "@woobe/validation";
 import { Router } from "express";
 import { asyncHandler } from "../../../../middleware/async-handler";
 import { validate } from "../../../../middleware/validate";
@@ -11,6 +11,12 @@ export function createProductsRouter(controller: ProductsController): Router {
     "/",
     validate(productListQuerySchema, "query"),
     asyncHandler((req, res) => controller.list(req, res)),
+  );
+  // Registered before `/:slug` so the literal path wins over the slug param.
+  router.get(
+    "/suggestions",
+    validate(productSuggestionQuerySchema, "query"),
+    asyncHandler((req, res) => controller.suggestions(req, res)),
   );
   router.get(
     "/:slug",

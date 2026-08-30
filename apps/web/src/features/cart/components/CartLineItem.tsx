@@ -1,6 +1,6 @@
 "use client";
 
-import { formatGrams, formatPaiseAsInr } from "@woobe/utils";
+import { formatGrams, formatPaiseAsInrCompact } from "@woobe/utils";
 import { PriceTag } from "@woobe/ui";
 import { Minus, Plus, X } from "lucide-react";
 import Link from "next/link";
@@ -36,8 +36,11 @@ export function CartLineItem({ line }: { line: CartLine }) {
   }
 
   return (
-    <div className="flex gap-4 border-b border-border py-5 last:border-b-0">
-      <Link href={`/products/${line.productSlug}`} className="h-28 w-24 shrink-0 overflow-hidden rounded-control bg-primary-tint/40">
+    <div className="flex gap-4 border-b border-border py-4 last:border-b-0">
+      <Link
+        href={`/products/${line.productSlug}`}
+        className="aspect-[3/4] w-20 shrink-0 overflow-hidden rounded-control bg-surface-2 sm:w-24"
+      >
         {line.image ? (
           <img src={line.image} alt={line.productName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         ) : null}
@@ -50,7 +53,7 @@ export function CartLineItem({ line }: { line: CartLine }) {
               {line.productName}
             </Link>
             <p className="font-body text-xs text-text-secondary">
-              {line.color} · {line.size} · {formatGrams(line.weightGrams)} · {formatPaiseAsInr(line.ratePerKgPaise)}/kg
+              {line.color} · {line.size} · {formatGrams(line.weightGrams)} · {formatPaiseAsInrCompact(line.ratePerKgPaise)}/kg
             </p>
           </div>
           <button

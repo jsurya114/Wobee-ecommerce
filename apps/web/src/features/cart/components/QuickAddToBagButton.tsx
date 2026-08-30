@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@woobe/ui";
-import { ShoppingBag } from "lucide-react";
+import { cn } from "@woobe/ui";
+import { Loader2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type MouseEvent } from "react";
 import { toast } from "sonner";
@@ -9,12 +9,13 @@ import { getProductBySlug } from "@/features/catalog/api/products.client";
 import { useCart } from "../hooks/useCart";
 
 /**
- * Listing-grid "quick add". The PLP summary carries no variant data
+ * Listing-grid "quick add" — a compact icon button pinned to the product
+ * image's bottom-right corner (redesign spec §D), never a full-width row in
+ * the card's text flow. The PLP summary carries no variant data
  * (`ProductSummary`), and the cart is variant-addressed, so a click fetches
  * the product detail on demand: a single-variant product is added straight
  * to the bag; anything that needs a colour/size choice sends the shopper to
- * the product page. No new API, no change to the cart contract — reuses
- * `useCart().addItem` and the existing `getProductBySlug`.
+ * the product page. No new API, no change to the cart contract.
  */
 export function QuickAddToBagButton({ slug, productName, className }: { slug: string; productName: string; className?: string }) {
   const router = useRouter();
@@ -48,16 +49,21 @@ export function QuickAddToBagButton({ slug, productName, className }: { slug: st
   }
 
   return (
-    <Button
+    <button
       type="button"
-      variant="primary"
-      size="sm"
       onClick={(event) => void handleClick(event)}
-      isLoading={isBusy}
-      className={className}
+      disabled={isBusy}
+      aria-label={`Add ${productName} to bag`}
+      className={cn(
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-sm transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60",
+        className,
+      )}
     >
-      <ShoppingBag className="h-4 w-4" aria-hidden="true" />
-      Add to bag
-    </Button>
+      {isBusy ? (
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      ) : (
+        <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+      )}
+    </button>
   );
 }

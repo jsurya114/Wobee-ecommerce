@@ -1,7 +1,7 @@
 "use client";
 
-import { formatPaiseAsInr } from "@woobe/utils";
 import { Badge, Card, Skeleton } from "@woobe/ui";
+import { OrderPriceBreakdown } from "./OrderPriceBreakdown";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/hooks/useAuth";
@@ -74,20 +74,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Items</h2>
-        <div className="flex flex-col gap-2">
-          {order.items.map((item) => (
-            <div key={item.id} className="flex justify-between font-body text-sm">
-              <span className="text-text-primary">
-                {item.productNameSnapshot} · {item.color} · {item.size} × {item.quantity}
-              </span>
-              <span className="text-text-primary">{formatPaiseAsInr(item.lineTotalPaise)}</span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 flex justify-between border-t border-border pt-3 font-body text-base font-medium">
-          <span className="text-text-primary">Total</span>
-          <span className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
-        </div>
+        <OrderPriceBreakdown order={order} />
       </Card>
 
       {order.trackingNumber ? (

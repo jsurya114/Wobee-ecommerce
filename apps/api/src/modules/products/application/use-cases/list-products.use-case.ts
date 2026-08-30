@@ -4,7 +4,8 @@ import type { ProductSummaryEntity } from "../../domain/entities/product.entity"
 import type { CategoryReaderPort } from "../ports/category-reader.port";
 import type { CollectionReaderPort } from "../ports/collection-reader.port";
 import type { InventoryReaderPort } from "../ports/inventory-reader.port";
-import type { ProductRepositoryPort } from "../ports/product-repository.port";
+import type { PricingReaderPort } from "../ports/pricing-reader.port";
+import type { ProductRepositoryPort, ProductSummaryProjection } from "../ports/product-repository.port";
 
 export interface ListProductsInput {
   categorySlug?: string;
@@ -47,6 +48,7 @@ export class ListProductsUseCase {
     private readonly categoryReader: CategoryReaderPort,
     private readonly collectionReader: CollectionReaderPort,
     private readonly inventoryReader: InventoryReaderPort,
+    private readonly pricingReader: PricingReaderPort,
   ) {}
 
   async execute(input: ListProductsInput): Promise<ListProductsResult> {
@@ -96,6 +98,49 @@ export class ListProductsUseCase {
       limit: input.limit,
     });
 
-    return { products, page: input.page, limit: input.limit, total };
+    return {
+      products: await resolveFromPricing(products, this.pricingReader),
+      page: input.page,
+      limit: input.limit,
+      total,
+    };
   }
+}
+
+/**
+ * Turns each projection's raw representative variant into the resolved
+ * `fromWeightGrams` / `fromRatePerKgPaise` the card displays. One batched
+ * pricing call for the whole page (the pricing use-case reads the admin
+ * default rate exactly once) — no N+1, and the shown price stays
+ * `minPricePaiseCache` (ADR-012); this only adds the rate as a trust signal.
+ * Shared by `GetProductsByIdsUseCase` for the id-based (home / wishlist) path.
+ */
+export async function resolveFromPricing(
+  projections: ProductSummaryProjection[],
+  pricingReader: PricingReaderPort,
+): Promise<ProductSummaryEntity[]> {
+  const withVariant = projections
+    .map((p, index) => ({ index, variant: p.representativeVariant }))
+    .filter((entry): entry is { index: number; variant: NonNullable<ProductSummaryProjection["representativeVariant"]> } => entry.variant !== null);
+
+  const rates = withVariant.length
+    ? await pricingReader.calculateMany(
+        withVariant.map((entry) => ({
+          weightGrams: entry.variant.weightGrams,
+          ratePerKgOverridePaise: entry.variant.ratePerKgOverridePaise,
+        })),
+      )
+    : [];
+
+  const rateByIndex = new Map<number, number>();
+  withVariant.forEach((entry, i) => rateByIndex.set(entry.index, rates[i]!.ratePerKgPaise));
+
+  return projections.map((projection, index) => {
+    const { representativeVariant, ...rest } = projection;
+    return {
+      ...rest,
+      fromWeightGrams: representativeVariant?.weightGrams ?? null,
+      fromRatePerKgPaise: rateByIndex.get(index) ?? null,
+    };
+  });
 }

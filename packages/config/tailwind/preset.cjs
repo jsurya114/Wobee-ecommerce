@@ -20,6 +20,11 @@ module.exports = {
         },
         background: "#FBF1EC",
         surface: "#FFFFFF",
+        // Redesign: a warm neutral fill for product-image placeholders,
+        // sheet handles and subtle zones — replaces ad-hoc `primary-tint/40`.
+        "surface-2": "#F4EDE8",
+        // Redesign: scrim behind bottom sheets / dialogs.
+        overlay: "rgba(38,34,32,0.45)",
         text: {
           primary: "#262220",
           secondary: "#786D68",
@@ -33,6 +38,11 @@ module.exports = {
         body: ["var(--font-inter)", "system-ui", "sans-serif"],
       },
       fontSize: {
+        // Redesign: two compact tiers below `xs` for dense commerce UI —
+        // `micro` for card metadata (weight·rate, counts), `label` for the
+        // uppercase section labels that replace the big serif headings.
+        micro: "0.6875rem",
+        label: "0.8125rem",
         xs: "0.75rem",
         sm: "0.875rem",
         base: "1rem",
@@ -44,6 +54,10 @@ module.exports = {
       },
       spacing: {
         4.5: "1.125rem",
+        // Redesign: the storefront's compact section rhythm — replaces the
+        // hand-written `py-10` (80px) that made the homepage feel like a
+        // slideshow.
+        section: "1.75rem",
       },
       borderRadius: {
         control: "8px",
@@ -53,6 +67,8 @@ module.exports = {
       boxShadow: {
         card: "0 2px 12px rgba(38,34,32,0.06)",
         modal: "0 8px 32px rgba(38,34,32,0.14)",
+        // Redesign: upward elevation for bottom sheets.
+        sheet: "0 -8px 32px rgba(38,34,32,0.14)",
       },
     },
   },

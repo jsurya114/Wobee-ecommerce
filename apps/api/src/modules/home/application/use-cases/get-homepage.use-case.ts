@@ -1,3 +1,4 @@
+import type { CategoryEntity } from "../../../categories/domain/entities/category.entity";
 import type { CollectionEntity } from "../../../collections/domain/entities/collection.entity";
 import type { ListProductsResult } from "../../../products/application/use-cases/list-products.use-case";
 import type { ProductSummaryWithStatus } from "../../../products/application/ports/product-repository.port";
@@ -49,6 +50,24 @@ interface TopApprovedReviewsReader {
   execute(limit: number): Promise<ReviewEntity[]>;
 }
 
+/** Matches `ListCategoriesUseCase`'s own `execute` signature (redesign §B — the category rail). */
+interface CategoriesLister {
+  execute(): Promise<CategoryEntity[]>;
+}
+
+/** Matches `GetCategoryImagesUseCase`'s own `execute` signature (redesign O-3). */
+interface CategoryImageResolver {
+  execute(categoryIds: string[]): Promise<Map<string, string>>;
+}
+
+export interface HomeCategoryTile {
+  id: string;
+  name: string;
+  slug: string;
+  /** A representative product image, or null — the rail falls back to a tinted initial. */
+  imageUrl: string | null;
+}
+
 export interface HomeReviewView {
   id: string;
   rating: number;
@@ -59,6 +78,7 @@ export interface HomeReviewView {
 }
 
 export interface HomePageView {
+  categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummaryEntity[];
   bestSellers: ProductSummaryEntity[];
   featuredCollections: CollectionEntity[];
@@ -103,10 +123,13 @@ export class GetHomePageUseCase {
     private readonly productsByIdsReader: ProductsByIdsReader,
     private readonly activeCollectionsLister: ActiveCollectionsLister,
     private readonly topApprovedReviewsReader: TopApprovedReviewsReader,
+    private readonly categoriesLister: CategoriesLister,
+    private readonly categoryImageResolver: CategoryImageResolver,
   ) {}
 
   async execute(): Promise<HomePageView> {
-    const [newArrivals, bestSellers, featuredCollections, customerReviews] = await Promise.all([
+    const [categoryTiles, newArrivals, bestSellers, featuredCollections, customerReviews] = await Promise.all([
+      this.resolveCategoryTiles(),
       this.newArrivalsLister.execute({ sort: "newest", page: 1, limit: NEW_ARRIVALS_LIMIT }).then((result) => result.products),
       this.resolveBestSellers(),
       this.activeCollectionsLister.execute(),
@@ -114,11 +137,26 @@ export class GetHomePageUseCase {
     ]);
 
     return {
+      categoryTiles,
       newArrivals,
       bestSellers,
       featuredCollections: featuredCollections.slice(0, FEATURED_COLLECTIONS_LIMIT),
       customerReviews,
     };
+  }
+
+  private async resolveCategoryTiles(): Promise<HomeCategoryTile[]> {
+    const categories = await this.categoriesLister.execute();
+    if (categories.length === 0) return [];
+    const imageByCategoryId = await this.categoryImageResolver.execute(categories.map((category) => category.id));
+    return categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      // Prefer the category's own `imageUrl` (seed/admin-set); fall back to a
+      // representative product image; else null (the rail shows a tinted initial).
+      imageUrl: category.imageUrl ?? imageByCategoryId.get(category.id) ?? null,
+    }));
   }
 
   private async resolveBestSellers(): Promise<ProductSummaryEntity[]> {

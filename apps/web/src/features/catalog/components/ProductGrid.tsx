@@ -11,7 +11,7 @@ export function ProductGrid({ products }: { products: ProductSummary[] }) {
   if (products.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 lg:gap-x-4">
       {products.map((product) => (
         <ProductCard key={product.id} product={product} showQuickAdd />
       ))}

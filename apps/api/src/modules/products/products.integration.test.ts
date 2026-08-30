@@ -197,6 +197,56 @@ describe("GET /api/v1/products — search", () => {
   });
 });
 
+describe("GET /api/v1/products/suggestions — search typeahead", () => {
+  it("returns lean matching rows, capped, for a real query", async () => {
+    const res = await request(app).get("/api/v1/products/suggestions").query({ q: SEARCH_TOKEN.toLowerCase() });
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.suggestions)).toBe(true);
+    expect(res.body.suggestions.length).toBeGreaterThan(0);
+    expect(res.body.suggestions.length).toBeLessThanOrEqual(6);
+    const first = res.body.suggestions[0];
+    expect(Object.keys(first).sort()).toEqual(["id", "minPricePaiseCache", "name", "primaryImage", "slug"]);
+    expect(first).not.toHaveProperty("variants");
+    expect(first.name.toLowerCase()).toContain(SEARCH_TOKEN.toLowerCase());
+  });
+
+  it("returns an empty list (not a 400) for a query under 2 characters", async () => {
+    for (const q of ["", "a", "  "]) {
+      const res = await request(app).get("/api/v1/products/suggestions").query({ q });
+      expect(res.status).toBe(200);
+      expect(res.body.suggestions).toEqual([]);
+    }
+  });
+
+  it("returns an empty list for a term that matches nothing", async () => {
+    const res = await request(app).get("/api/v1/products/suggestions").query({ q: "nomatchxyz987" });
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions).toEqual([]);
+  });
+
+  it("does not shadow GET /api/v1/products/:slug", async () => {
+    const slug = `aurora-jacket-${SUFFIX}`;
+    const res = await request(app).get(`/api/v1/products/${slug}`);
+    expect(res.status).toBe(200);
+    expect(res.body.product.slug).toBe(slug);
+  });
+});
+
+describe("GET /api/v1/products — weight/rate on the summary (redesign O-1)", () => {
+  it("exposes each product's `from` weight + resolved rate/kg (cheapest active variant)", async () => {
+    const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
+    expect(res.status).toBe(200);
+    for (const product of res.body.products as { fromWeightGrams: number; fromRatePerKgPaise: number }[]) {
+      expect(product.fromWeightGrams).toBeGreaterThan(0);
+      // no fixture sets a variant rate override → the seeded admin default rate applies
+      expect(product.fromRatePerKgPaise).toBeGreaterThan(0);
+    }
+    // Plain Scarf's only variant is 100g — the "from" weight must be that variant's
+    const scarf = (res.body.products as { name: string; fromWeightGrams: number }[]).find((p) => p.name.includes("Plain Scarf"));
+    expect(scarf?.fromWeightGrams).toBe(100);
+  });
+});
+
 describe("GET /api/v1/products — filters", () => {
   it("filters by category, isolated from other categories' products", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });

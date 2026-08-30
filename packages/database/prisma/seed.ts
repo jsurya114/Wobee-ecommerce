@@ -94,18 +94,21 @@ async function main() {
   console.log("  Staff users: orders@woobe.in / catalog@woobe.in — password Staff@12345 (dev only)");
 
   // ── Categories ──
+  // `imageUrl` points at a file in apps/web/public/imgs (served at /imgs/…).
+  // The homepage category rail prefers this over its derived-from-a-product
+  // fallback. Swap these files (or the paths) for real category art.
   const categoryDefs = [
-    { name: "Tops", slug: "tops" },
-    { name: "Dresses", slug: "dresses" },
-    { name: "Bottoms", slug: "bottoms" },
-    { name: "Ethnic Wear", slug: "ethnic-wear" },
-    { name: "Accessories", slug: "accessories" },
+    { name: "Tops", slug: "tops", imageUrl: "/imgs/cat-tops.jpg" },
+    { name: "Dresses", slug: "dresses", imageUrl: "/imgs/cat-dresses.jpg" },
+    { name: "Bottoms", slug: "bottoms", imageUrl: "/imgs/cat-bottoms.jpg" },
+    { name: "Ethnic Wear", slug: "ethnic-wear", imageUrl: "/imgs/cat-ethnic-wear.jpg" },
+    { name: "Accessories", slug: "accessories", imageUrl: "/imgs/cat-accessories.jpg" },
   ];
   const categories: Record<string, { id: string }> = {};
   for (const c of categoryDefs) {
     categories[c.slug] = await prisma.category.upsert({
       where: { slug: c.slug },
-      update: {},
+      update: { imageUrl: c.imageUrl },
       create: c,
     });
   }
@@ -131,8 +134,12 @@ async function main() {
     categorySlug: string;
     collections: string[];
     /** Comma-joined keywords — used to pull a topically-related demo photo
-     * from loremflickr (real product photography replaces this in admin). */
+     * from loremflickr when `image` is not set (real product photography
+     * replaces this in admin). */
     imageTags: string;
+    /** A single real product photo in apps/web/public/imgs (served at /imgs/…).
+     * When set, it fully replaces the loremflickr pair. */
+    image?: string;
     variants: VariantDef[];
   };
 
@@ -144,6 +151,7 @@ async function main() {
       categorySlug: "dresses",
       collections: ["new-drops"],
       imageTags: "floral,dress,fashion",
+      image: "/imgs/prod-floral-wrap-dress.jpg",
       variants: [
         { color: "Rose", size: "S", weightGrams: 320, stock: 25 },
         { color: "Rose", size: "M", weightGrams: 340, stock: 30 },
@@ -157,6 +165,7 @@ async function main() {
       categorySlug: "tops",
       collections: ["new-drops", "most-loved"],
       imageTags: "linen,outfit,fashion",
+      image: "/imgs/prod-linen-coord-set.jpg",
       variants: [
         { color: "Ivory", size: "S", weightGrams: 480, stock: 20 },
         { color: "Ivory", size: "M", weightGrams: 500, stock: 22 },
@@ -170,6 +179,7 @@ async function main() {
       categorySlug: "tops",
       collections: ["most-loved"],
       imageTags: "denim,jacket,fashion",
+      image: "/imgs/prod-denim-jacket.jpg",
       variants: [
         { color: "Indigo", size: "M", weightGrams: 620, stock: 20 },
         { color: "Indigo", size: "L", weightGrams: 650, stock: 16 },
@@ -182,6 +192,7 @@ async function main() {
       categorySlug: "accessories",
       collections: ["new-drops"],
       imageTags: "silk,scarf,fashion",
+      image: "/imgs/prod-silk-scarf.jpg",
       variants: [
         { color: "Blush", size: "One Size", weightGrams: 60, stock: 40 },
         { color: "Charcoal", size: "One Size", weightGrams: 60, stock: 35 },
@@ -194,6 +205,7 @@ async function main() {
       categorySlug: "ethnic-wear",
       collections: ["most-loved"],
       imageTags: "kurta,ethnic,fashion",
+      image: "/imgs/prod-cotton-kurta.jpg",
       variants: [
         { color: "Mustard", size: "S", weightGrams: 280, stock: 24 },
         { color: "Mustard", size: "M", weightGrams: 300, stock: 28 },
@@ -207,6 +219,7 @@ async function main() {
       categorySlug: "bottoms",
       collections: ["new-drops"],
       imageTags: "skirt,fashion,woman",
+      image: "/imgs/prod-pleated-midi-skirt.jpg",
       variants: [
         { color: "Dusty Rose", size: "S", weightGrams: 260, stock: 18 },
         { color: "Dusty Rose", size: "M", weightGrams: 280, stock: 22 },
@@ -219,6 +232,7 @@ async function main() {
       categorySlug: "tops",
       collections: [],
       imageTags: "blouse,top,fashion",
+      image: "/imgs/prod-embroidered-top.jpg",
       variants: [
         { color: "White", size: "S", weightGrams: 220, stock: 20 },
         { color: "White", size: "M", weightGrams: 230, stock: 20 },
@@ -231,6 +245,7 @@ async function main() {
       categorySlug: "bottoms",
       collections: ["most-loved"],
       imageTags: "trousers,pants,fashion",
+      image: "/imgs/prod-palazzo-pants.jpg",
       variants: [
         { color: "Olive", size: "M", weightGrams: 310, stock: 24 },
         { color: "Olive", size: "L", weightGrams: 330, stock: 18 },
@@ -243,6 +258,7 @@ async function main() {
       categorySlug: "accessories",
       collections: ["new-drops"],
       imageTags: "tote,bag,handbag",
+      image: "/imgs/prod-woven-tote-bag.png",
       variants: [{ color: "Natural", size: "One Size", weightGrams: 380, stock: 30 }],
     },
     {
@@ -252,9 +268,83 @@ async function main() {
       categorySlug: "accessories",
       collections: [],
       imageTags: "earrings,jewelry,accessory",
+      image: "/imgs/prod-statement-earrings.png",
       variants: [
         { color: "Gold", size: "One Size", weightGrams: 25, stock: 50 },
         { color: "Silver", size: "One Size", weightGrams: 25, stock: 45 },
+      ],
+    },
+
+    // ── Ladies range, batch 2 (2026-08-30) — only the products with a real
+    // photo in apps/web/public/imgs are added; the rest of the proposed 10
+    // land when their images arrive.
+    {
+      name: "Oxidised Jhumka Earrings",
+      slug: "oxidised-jhumka-earrings",
+      description: "Traditional dome jhumkas in oxidised silver-tone metal with fine ghungroo detailing.",
+      categorySlug: "accessories",
+      collections: ["new-drops"],
+      imageTags: "jhumka,earrings,jewellery",
+      image: "/imgs/prod-oxidised-jhumka-earrings.jpg",
+      variants: [
+        { color: "Oxidised Silver", size: "One Size", weightGrams: 32, stock: 60 },
+        { color: "Antique Gold", size: "One Size", weightGrams: 32, stock: 40 },
+      ],
+    },
+    {
+      name: "Quilted Crossbody Bag",
+      slug: "quilted-crossbody-bag",
+      description: "Compact quilted crossbody with an adjustable chain strap and a magnetic flap.",
+      categorySlug: "accessories",
+      collections: ["most-loved"],
+      imageTags: "quilted,crossbody,bag",
+      image: "/imgs/prod-quilted-crossbody-bag.jpg",
+      variants: [
+        { color: "Black", size: "One Size", weightGrams: 340, stock: 35 },
+        { color: "Tan", size: "One Size", weightGrams: 340, stock: 28 },
+      ],
+    },
+    {
+      name: "Kolhapuri Leather Sandals",
+      slug: "kolhapuri-leather-sandals",
+      description: "Hand-stitched tan leather Kolhapuri sandals with a cushioned footbed.",
+      categorySlug: "accessories",
+      collections: ["new-drops"],
+      imageTags: "kolhapuri,sandals,leather",
+      image: "/imgs/prod-kolhapuri-leather-sandals.jpg",
+      variants: [
+        { color: "Tan", size: "37", weightGrams: 400, stock: 20 },
+        { color: "Tan", size: "38", weightGrams: 420, stock: 24 },
+        { color: "Tan", size: "39", weightGrams: 440, stock: 18 },
+      ],
+    },
+    {
+      name: "Enamel Bangle Set",
+      slug: "enamel-bangle-set",
+      description: "Set of four slim enamel bangles with a hand-painted floral motif.",
+      categorySlug: "accessories",
+      collections: [],
+      imageTags: "enamel,bangles,jewellery",
+      image: "/imgs/prod-enamel-bangle-set.jpg",
+      variants: [
+        { color: "Rose", size: "2.4", weightGrams: 110, stock: 30 },
+        { color: "Rose", size: "2.6", weightGrams: 120, stock: 34 },
+        { color: "Teal", size: "2.6", weightGrams: 120, stock: 26 },
+      ],
+    },
+    {
+      name: "Ribbed Knit Sweater",
+      slug: "ribbed-knit-sweater",
+      description: "Soft ribbed-knit sweater with a relaxed fit and drop shoulders.",
+      categorySlug: "tops",
+      collections: ["new-drops", "most-loved"],
+      imageTags: "ribbed,knit,sweater",
+      image: "/imgs/prod-ribbed-knit-sweater.jpg",
+      variants: [
+        { color: "Oatmeal", size: "S", weightGrams: 360, stock: 26 },
+        { color: "Oatmeal", size: "M", weightGrams: 380, stock: 30 },
+        { color: "Rust", size: "M", weightGrams: 380, stock: 22 },
+        { color: "Rust", size: "L", weightGrams: 400, stock: 18 },
       ],
     },
   ];
@@ -280,19 +370,21 @@ async function main() {
       },
     });
 
-    // Demo imagery — a topically-related photo per product from loremflickr
-    // (`?lock=` pins it so it's stable across renders). Re-synced on every
-    // seed run rather than only on first insert, so changing `imageTags`
-    // above actually takes effect. Replace with real product photography
-    // via the admin catalogue.
+    // Product imagery. When `p.image` is set (a real photo in
+    // apps/web/public/imgs), it fully replaces the demo pair; otherwise fall
+    // back to two topically-related loremflickr photos (`?lock=` pins them so
+    // they're stable). Re-synced on every seed run so editing the defs above
+    // actually takes effect. Replace via the admin catalogue for the rest.
+    const imageRows = p.image
+      ? [{ url: p.image, altText: p.name, sortOrder: 0 }]
+      : [0, 1].map((n) => ({
+          url: `https://loremflickr.com/800/1000/${p.imageTags}?lock=${pIndex * 10 + n}`,
+          altText: `${p.name} — view ${n + 1}`,
+          sortOrder: n,
+        }));
     await prisma.productImage.deleteMany({ where: { productId: product.id } });
     await prisma.productImage.createMany({
-      data: [0, 1].map((n) => ({
-        productId: product.id,
-        url: `https://loremflickr.com/800/1000/${p.imageTags}?lock=${pIndex * 10 + n}`,
-        altText: `${p.name} — view ${n + 1}`,
-        sortOrder: n,
-      })),
+      data: imageRows.map((row) => ({ ...row, productId: product.id })),
     });
 
     for (const v of p.variants) {

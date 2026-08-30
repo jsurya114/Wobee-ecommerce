@@ -11,7 +11,11 @@ export const typography = {
     body: "var(--font-inter), system-ui, sans-serif",
   },
   // rem-based, mobile-first. Display sizes (3xl/4xl) reserved for Playfair.
+  // `micro`/`label` (redesign) are the compact commerce tiers below `xs`:
+  // `micro` = card metadata (weight·rate), `label` = uppercase section labels.
   fontSize: {
+    micro: "0.6875rem",
+    label: "0.8125rem",
     xs: "0.75rem",
     sm: "0.875rem",
     base: "1rem",

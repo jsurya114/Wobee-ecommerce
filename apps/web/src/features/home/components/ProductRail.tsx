@@ -1,17 +1,28 @@
 "use client";
 
+import { SectionHeader } from "@woobe/ui";
 import useEmblaCarousel from "embla-carousel-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ProductCard } from "@/features/catalog/components/ProductCard";
 import type { ProductSummary } from "@/features/catalog/api/products.client";
 
 /**
- * A curated-looking product rail (woobe_ui_design_plan.md §8, "New Drops")
- * built on Embla (ADR-022) — drag/swipe on mobile, arrow buttons on desktop
- * where hover/click is the primary input, not touch.
+ * A compact horizontal product rail (redesign spec §B/§M) on Embla
+ * (ADR-022) — drag/swipe on mobile, arrow buttons on desktop. Uses the
+ * canonical `SectionHeader` (compact uppercase label + optional "See all")
+ * rather than a large serif heading.
  */
-export function ProductRail({ title, products }: { title: string; products: ProductSummary[] }) {
+export function ProductRail({
+  title,
+  products,
+  seeAllHref,
+}: {
+  title: string;
+  products: ProductSummary[];
+  seeAllHref?: string;
+}) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ align: "start", dragFree: true, containScroll: "trimSnaps" });
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
@@ -31,38 +42,50 @@ export function ProductRail({ title, products }: { title: string; products: Prod
   if (products.length === 0) return null;
 
   return (
-    <section className="px-4 py-10 sm:px-6">
-      <div className="mx-auto flex max-w-6xl items-center justify-between">
-        <h2 className="font-display text-2xl text-text-primary">{title}</h2>
-        <div className="hidden gap-2 sm:flex">
-          <button
-            type="button"
-            aria-label="Previous"
-            disabled={!canScrollPrev}
-            onClick={() => emblaApi?.scrollPrev()}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border text-text-primary transition-colors hover:bg-primary-tint disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Next"
-            disabled={!canScrollNext}
-            onClick={() => emblaApi?.scrollNext()}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border text-text-primary transition-colors hover:bg-primary-tint disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            <ChevronRight className="h-5 w-5" aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
-      <div className="mx-auto mt-5 max-w-6xl overflow-hidden" ref={emblaRef}>
-        <div className="-ml-4 flex">
-          {products.map((product) => (
-            <div key={product.id} className="min-w-0 flex-[0_0_45%] pl-4 sm:flex-[0_0_28%] lg:flex-[0_0_22%]">
-              <ProductCard product={product} />
+    <section className="px-4 py-section sm:px-6">
+      <div className="mx-auto max-w-6xl">
+        <SectionHeader
+          action={
+            <div className="flex items-center gap-3">
+              {seeAllHref ? (
+                <Link href={seeAllHref} className="hover:underline">
+                  See all
+                </Link>
+              ) : null}
+              <span className="hidden gap-2 sm:flex">
+                <button
+                  type="button"
+                  aria-label="Previous"
+                  disabled={!canScrollPrev}
+                  onClick={() => emblaApi?.scrollPrev()}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-text-primary transition-colors hover:bg-primary-tint disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next"
+                  disabled={!canScrollNext}
+                  onClick={() => emblaApi?.scrollNext()}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-text-primary transition-colors hover:bg-primary-tint disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </span>
             </div>
-          ))}
+          }
+        >
+          {title}
+        </SectionHeader>
+
+        <div className="overflow-hidden" ref={emblaRef}>
+          <div className="-ml-3 flex">
+            {products.map((product) => (
+              <div key={product.id} className="min-w-0 flex-[0_0_43%] pl-3 sm:flex-[0_0_30%] lg:flex-[0_0_22%]">
+                <ProductCard product={product} />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

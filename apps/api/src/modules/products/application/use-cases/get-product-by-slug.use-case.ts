@@ -14,6 +14,10 @@ export interface VariantWithPriceAndStock {
   ratePerKgPaise: number;
   availableQuantity: number;
   inStock: boolean;
+  /** Free-text product details (redesign O-2) — the PDP "Details" disclosure. */
+  fabric: string | null;
+  fit: string | null;
+  measurements: string | null;
 }
 
 export interface ProductDetailResult extends Omit<ProductDetailEntity, "variants"> {
@@ -60,6 +64,9 @@ export class GetProductBySlugUseCase {
         ratePerKgPaise: price.ratePerKgPaise,
         availableQuantity,
         inStock: availableQuantity > 0,
+        fabric: v.fabric,
+        fit: v.fit,
+        measurements: v.measurements,
       };
     });
 

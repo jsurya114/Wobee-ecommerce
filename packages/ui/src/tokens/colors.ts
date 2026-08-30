@@ -32,6 +32,10 @@ export const colors = {
   },
   background: "#FBF1EC",
   surface: "#FFFFFF",
+  /** Redesign: warm neutral fill for product-image placeholders / sheet handles / subtle zones. Mirrored in the Tailwind preset as `surface-2`. */
+  surface2: "#F4EDE8",
+  /** Redesign: scrim behind bottom sheets / dialogs. Mirrored as `overlay`. */
+  overlay: "rgba(38,34,32,0.45)",
   text: {
     primary: "#262220",
     secondary: "#786D68",

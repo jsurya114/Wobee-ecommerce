@@ -11,7 +11,16 @@ export interface HomeReview {
   product: { id: string; slug: string; name: string; image: string | null };
 }
 
+export interface HomeCategoryTile {
+  id: string;
+  name: string;
+  slug: string;
+  /** Representative product image, or null — the rail falls back to a tinted initial. */
+  imageUrl: string | null;
+}
+
 export interface HomePageData {
+  categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummary[];
   bestSellers: ProductSummary[];
   featuredCollections: Collection[];

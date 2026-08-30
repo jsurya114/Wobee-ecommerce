@@ -9,20 +9,23 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type ComponentPropsWithoutRef,
   type FormEvent,
 } from "react";
 
 /**
- * The one search input, shared by the PLP `SearchBar` and the header
- * `HeaderSearch`. It owns nothing about *where* a search goes — the caller's
- * `onSubmit(query)` decides that (PLP preserves its other filters via
- * buildProductsHref; the header just routes to /products?q=). Backend search
- * is the existing `?q=` param → GET /api/v1/products (name contains,
- * case-insensitive) — this component doesn't change that.
+ * The one search input, shared by the PLP `SearchBar`, the header
+ * `HeaderSearch` and `HomeSearch` (all via `SearchField`). It owns nothing
+ * about *where* a search goes — the caller's `onSubmit(query)` decides that
+ * (PLP preserves its other filters via buildProductsHref; the others route
+ * to /products?q=). Backend search is the existing `?q=` param → GET
+ * /api/v1/products.
  *
- * `ref` forwards to the `<input>` so a caller (the header's expand/collapse)
- * can focus it. `hideIcon` drops the built-in prefix magnifier for callers
- * that supply their own toggle icon.
+ * `ref` forwards to the `<input>` so a caller (the header's expand/collapse,
+ * or `SearchField`'s keyboard handling) can focus it. `hideIcon` drops the
+ * built-in prefix magnifier. `onQueryChange` and `inputProps` are additive
+ * extension points (OCP) used by `SearchField` to layer a suggestions
+ * dropdown on top without touching the submit path.
  */
 export const ProductSearchForm = forwardRef<
   HTMLInputElement,
@@ -32,9 +35,13 @@ export const ProductSearchForm = forwardRef<
     hideIcon?: boolean;
     className?: string;
     inputClassName?: string;
+    /** Fires on every keystroke with the live (untrimmed) value. */
+    onQueryChange?: (query: string) => void;
+    /** Extra props merged onto the `<input>` (keydown, combobox ARIA, …). Explicit props still win. */
+    inputProps?: Omit<ComponentPropsWithoutRef<"input">, "value" | "onChange" | "ref">;
   }
 >(function ProductSearchForm(
-  { initialQuery = "", onSubmit, hideIcon = false, className, inputClassName },
+  { initialQuery = "", onSubmit, hideIcon = false, className, inputClassName, onQueryChange, inputProps },
   ref,
 ) {
   const fieldId = useId();
@@ -68,13 +75,17 @@ export const ProductSearchForm = forwardRef<
           />
         )}
         <Input
+          {...inputProps}
           ref={inputRef}
           id={fieldId}
           type="search"
           name="q"
           placeholder="Search products…"
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            onQueryChange?.(event.target.value);
+          }}
           className={cn(hideIcon ? undefined : "pl-10", inputClassName)}
         />
       </div>

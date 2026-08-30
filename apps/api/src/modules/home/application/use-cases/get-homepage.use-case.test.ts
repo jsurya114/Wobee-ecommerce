@@ -21,6 +21,8 @@ function makeUseCase(overrides: {
   productsById?: Map<string, ReturnType<typeof product>>;
   collections?: unknown[];
   reviews?: unknown[];
+  categories?: { id: string; name: string; slug: string; sortOrder: number; imageUrl: string | null }[];
+  categoryImages?: Map<string, string>;
 }) {
   const newArrivalsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.newArrivals ?? [], page: 1, limit: 8, total: 0 }) };
   const bestSellingVariantsReader = { execute: vi.fn().mockResolvedValue(overrides.variantSales ?? []) };
@@ -28,6 +30,8 @@ function makeUseCase(overrides: {
   const productsByIdsReader = { execute: vi.fn().mockResolvedValue(overrides.productsById ?? new Map()) };
   const activeCollectionsLister = { execute: vi.fn().mockResolvedValue(overrides.collections ?? []) };
   const topApprovedReviewsReader = { execute: vi.fn().mockResolvedValue(overrides.reviews ?? []) };
+  const categoriesLister = { execute: vi.fn().mockResolvedValue(overrides.categories ?? []) };
+  const categoryImageResolver = { execute: vi.fn().mockResolvedValue(overrides.categoryImages ?? new Map()) };
 
   const useCase = new GetHomePageUseCase(
     newArrivalsLister,
@@ -36,9 +40,21 @@ function makeUseCase(overrides: {
     productsByIdsReader,
     activeCollectionsLister,
     topApprovedReviewsReader,
+    categoriesLister,
+    categoryImageResolver,
   );
 
-  return { useCase, newArrivalsLister, bestSellingVariantsReader, variantProductResolver, productsByIdsReader, activeCollectionsLister, topApprovedReviewsReader };
+  return {
+    useCase,
+    newArrivalsLister,
+    bestSellingVariantsReader,
+    variantProductResolver,
+    productsByIdsReader,
+    activeCollectionsLister,
+    topApprovedReviewsReader,
+    categoriesLister,
+    categoryImageResolver,
+  };
 }
 
 describe("GetHomePageUseCase", () => {
@@ -50,6 +66,28 @@ describe("GetHomePageUseCase", () => {
 
     expect(newArrivalsLister.execute).toHaveBeenCalledWith({ sort: "newest", page: 1, limit: 8 });
     expect(result.newArrivals).toEqual(arrivals);
+  });
+
+  it("builds the category rail, preferring the category's own imageUrl, then a representative product image, else null", async () => {
+    const { useCase } = makeUseCase({
+      categories: [
+        { id: "c1", name: "Tops", slug: "tops", sortOrder: 0, imageUrl: "/imgs/cat-tops.jpg" },
+        { id: "c2", name: "Bottoms", slug: "bottoms", sortOrder: 1, imageUrl: null },
+        { id: "c3", name: "Accessories", slug: "accessories", sortOrder: 2, imageUrl: null },
+      ],
+      categoryImages: new Map([
+        ["c1", "https://img/derived-tops.jpg"], // ignored — c1 has its own imageUrl
+        ["c2", "https://img/derived-bottoms.jpg"], // used — c2 has no own imageUrl
+      ]),
+    });
+
+    const result = await useCase.execute();
+
+    expect(result.categoryTiles).toEqual([
+      { id: "c1", name: "Tops", slug: "tops", imageUrl: "/imgs/cat-tops.jpg" },
+      { id: "c2", name: "Bottoms", slug: "bottoms", imageUrl: "https://img/derived-bottoms.jpg" },
+      { id: "c3", name: "Accessories", slug: "accessories", imageUrl: null },
+    ]);
   });
 
   it("collapses variant-level sales to product-level, ranked by total units sold across variants of the same product", async () => {
@@ -168,12 +206,12 @@ describe("GetHomePageUseCase", () => {
     expect(result.customerReviews).toHaveLength(6);
   });
 
-  it("runs all four sections independently — a section with no data doesn't block the others", async () => {
+  it("runs all sections independently — a section with no data doesn't block the others", async () => {
     const arrivals = [product("only-new")];
-    const { useCase } = makeUseCase({ newArrivals: arrivals, variantSales: [], collections: [], reviews: [] });
+    const { useCase } = makeUseCase({ newArrivals: arrivals, variantSales: [], collections: [], reviews: [], categories: [] });
 
     const result = await useCase.execute();
 
-    expect(result).toEqual({ newArrivals: arrivals, bestSellers: [], featuredCollections: [], customerReviews: [] });
+    expect(result).toEqual({ categoryTiles: [], newArrivals: arrivals, bestSellers: [], featuredCollections: [], customerReviews: [] });
   });
 });

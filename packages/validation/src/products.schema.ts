@@ -74,6 +74,17 @@ export const productListQuerySchema = z
   });
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
 
+/**
+ * Search-box typeahead (redesign) — just the query string. Kept separate
+ * from `productListQuerySchema` (SRP): the suggestions endpoint takes no
+ * facets, sort, or pagination. A missing/blank `q` is valid and yields no
+ * suggestions, not a 400.
+ */
+export const productSuggestionQuerySchema = z.object({
+  q: z.string().trim().max(100).optional().default(""),
+});
+export type ProductSuggestionQuery = z.infer<typeof productSuggestionQuerySchema>;
+
 // ── Week 2 Day 7 admin product-management shapes (week2 (1).md §16) ──
 
 // Same convention Category/Collection slugs already use — see

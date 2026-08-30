@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { cn } from "@woobe/ui";
+import { chipVariants } from "@woobe/ui";
 import type { Category } from "../api/categories.client";
 import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
 
@@ -20,18 +20,16 @@ export function CategoryFilter({
   activeSlug?: string;
   currentParams: ProductsQueryParams;
 }) {
-  const pill = (isActive: boolean) =>
-    cn(
-      "shrink-0 rounded-pill border px-4 py-2 font-body text-sm transition-colors",
-      isActive ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:border-primary hover:bg-primary-tint",
-    );
-
   return (
     <nav
       aria-label="Filter by category"
-      className="mb-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="mb-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <Link href={buildProductsHref({ ...currentParams, category: undefined })} aria-current={!activeSlug || undefined} className={pill(!activeSlug)}>
+      <Link
+        href={buildProductsHref({ ...currentParams, category: undefined })}
+        aria-current={!activeSlug || undefined}
+        className={chipVariants({ active: !activeSlug })}
+      >
         All
       </Link>
       {categories.map((category) => (
@@ -39,7 +37,7 @@ export function CategoryFilter({
           key={category.id}
           href={buildProductsHref({ ...currentParams, category: category.slug })}
           aria-current={activeSlug === category.slug || undefined}
-          className={pill(activeSlug === category.slug)}
+          className={chipVariants({ active: activeSlug === category.slug })}
         >
           {category.name}
         </Link>

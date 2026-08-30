@@ -7,7 +7,8 @@ import { createCategoriesRouter } from "./interface/http/categories.routes";
 
 const categoryRepository = new CategoryRepository();
 
-const listCategoriesUseCase = new ListCategoriesUseCase(categoryRepository);
+/** Exported for cross-module use — `home` composes the active category list into its category-rail payload (redesign §B). */
+export const listCategoriesUseCase = new ListCategoriesUseCase(categoryRepository);
 
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const findCategoryBySlugUseCase = new FindCategoryBySlugUseCase(categoryRepository);

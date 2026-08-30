@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { cn } from "@woobe/ui";
+import { chipVariants } from "@woobe/ui";
 import type { Collection } from "../api/collections.client";
 import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
 
@@ -21,21 +21,15 @@ export function CollectionFilter({
 }) {
   if (collections.length === 0) return null;
 
-  const pill = (isActive: boolean) =>
-    cn(
-      "shrink-0 rounded-pill border px-4 py-2 font-body text-sm transition-colors",
-      isActive ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:border-primary hover:bg-primary-tint",
-    );
-
   return (
     <nav
       aria-label="Filter by collection"
-      className="mb-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="mb-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <Link
         href={buildProductsHref({ ...currentParams, collection: undefined })}
         aria-current={!activeSlug || undefined}
-        className={pill(!activeSlug)}
+        className={chipVariants({ active: !activeSlug })}
       >
         All collections
       </Link>
@@ -44,7 +38,7 @@ export function CollectionFilter({
           key={collection.id}
           href={buildProductsHref({ ...currentParams, collection: collection.slug })}
           aria-current={activeSlug === collection.slug || undefined}
-          className={pill(activeSlug === collection.slug)}
+          className={chipVariants({ active: activeSlug === collection.slug })}
         >
           {collection.name}
         </Link>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@woobe/ui";
+import { Button, EmptyState } from "@woobe/ui";
+import { PackageSearch } from "lucide-react";
 import { listProducts, type ProductListParams, type ProductSummary } from "../api/products.client";
 import { ProductGrid } from "./ProductGrid";
 
@@ -54,14 +55,22 @@ export function ProductResults({
     }
   }
 
+  if (initialTotal === 0) {
+    return (
+      <div role="status">
+        <EmptyState
+          icon={<PackageSearch strokeWidth={1.25} aria-hidden="true" />}
+          title={hasActiveFilters ? "No products match your filters." : "No products found."}
+          description={hasActiveFilters ? "Try widening your price range or clearing a filter." : undefined}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       <p className="mb-4 font-body text-sm text-text-secondary" role="status">
-        {initialTotal === 0
-          ? hasActiveFilters
-            ? "No products match your filters."
-            : "No products found."
-          : `Showing ${products.length} of ${initialTotal} product${initialTotal === 1 ? "" : "s"}`}
+        {`Showing ${products.length} of ${initialTotal} product${initialTotal === 1 ? "" : "s"}`}
       </p>
 
       <ProductGrid products={products} />

@@ -17,8 +17,12 @@ export const radius = {
   pill: "9999px",
 } as const;
 
-/** Minimal elevation — one soft shadow for cards, a stronger one for modals. Avoid heavy drop shadows. */
+/** Minimal elevation — one soft shadow for cards, a stronger one for modals, an upward one for bottom sheets. Avoid heavy drop shadows. */
 export const shadow = {
   card: "0 2px 12px rgba(38,34,32,0.06)",
   modal: "0 8px 32px rgba(38,34,32,0.14)",
+  sheet: "0 -8px 32px rgba(38,34,32,0.14)",
 } as const;
+
+/** Redesign: the storefront's compact section rhythm (px), replacing hand-written `py-10`. Mirrored in the Tailwind preset's `spacing.section`. */
+export const sectionRhythm = "28px";

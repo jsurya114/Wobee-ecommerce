@@ -6,7 +6,7 @@ import type {
   AdminProductSummaryEntity,
   AdminProductVariantEntity,
   ProductDetailEntity,
-  ProductSummaryEntity,
+  ProductSuggestionEntity,
   ProductVariantEntity,
 } from "../../domain/entities/product.entity";
 import type {
@@ -18,7 +18,8 @@ import type {
   ListProductsFilter,
   ListProductsResult,
   ProductRepositoryPort,
-  ProductSummaryWithStatus,
+  ProductSummaryProjection,
+  ProductSummaryProjectionWithStatus,
   UpdateProductInput,
   UpdateVariantInput,
 } from "../../application/ports/product-repository.port";
@@ -66,12 +67,22 @@ export class ProductRepository implements ProductRepositoryPort {
           categoryId: true,
           minPricePaiseCache: true,
           images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
+          // Cheapest active variant — its weight + rate override feed the
+          // "from 38g · ₹1,180/kg" line every card now shows. The rate is
+          // resolved (override ?? admin default) by ListProductsUseCase via
+          // the pricing port, not here.
+          variants: {
+            where: { isActive: true },
+            orderBy: { effectivePricePaiseCache: "asc" },
+            take: 1,
+            select: { weightGrams: true, ratePerKgOverridePaise: true },
+          },
         },
       }),
       prisma.product.count({ where }),
     ]);
 
-    const products: ProductSummaryEntity[] = rows.map((row) => ({
+    const products: ProductSummaryProjection[] = rows.map((row) => ({
       id: row.id,
       slug: row.slug,
       name: row.name,
@@ -79,6 +90,9 @@ export class ProductRepository implements ProductRepositoryPort {
       categoryId: row.categoryId,
       minPricePaiseCache: row.minPricePaiseCache,
       primaryImage: row.images[0] ?? null,
+      representativeVariant: row.variants[0]
+        ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
+        : null,
     }));
 
     return { products, total };
@@ -143,6 +157,9 @@ export class ProductRepository implements ProductRepositoryPort {
             size: true,
             weightGrams: true,
             ratePerKgOverridePaise: true,
+            fabric: true,
+            fit: true,
+            measurements: true,
             isActive: true,
           },
         },
@@ -164,6 +181,31 @@ export class ProductRepository implements ProductRepositoryPort {
     };
   }
 
+  async searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    const rows = await prisma.product.findMany({
+      where: { isActive: true, name: { contains: trimmed, mode: "insensitive" } },
+      // Cheapest first, `id` tiebreaker — deterministic, same as findMany's price_asc.
+      orderBy: [{ minPricePaiseCache: "asc" }, { id: "asc" }],
+      take: limit,
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        minPricePaiseCache: true,
+        images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      minPricePaiseCache: row.minPricePaiseCache,
+      primaryImage: row.images[0] ?? null,
+    }));
+  }
+
   async findVariantsByIds(
     variantIds: string[],
   ): Promise<
@@ -178,6 +220,9 @@ export class ProductRepository implements ProductRepositoryPort {
         size: true,
         weightGrams: true,
         ratePerKgOverridePaise: true,
+        fabric: true,
+        fit: true,
+        measurements: true,
         isActive: true,
         product: {
           select: {
@@ -198,6 +243,9 @@ export class ProductRepository implements ProductRepositoryPort {
       size: row.size,
       weightGrams: row.weightGrams,
       ratePerKgOverridePaise: row.ratePerKgOverridePaise,
+      fabric: row.fabric,
+      fit: row.fit,
+      measurements: row.measurements,
       isActive: row.isActive,
       productId: row.product.id,
       categoryId: row.product.categoryId,
@@ -207,7 +255,7 @@ export class ProductRepository implements ProductRepositoryPort {
     }));
   }
 
-  async findByIds(productIds: string[]): Promise<ProductSummaryWithStatus[]> {
+  async findByIds(productIds: string[]): Promise<ProductSummaryProjectionWithStatus[]> {
     if (productIds.length === 0) return [];
     const rows = await prisma.product.findMany({
       where: { id: { in: productIds } },
@@ -220,6 +268,12 @@ export class ProductRepository implements ProductRepositoryPort {
         isActive: true,
         minPricePaiseCache: true,
         images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
+        variants: {
+          where: { isActive: true },
+          orderBy: { effectivePricePaiseCache: "asc" },
+          take: 1,
+          select: { weightGrams: true, ratePerKgOverridePaise: true },
+        },
       },
     });
     return rows.map((row) => ({
@@ -231,6 +285,9 @@ export class ProductRepository implements ProductRepositoryPort {
       isActive: row.isActive,
       minPricePaiseCache: row.minPricePaiseCache,
       primaryImage: row.images[0] ?? null,
+      representativeVariant: row.variants[0]
+        ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
+        : null,
     }));
   }
 
@@ -241,6 +298,18 @@ export class ProductRepository implements ProductRepositoryPort {
       select: { id: true, productId: true },
     });
     return new Map(rows.map((row) => [row.id, row.productId]));
+  }
+
+  async findPrimaryImageUrlByCategoryIds(categoryIds: string[]): Promise<Map<string, string>> {
+    if (categoryIds.length === 0) return new Map();
+    // One row per category: the cheapest active product that has an image.
+    const rows = await prisma.product.findMany({
+      where: { categoryId: { in: categoryIds }, isActive: true, images: { some: {} } },
+      orderBy: [{ categoryId: "asc" }, { minPricePaiseCache: "asc" }, { id: "asc" }],
+      distinct: ["categoryId"],
+      select: { categoryId: true, images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } } },
+    });
+    return new Map(rows.flatMap((row) => (row.images[0] ? [[row.categoryId, row.images[0].url] as [string, string]] : [])));
   }
 
   // ── Week 2 Day 7 admin surface (week2 (1).md §16) ──

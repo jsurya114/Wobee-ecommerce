@@ -15,6 +15,14 @@ export interface ProductSummary {
   /** Display/sort cache (ADR-012) — never the checkout price source. */
   minPricePaiseCache: number;
   primaryImage: ProductImage | null;
+  /**
+   * "From" (cheapest active variant) weight + its effective rate/kg — the
+   * weight-based-pricing trust signal shown on every card. Server-resolved;
+   * both null when the product has no active variant. Display only — the
+   * price shown is still `minPricePaiseCache`.
+   */
+  fromWeightGrams: number | null;
+  fromRatePerKgPaise: number | null;
 }
 
 export interface ProductListResult {
@@ -70,6 +78,10 @@ export interface VariantWithPriceAndStock {
   ratePerKgPaise: number;
   availableQuantity: number;
   inStock: boolean;
+  /** Free-text product details for the PDP "Details" disclosure (redesign O-2) — null unless the admin set them. */
+  fabric: string | null;
+  fit: string | null;
+  measurements: string | null;
 }
 
 export interface ProductDetail {
@@ -88,4 +100,18 @@ export interface ProductDetail {
 
 export function getProductBySlug(slug: string): Promise<{ product: ProductDetail }> {
   return apiFetch<{ product: ProductDetail }>(`/api/v1/products/${encodeURIComponent(slug)}`);
+}
+
+/** Lean typeahead row — matches the API's `ProductSuggestionEntity`. */
+export interface ProductSuggestion {
+  id: string;
+  slug: string;
+  name: string;
+  minPricePaiseCache: number;
+  primaryImage: ProductImage | null;
+}
+
+/** Search-box typeahead (redesign). Capped server-side; a query under 2 chars returns `[]`. Pass an `AbortSignal` so stale in-flight requests can be cancelled. */
+export function searchProductSuggestions(q: string, signal?: AbortSignal): Promise<{ suggestions: ProductSuggestion[] }> {
+  return apiFetch<{ suggestions: ProductSuggestion[] }>(`/api/v1/products/suggestions?q=${encodeURIComponent(q)}`, { signal });
 }

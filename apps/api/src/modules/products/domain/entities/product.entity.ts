@@ -11,6 +11,10 @@ export interface ProductVariantEntity {
   size: string;
   weightGrams: number;
   ratePerKgOverridePaise: number | null;
+  /** Free-text product details (admin-set since Week 2 Day 7) — surfaced on the customer PDP's "Details" disclosure (redesign O-2). */
+  fabric: string | null;
+  fit: string | null;
+  measurements: string | null;
   isActive: boolean;
 }
 
@@ -21,6 +25,31 @@ export interface ProductSummaryEntity {
   brand: string | null;
   categoryId: string;
   /** Display/sort cache (ADR-012) — listing uses this, never checkout. */
+  minPricePaiseCache: number;
+  primaryImage: ProductImageEntity | null;
+  /**
+   * The "from" (cheapest active variant) weight and its effective rate/kg —
+   * Woobe's weight-based pricing surfaced on every card / rail / search
+   * result, not just the PDP. `fromRatePerKgPaise` is resolved through the
+   * pricing port in the listing/home use-cases (the repository never
+   * derives a rate — see product-repository.port.ts). Both are `null` only
+   * when the product has no active variant. This is a display/trust signal,
+   * NOT an authoritative price — the shown price is still `minPricePaiseCache`.
+   */
+  fromWeightGrams: number | null;
+  fromRatePerKgPaise: number | null;
+}
+
+/**
+ * Lightweight typeahead row for the search box (redesign) — just enough to
+ * render a suggestion: no variants, no facets, no pagination, no pricing
+ * projection. `minPricePaiseCache` is the display cache (ADR-012), same as
+ * the listing summary.
+ */
+export interface ProductSuggestionEntity {
+  id: string;
+  slug: string;
+  name: string;
   minPricePaiseCache: number;
   primaryImage: ProductImageEntity | null;
 }

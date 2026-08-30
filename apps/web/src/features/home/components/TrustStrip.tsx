@@ -1,26 +1,24 @@
-import { BadgeCheck, RefreshCw, Scale, ShieldCheck } from "lucide-react";
+import { RefreshCw, Scale, ShieldCheck } from "lucide-react";
 
 const ITEMS = [
-  { icon: Scale, label: "Transparent pricing", description: "Weight × rate, shown on every product" },
-  { icon: BadgeCheck, label: "Real products", description: "What you see is what ships" },
-  { icon: RefreshCw, label: "Easy exchanges", description: "Wrong size, no drama" },
-  { icon: ShieldCheck, label: "Secure payments", description: "Razorpay-verified, never stored" },
+  { icon: Scale, label: "Weight × rate, shown on every product" },
+  { icon: RefreshCw, label: "Easy exchanges" },
+  { icon: ShieldCheck, label: "Secure payments" },
 ] as const;
 
 /**
- * Trust-signal row (woobe_ui_design_plan.md §8, item 8) — turns the
- * weight-based pricing mechanic into a selling point rather than hiding it,
- * per the doc's own brand direction (§1).
+ * A single thin trust line (redesign spec §B/§L) — shrunk from the old
+ * mid-page 4-up block and moved down near the footer, so it supports the
+ * shopping flow instead of interrupting it. Full-bleed background, one row.
  */
 export function TrustStrip() {
   return (
-    <section className="border-y border-border bg-surface px-4 py-8 sm:px-6">
-      <div className="mx-auto grid max-w-6xl grid-cols-2 gap-6 sm:grid-cols-4">
-        {ITEMS.map(({ icon: Icon, label, description }) => (
-          <div key={label} className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">
-            <Icon className="h-6 w-6 text-primary" strokeWidth={1.75} aria-hidden="true" />
-            <p className="font-body text-sm font-medium text-text-primary">{label}</p>
-            <p className="font-body text-xs text-text-secondary">{description}</p>
+    <section className="border-y border-border bg-surface px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-center sm:justify-between">
+        {ITEMS.map(({ icon: Icon, label }) => (
+          <div key={label} className="flex items-center gap-2">
+            <Icon className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden="true" />
+            <span className="font-body text-xs text-text-secondary">{label}</span>
           </div>
         ))}
       </div>

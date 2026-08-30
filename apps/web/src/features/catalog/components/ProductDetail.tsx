@@ -1,35 +1,32 @@
 import { Badge } from "@woobe/ui";
 import { ReviewsSection } from "@/features/reviews/components/ReviewsSection";
-import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import type { ProductDetail as ProductDetailData } from "../api/products.client";
+import { ProductGallery } from "./ProductGallery";
 import { ProductPurchasePanel } from "./ProductPurchasePanel";
 
+/**
+ * PDP (redesign spec §F) — a two-column layout: gallery (thumbnail strip +
+ * swipeable main image) on the left, and the product hierarchy on the
+ * right: category → name (the one place Playfair is used besides the
+ * wordmark) → description → the purchase panel (price + weight·rate + "how
+ * this price works" + variants + CTA + details + delivery). Reviews follow
+ * below.
+ */
 export function ProductDetail({ product }: { product: ProductDetailData }) {
-  const primaryImage = product.images[0];
-
   return (
     <div>
-      <div className="grid gap-8 md:grid-cols-2 md:gap-12">
-        <div className="relative aspect-[4/5] overflow-hidden rounded-card bg-primary-tint/40">
-          {primaryImage ? (
-            // Not lazy-loaded, unlike ProductCard's own image (Week 2 Day 9,
-            // week2 (1).md §21) — this is the product page's likely LCP
-            // (Largest Contentful Paint) element; lazy-loading it would
-            // delay browser discovery of exactly the image Core Web Vitals
-            // most wants prioritized. `fetchPriority="high"` makes that
-            // priority explicit rather than left to the browser's own guess.
-            <img src={primaryImage.url} alt={primaryImage.altText} decoding="async" fetchPriority="high" className="h-full w-full object-cover" />
-          ) : null}
-          <WishlistButton productId={product.id} className="absolute right-3 top-3" />
-        </div>
+      <div className="grid gap-6 md:grid-cols-2 md:gap-10 lg:gap-12">
+        <ProductGallery images={product.images} productId={product.id} productName={product.name} />
 
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-5">
           <div>
-            <Badge variant="outline" className="mb-3">
+            <Badge variant="outline" className="mb-2.5">
               {product.category.name}
             </Badge>
-            <h1 className="font-display text-3xl leading-tight text-text-primary">{product.name}</h1>
-            {product.description ? <p className="mt-3 font-body text-sm text-text-secondary">{product.description}</p> : null}
+            <h1 className="font-display text-2xl leading-tight text-text-primary lg:text-3xl">{product.name}</h1>
+            {product.description ? (
+              <p className="mt-2 font-body text-sm text-text-secondary">{product.description}</p>
+            ) : null}
           </div>
 
           <ProductPurchasePanel product={product} />

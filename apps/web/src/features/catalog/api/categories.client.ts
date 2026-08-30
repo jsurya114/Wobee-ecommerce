@@ -5,6 +5,8 @@ export interface Category {
   name: string;
   slug: string;
   sortOrder: number;
+  /** Category art (`/imgs/…` when set by seed/admin) — null otherwise. */
+  imageUrl: string | null;
 }
 
 export function listCategories(): Promise<{ categories: Category[] }> {

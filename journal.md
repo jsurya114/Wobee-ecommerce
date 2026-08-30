@@ -1752,3 +1752,116 @@ The web form is a 3-step state machine (`email` → `otp` → `password`): the *
 - **Double attempt-increment** — a wrong guess on `/reset-password/verify` and then again on `/reset-password` each burns an `attempts` slot. Intended (both are guess surfaces), just noting the cap is shared across the two.
 
 ---
+
+## 2026-08-30 — Storefront UI/UX redesign (spec §A–S) — merchandise-first, weight-pricing on every card
+
+**Branch:** `woobe-ui/bug-fixes`. A genuine product redesign of `apps/web` (not a CSS pass), following the reviewed spec. Architecture, APIs, business rules, weight-pricing correctness, a11y and perf posture all preserved. Full spec: the artifact linked in the session; the repo diff is the implementation.
+
+### Backend — the minimum the redesign needed (all additive, no migration)
+
+- **O-1 (mandatory): weight + rate on `ProductSummary`.** The listing/rail/search DTO exposed only `minPricePaiseCache` + an image, so no product card outside the PDP/cart could show Woobe's differentiator. Fix: `ProductRepository.findMany`/`findByIds` now project the **cheapest active variant** (`variants: { where:{isActive:true}, orderBy:{effectivePricePaiseCache:"asc"}, take:1, select:{weightGrams, ratePerKgOverridePaise} }`) as `ProductSummaryProjection.representativeVariant`; a new shared helper `resolveFromPricing()` in `list-products.use-case.ts` resolves the displayed `fromRatePerKgPaise` via the **existing** `PricingReaderPort.calculateMany` in **one batched call per request** (the pricing use-case reads the admin default rate once — no N+1), and adds `fromWeightGrams`/`fromRatePerKgPaise` to `ProductSummaryEntity`. `ListProductsUseCase` + `GetProductsByIdsUseCase` gained the pricing port in their constructors (wired in `products.module.ts`, which already built `pricingReader`). Shown price stays `minPricePaiseCache` (ADR-012); the rate is a display/trust signal only. ADR-010 intact — the rate resolves through a port, not the repository. Web `ProductSummary` gained the two optional fields; `home.client.ts` inherits them.
+- **O-2 (small): `fabric`/`fit`/`measurements` on the customer PDP variant DTO.** Already on `AdminProductVariantEntity` and in the DB — added to `ProductVariantEntity`, `VariantWithPriceAndStock` (+ `findBySlug`/`findVariantsByIds` selects) and the web type, for the PDP "Details" disclosure. No migration.
+- **O-3 (small): category-rail imagery — derived, no migration.** (`schema.prisma`'s `Category` already has a nullable `imageUrl` column, but the seed never sets it and there's no admin UI for it, so the rail derives an image instead of reading that column — a future editorial pass could populate `Category.imageUrl` and have the rail prefer it.) New `ProductRepository.findPrimaryImageUrlByCategoryIds` (one `distinct(["categoryId"])` query — cheapest active imaged product per category) → `GetCategoryImagesUseCase`, exported from `products.module.ts`. Composed in **`home`** (not `categories`, which would close a cycle: `products` already depends on `categories`): `GetHomePageUseCase` gained `categoriesLister` (new `listCategoriesUseCase` export from `categories.module.ts`) + `categoryImageResolver`, and returns `categoryTiles: { id, name, slug, imageUrl }[]` on `GET /api/v1/home`. `boundaries:check` clean (462 modules, 0 violations — new `home→categories` edge is acyclic).
+- **Order breakdown:** no backend change — `OrderView` already carries `subtotalPaise`/`discountPaise`/`shippingFeePaise`/`taxPaise`/`totalWeightGrams` + per-item `weightGrams`/`unitRatePerKgPaise`.
+- **`@woobe/utils`:** new `formatPaiseAsInrCompact` (drops `.00` for whole-rupee amounts) — used only for the `/kg` rate trust-signal ("₹1,200/kg", not "₹1,200.00/kg"), never for a payable total.
+
+### Design system (`packages/ui` + `packages/config` preset + tokens)
+
+- **Tokens:** added `surface-2` (#F4EDE8 warm placeholder fill), `overlay` (scrim), `shadow-sheet` (upward), `spacing.section` (28px — replaces hand-written `py-10`), font sizes `label` (13px) / `micro` (11px). Existing colour values unchanged (all still AA).
+- **`PriceTag` → also exported as `PriceBlock`:** rewritten — sizes `sm`/`md`/`lg`, optional `from` prefix, **Inter across every size** (serif dropped from prices), renders `{grams} · {compactRate}/kg` only when both are present.
+- **New primitives/components:** `Sheet` (bottom sheet on `@base-ui/react` Dialog — focus trap, scroll-lock, Esc, returns focus; **zero new bundle**), `Chip` + `chipVariants` (consolidates the 3 near-identical pill styles from CategoryFilter/CollectionFilter/FiltersPanel), `SectionHeader` (compact uppercase label + optional "See all"), `EmptyState` (icon + title + action).
+
+### Storefront
+
+- **`ProductCard` (canonical, one component everywhere):** `aspect-[3/4]` portrait image on `surface-2`, chrome-less (no border/shadow/padding), name (13/14px medium, 1 line), `PriceTag` with the weight·rate line, wishlist heart top-right, **icon-only** `QuickAddToBagButton` (was a full-width row) pinned bottom-right of the image on the PLP/homepage grid. `ProductGrid` gutters tightened to `gap-x-3 gap-y-6` (`lg:gap-x-4`). `WishlistButton` `sm` bumped to 36px.
+- **Homepage:** rebuilt — `HomeSearch` (persistent field, the big mobile search-discoverability fix) → `CategoryRail` (round product thumbnails, horizontal scroll — replaces the wrap-centered letter-avatar `CategoryTiles`, now deleted) → New Arrivals rail → **"Fresh picks" real product grid** (`HomeGridSection`, reuses the already-fetched `newArrivals` slice — no extra request) → **`ShopByBudget`** (Under ₹499/₹799/₹999 → `/products?maxPrice=…`) → Best Sellers rail → Featured Collections (compact) → Customer Reviews (compact) → **thin one-line `TrustStrip`** (was a mid-page 4-up block). `Reveal` scroll-fade dropped from the homepage (kept as a util). `loading.tsx` reshaped to the new layout.
+- **`ProductRail`:** `SectionHeader` + "See all →", tighter card basis (~2.3 cards at 390px), smaller arrows.
+- **PDP:** new `ProductGallery` (one Embla instance drives mobile swipe + dots and the desktop thumbnail strip; first image eager + `fetchPriority="high"`). `ProductDetail` restructured (gallery | hierarchy). `ProductPurchasePanel` — `PriceTag size="lg"` (Inter price, not Playfair), **"How is this priced?" `<details>`** (`{g} × {₹rate}/kg = {server price}` — verified live the `=` equals the server `pricePaise` exactly, e.g. `60g × ₹1,200/kg = ₹72.00`), **"Details" `<details>`** (fabric/fit/measurements, only when set), **inline pincode delivery-estimate** (reuses `GET /api/v1/shipping/estimate`), tighter `h-10` variant pills, OOS sizes struck-through not "(out)". Sticky mobile buy bar retained — verified `getBoundingClientRect` shows it flush above `BottomNav` (gap 0).
+- **PLP:** `FiltersPanel` rebuilt — a `[Filters (n)]` button opens the `Sheet` (size chips / in-stock / colour / price min-max, Clear + Apply footer, pending state committed on Apply); Sort is a compact inline `<select>`. `CategoryFilter`/`CollectionFilter` now use `chipVariants`. Empty results use `EmptyState`. `HeaderSearch` is `hidden md:flex` now (mobile relies on the in-page fields). "Shop" h1 shrunk to `text-xl`. Verified live: applying a size filter closes the sheet, updates the URL + grid, restores body scroll.
+- **Cart:** `EmptyState` for the empty bag; compact `CartLineItem` (`aspect-[3/4]` thumb on `surface-2`); restyled summary (compact uppercase header, `Total weight` row, `formatGrams`); **mobile sticky checkout bar** (`₹total` + Checkout, offset by `ABOVE_MOBILE_BOTTOM_NAV_STYLE`), desktop keeps the in-card button. Verified the weight-threshold banner clears the sticky bar (`pb-24` on the mobile grid wrapper).
+- **Checkout:** summary gained a `Total weight` row; tighter page rhythm. No change to the form engine, `checkoutSchema`, pincode check, or tax handling (still server-computed, shown on confirmation).
+- **Order confirmation + order detail:** new shared `OrderPriceBreakdown` — per-item `name · colour · size · weight · ₹/kg · ×qty` + line total, then Subtotal / Discount (if >0) / Shipping / Tax / Total weight / **Total**. Both pages previously showed only the grand total; all values straight from `OrderView`, nothing computed.
+
+### Verification
+
+- `pnpm -r run typecheck` 9/9 · `pnpm -r run lint` 9/9 (`--max-warnings=0`) · `pnpm --filter @woobe/api run boundaries:check` **462 modules / 0 violations** · `pnpm --filter @woobe/api exec vitest run` **438/438** (62 files; +3 net: `list-products` batched-rate test, `products.integration` weight/rate assertion, `home` category-rail test; `list-products.use-case.test.ts` + `get-homepage.use-case.test.ts` fixtures updated for the new ctor deps/fields) · `pnpm run build` all 3 apps clean **with the API stopped** (`/`, `/products`, `/products/[slug]` still `ƒ` dynamic — ADR-026 holds).
+- **Live browser** (chrome-devtools-mcp, isolated context, 390 + 1440): homepage (search field, category rail with real derived thumbnails, weight·rate on every card, budget chips, thin trust strip, 4-tab guest bottom nav), PLP (chip filters, filter Sheet — focus trapped, body `overflow:hidden`, Apply → `?size=M` + grid updates + scroll restored), PDP (gallery dots, price explainer math = server value, sticky buy bar flush above BottomNav), cart (compact line, weight-threshold banner + sticky checkout bar, Checkout correctly disabled under the 1kg minimum), wishlist logged-out state. Zero console errors beyond the pre-existing guest `/auth/refresh` 401. No horizontal overflow at 390 or 1440.
+
+### Follow-ups / known gaps
+
+- **Full 375/768/1024 sweep + Lighthouse a11y/SEO + a production perf trace not re-run this session** — typecheck/lint/build/tests + a 390/1440 live pass are green; a full multi-breakpoint + Lighthouse pass per spec §S is the remaining verification before sign-off.
+- **`ProductCard` "from" prefix** is not shown (needs a multi-variant flag on `ProductSummary` — deferred; the price shown is the honest lowest price).
+- **Weight-based discovery / weight facet** — deliberately not built (spec §O: documented as a future option; thin utility for the current catalogue, would need a new query param + index).
+- **`apps/admin` visual pass** — not touched (spec §M: optional, low priority; storefront redesign must not destabilise admin).
+- **`WishlistPageContent` logged-out/empty branches** still use their own inline states rather than the new `EmptyState` (coherent already; consolidation is cosmetic).
+- Seed images (`loremflickr`) intermittently fail to load and show as solid colour blocks — seed data only; real photography replaces via the admin catalogue.
+- Everything flagged in prior entries (no coupon admin CRUD, no restricted-pincode list, no rate limiting, iCloud `.next` `" N.ts"` dupes needing a `.next` clear before `apps/admin` typecheck) is unchanged.
+
+## 2026-08-30 — Real product + category photography wired in (replaces loremflickr placeholders)
+
+**Branch:** `woobe-ui/bug-fixes`. The user dropped 13 real photos into `apps/web/public/imgs/` (served at `/imgs/…`); wired them into the catalogue.
+
+- **Files:** renamed to stable slug names — `cat-<slug>.jpg` (5) + `prod-<slug>.jpg` (8). Two products have no supplied photo (**Statement Earrings**, **Woven Tote Bag**) — they keep the loremflickr fallback.
+- **Seed (`packages/database/prisma/seed.ts`):** `categoryDefs` gained `imageUrl: "/imgs/cat-…"` and the category upsert now `update`s it on re-run; `ProductDef` gained optional `image?: string` — when set, the per-product image sync writes **one** clean `ProductImage` row with that path instead of the loremflickr pair (`imageTags` kept as the fallback for the two without a photo).
+- **Backend:** `Category.imageUrl` (already a nullable column in `schema.prisma`) is now surfaced — `CategoryEntity` + `findActiveCategories` select gained `imageUrl`, and `GET /api/v1/categories` returns it. `GetHomePageUseCase.resolveCategoryTiles` now prefers `category.imageUrl` over the O-3 derived-from-a-product fallback (`category.imageUrl ?? derived ?? null`). Web `Category` type + `get-homepage.use-case.test.ts` fixture/assertion updated for the preference chain.
+- **`woobe_dev` updated out-of-band** (psql, no full re-seed — avoids the known `PricingSetting`/`ShippingRule`/`GstSlab` `.create` duplication): 5 `categories.imageUrl` set, 8 products' `product_images` replaced with a single `/imgs/…` row. `woobe_test` unchanged (integration tests build their own fixtures); a fresh `db:seed` there will pick up the new paths from the seed script.
+
+**Verified:** `typecheck` 9/9 · `lint` 9/9 · `boundaries:check` 462/0 · `vitest` **438/438** · `build` all 3 apps clean. Live (390px): `/imgs/*` assets serve `200 image/jpeg`, category rail + Fresh Picks grid + Silk Scarf PDP all render the real photos, loremflickr only on the two products without a supplied image, zero console errors beyond the guest `/auth/refresh` 401.
+
+All 10 products now have a real photo (Statement Earrings + Woven Tote Bag added afterwards as `prod-statement-earrings.png` / `prod-woven-tote-bag.png` — `image:` lines in `seed.ts` + their `product_images` rows updated in `woobe_dev`). No loremflickr left in the catalogue. Note: the two `.png` files are ~2.3–2.6MB each (the `.jpg` set is <800KB) — worth compressing before shipping since the storefront uses a plain `<img>` with no optimizer.
+
+## 2026-08-30 — Catalogue: +5 women's products (the ones with real photos)
+
+**Branch:** `woobe-ui/bug-fixes`. Of a proposed 10-product "ladies range" expansion, the 5 that have a real photo in `apps/web/public/imgs/` were added; the other 5 land when their images arrive.
+
+| Product | Category | Variants | From price (₹1,200/kg) | Image |
+|---|---|---|---|---|
+| Oxidised Jhumka Earrings | Accessories | Oxidised Silver / Antique Gold · One Size (32g) | ₹38.40 | `prod-oxidised-jhumka-earrings.jpg` |
+| Quilted Crossbody Bag | Accessories | Black / Tan · One Size (340g) | ₹408.00 | `prod-quilted-crossbody-bag.jpg` |
+| Kolhapuri Leather Sandals | Accessories | Tan · 37/38/39 (400–440g) | ₹480.00 | `prod-kolhapuri-leather-sandals.jpg` |
+| Enamel Bangle Set | Accessories | Rose / Teal · 2.4/2.6 (110–120g) | ₹132.00 | `prod-enamel-bangle-set.jpg` |
+| Ribbed Knit Sweater | Tops | Oatmeal / Rust · S/M/L (360–400g) | ₹432.00 | `prod-ribbed-knit-sweater.jpg` |
+
+Catalogue is now **15 products / 37 variants** (Accessories 7, Tops 4, Bottoms 2, Dresses 1, Ethnic Wear 1).
+
+- **`seed.ts`:** the 5 defs appended to `productDefs` (each with `image`, so a fresh `db:seed` includes them).
+- **`packages/database/prisma/apply-new-products.mts`** (new, idempotent): mirrors `seed.ts`'s per-product upsert loop for just these 5 — run against an already-seeded DB where a full re-seed would duplicate the non-idempotent `PricingSetting`/`ShippingRule`/`GstSlab` rows. `pnpm --filter @woobe/database exec tsx prisma/apply-new-products.mts` (needs root `.env` — use `node scripts/with-root-env.mjs …`). Applied to `woobe_dev`.
+- `packages/database/eslint.config.cjs`: the `no-console` override widened from `prisma/seed.ts` to also cover `prisma/*.mts`.
+- Weights and per-variant `effectivePricePaiseCache` / `Product.minPricePaiseCache` computed the same way as the seed (`round(g × 120000 / 1000)`); one `Inventory` row per variant in `WH-MAIN`.
+
+**Verified:** `typecheck` 9/9 · `lint` 9/9 · `boundaries:check` 462/0 · `vitest` **438/438** · `build` all 3 apps clean. Live (390px, `/products?category=accessories`): all 7 accessories list price-sorted with the right weight·rate line and their `/imgs/*` photos; `GET /api/v1/products?category=accessories` returns the 5 new items with correct `fromWeightGrams`/`minPricePaiseCache`. All 5 new image assets serve `200`.
+
+**Follow-up:** the remaining 5 proposed products (Puff-Sleeve Blouse, Tiered Cotton Maxi Dress, Ruched Bodycon Midi Dress, Anarkali Kurta Set, High-Waist Wide-Leg Trousers) are not added — waiting on photos.
+
+## 2026-08-30 — Search: debounced typeahead everywhere (home, PLP, header)
+
+**Branch:** `woobe-ui/bug-fixes`. Search was submit-only (type → Enter → `/products?q=`). Added a live, debounced suggestions dropdown to all three search surfaces, without changing the submit path or the existing `GET /api/v1/products` listing contract.
+
+### Backend — a dedicated suggestions path (SRP: separate from catalogue listing)
+
+- **`GET /api/v1/products/suggestions?q=`** — new, additive. Registered *before* `/:slug` so the literal path wins (integration test asserts `/:slug` still resolves).
+- **`ProductSuggestionEntity`** (`product.entity.ts`) — lean row: `id, slug, name, minPricePaiseCache, primaryImage`. No variants, no facets, no pagination, no pricing projection.
+- **`ProductRepositoryPort.searchSuggestions(query, limit)`** + impl — `isActive` + `name contains`/insensitive (same pg_trgm-backed shape as `findMany`), `minPricePaiseCache asc` + `id` tiebreaker, `take(limit)`.
+- **`SearchProductSuggestionsUseCase`** — trims, guards `MIN_SUGGESTION_QUERY_LENGTH = 2` (returns `[]` below that, never hits the repo), caps at `MAX_SUGGESTIONS = 6`. Own responsibility, own file; `ListProductsUseCase` untouched.
+- **`productSuggestionQuerySchema`** (`@woobe/validation`) — `{ q: string().trim().max(100).optional().default("") }`; a blank/missing `q` is valid (→ `[]`), not a 400.
+- Wired in `products.module.ts` → `ProductsController` (3rd ctor arg) → `products.routes.ts`.
+- Tests: `search-product-suggestions.use-case.test.ts` (3 — min-length guard skips the repo, trims + caps, passthrough) + 4 in `products.integration.test.ts` (lean shape, `<2` chars → `[]`, no-match → `[]`, doesn't shadow `/:slug`). **445/445** (was 438; +7).
+
+### Frontend — one composed component, three call sites
+
+- **`searchProductSuggestions(q, signal)`** (`products.client.ts`) — wraps the endpoint, forwards an `AbortSignal`.
+- **`useSearchSuggestions(rawQuery, { enabled })`** hook — single responsibility: debounce (250ms, via an inline `useDebouncedValue`), fetch, **abort the previous request** on every keystroke/unmount, expose `{ suggestions, isLoading, query }`. Below 2 chars or `enabled:false` → clears. Owns no UI, no routing. A failed lookup silently yields `[]` (submit still works).
+- **`SearchSuggestions`** — presentational ARIA `listbox`: thumbnail + name + price rows, a skeleton loading state, an empty message, and a "Search for '…'" footer. `onMouseDown preventDefault` so a row click beats the input blur.
+- **`SearchField`** — composes `ProductSearchForm` + the hook + the dropdown + keyboard nav (↑/↓ move a highlight, Enter on a highlight → `onSelectSuggestion(slug)` and *doesn't* submit, Enter with none → normal `onSubmit`, Escape closes the dropdown, outside-pointerdown closes). Sets `role="combobox"` / `aria-expanded` / `aria-controls` / `aria-activedescendant` / `aria-autocomplete="list"` on the input. `onSubmit` passes straight through — every caller's submit-to-`/products` behaviour is unchanged.
+- **`ProductSearchForm`** — extended (OCP, additive): `onQueryChange?` (live value) + `inputProps?` (keydown / combobox ARIA merged onto the `<input>`, explicit props still win). Existing callers/behaviour untouched.
+- **`HeaderSearch` / `HomeSearch` / `SearchBar`** now render `<SearchField>` instead of `<ProductSearchForm>` directly. `HeaderSearch`'s collapse wrapper switched `overflow-hidden` → `overflow-visible` when open so the dropdown escapes; `suggestionsEnabled={open}` pauses the hook while collapsed. Selecting a suggestion routes to `/products/[slug]`; the footer / Enter routes to the full `/products?q=` (PLP preserves its other filters via `buildProductsHref`).
+
+### Verified
+
+- `typecheck` 9/9 · `lint` 9/9 · `boundaries:check` **464 modules / 0 violations** · `vitest` **445/445** · `build` all 3 apps clean.
+- Live (390 + 1440): home + PLP + expanded header search all show the debounced dropdown; ↓ highlights, Enter jumps to the product (`/products/statement-earrings`), the footer runs the full search preserving `?category=` (`/products?category=tops&q=jacket&sort=price_asc`), `GET …/suggestions?q=e` → `[]`, `/:slug` still 200, header dropdown not clipped by the collapse wrapper. Zero console errors beyond the guest `/auth/refresh` 401; no unhandled AbortError rejections.
+
+### Follow-ups / known gaps
+
+- Suggestions rank by price ascending, not relevance — no relevance scoring on the `contains` match; fine at this catalogue size, revisit if the catalogue grows.
+- No result caching / request memoisation across keystrokes (each settled query is one request; the abort prevents stale-result races). Add an LRU or SWR-style cache only if it proves needed.

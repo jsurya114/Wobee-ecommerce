@@ -32,7 +32,7 @@ export function WishlistButton({
   const [isPending, setIsPending] = useState(false);
 
   const saved = isSaved(productId);
-  const dimension = size === "sm" ? "h-8 w-8" : "h-10 w-10";
+  const dimension = size === "sm" ? "h-9 w-9" : "h-10 w-10";
   const iconSize = size === "sm" ? "h-4 w-4" : "h-5 w-5";
 
   async function handleClick(event: MouseEvent) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { formatPaiseAsInr } from "@woobe/utils";
+import { formatGrams, formatPaiseAsInr } from "@woobe/utils";
 import { checkoutSchema, type CheckoutInput } from "@woobe/validation";
 import { Button, Card, CardContent, CardHeader, CardTitle, FormField, RadioGroup, RadioGroupItem } from "@woobe/ui";
 import Link from "next/link";
@@ -218,6 +218,10 @@ export function CheckoutForm() {
             <div className="flex justify-between">
               <dt className="text-text-secondary">Items ({cart.itemCount})</dt>
               <dd className="text-text-primary">{formatPaiseAsInr(cart.totalPaise)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-text-secondary">Total weight</dt>
+              <dd className="text-text-primary">{formatGrams(cart.totalWeightGrams)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-secondary">Shipping</dt>
