@@ -1,10 +1,16 @@
 import { PriceTag } from "@woobe/ui";
 import Link from "next/link";
+import { QuickAddToBagButton } from "@/features/cart/components/QuickAddToBagButton";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import type { ProductSummary } from "../api/products.client";
 
-/** The catalogue's core unit (woobe_ui_design_plan.md §9/§7) — image, name, and the price/weight mechanic via PriceTag. Used by both the PLP grid and the homepage rail. */
-export function ProductCard({ product }: { product: ProductSummary }) {
+/**
+ * The catalogue's core unit (woobe_ui_design_plan.md §9/§7) — image, name, and
+ * the price/weight mechanic via PriceTag. Used by both the PLP grid and the
+ * homepage rail; `showQuickAdd` opts the card into an "Add to bag" button
+ * (the PLP grid passes it, the rail doesn't).
+ */
+export function ProductCard({ product, showQuickAdd = false }: { product: ProductSummary; showQuickAdd?: boolean }) {
   return (
     <Link href={`/products/${product.slug}`} className="group block">
       <div className="relative aspect-[4/5] overflow-hidden rounded-card bg-primary-tint/40">
@@ -31,7 +37,10 @@ export function ProductCard({ product }: { product: ProductSummary }) {
       </div>
       <p className="mt-3 truncate font-body text-sm text-text-primary">{product.name}</p>
       <p className="font-body text-xs text-text-secondary">From</p>
-      <PriceTag pricePaise={product.minPricePaiseCache} className="mt-0.5" />
+      <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <PriceTag pricePaise={product.minPricePaiseCache} />
+        {showQuickAdd ? <QuickAddToBagButton slug={product.slug} productName={product.name} /> : null}
+      </div>
     </Link>
   );
 }

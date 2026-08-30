@@ -2,12 +2,15 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginInput } from "@woobe/validation";
-import { Button, FormField } from "@woobe/ui";
+import { Button } from "@woobe/ui";
+import { Lock, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "../hooks/useAuth";
+import { AuthField } from "./AuthField";
+import { SocialAuthButtons } from "./SocialAuthButtons";
 
 export function LoginForm() {
   const router = useRouter();
@@ -38,28 +41,46 @@ export function LoginForm() {
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-      <FormField
-        label="Email"
+      <AuthField
+        label="Email Address"
+        icon={Mail}
         type="email"
+        placeholder="Enter your email"
         autoComplete="email"
         error={errors.email?.message}
         {...register("email")}
       />
-      <FormField
+      <AuthField
         label="Password"
-        type="password"
+        icon={Lock}
+        revealable
+        placeholder="Enter your password"
         autoComplete="current-password"
         error={errors.password?.message}
         {...register("password")}
       />
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="flex items-center gap-2 font-body text-sm text-text-secondary">
+          <input type="checkbox" className="h-4 w-4 rounded border-border accent-primary" />
+          Remember me
+        </label>
+        <a href="mailto:support@woobe.in?subject=Password%20reset" className="font-body text-sm font-medium text-primary hover:underline">
+          Forgot password?
+        </a>
+      </div>
+
       {errors.root?.message ? (
         <p role="alert" className="font-body text-sm text-error">
           {errors.root.message}
         </p>
       ) : null}
+
       <Button type="submit" isLoading={isSubmitting}>
-        {isSubmitting ? "Logging in…" : "Log in"}
+        {isSubmitting ? "Logging in…" : "Login"}
       </Button>
+
+      <SocialAuthButtons />
     </form>
   );
 }

@@ -32,10 +32,13 @@ export function SiteHeader() {
             <Store className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             Shop
           </Link>
-          <Link href="/wishlist" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
-            <Heart className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-            Wishlist{wishlist && wishlist.itemCount > 0 ? ` (${wishlist.itemCount})` : ""}
-          </Link>
+          {/* Wishlist needs an account (no guest wishlist) — hidden until signed in so it isn't a dead-end for guests. */}
+          {status === "authenticated" ? (
+            <Link href="/wishlist" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
+              <Heart className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              Wishlist{wishlist && wishlist.itemCount > 0 ? ` (${wishlist.itemCount})` : ""}
+            </Link>
+          ) : null}
           <Link href="/cart" className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary">
             <ShoppingBag className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             Bag{cart && cart.itemCount > 0 ? ` (${cart.itemCount})` : ""}

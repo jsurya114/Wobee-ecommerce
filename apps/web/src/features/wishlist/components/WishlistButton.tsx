@@ -10,10 +10,10 @@ import { useWishlist } from "../hooks/useWishlist";
 
 /**
  * The PLP/PDP "save" affordance (week2 (1).md §5) — a heart icon toggle.
- * Guests are redirected to login rather than shown a disabled/hidden
- * button: saving requires an account (no guest wishlist), but the affordance
- * itself should still be discoverable pre-login, same as most storefronts'
- * "log in to save" convention.
+ * Saving requires an account (no guest wishlist), but the affordance itself
+ * stays discoverable pre-login ("log in to save" convention): a guest tap
+ * shows a toast explaining that, with a "Log in" action, rather than a
+ * silent redirect or a hidden button.
  */
 export function WishlistButton({
   productId,
@@ -40,7 +40,9 @@ export function WishlistButton({
     event.stopPropagation();
 
     if (status !== "authenticated") {
-      router.push("/login");
+      toast.info("Log in to save items to your wishlist", {
+        action: { label: "Log in", onClick: () => router.push("/login") },
+      });
       return;
     }
 

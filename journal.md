@@ -1595,6 +1595,28 @@ Follow-up tweaks after the Week 2 close, driven by a mobile-view review of the a
 
 **Environment note:** repo lives on an iCloud-synced Desktop. Rapid `.next` rewrites (a `pnpm build` run while `next dev` is also writing) race iCloud and spawn `" 2"` duplicate files/dirs — seen as `cache-life.d 2.ts` "Duplicate identifier" typecheck failures and unstyled/500 dev pages (React #418) this session. Empty `" 2"` source dirs (`apps/web/src/features/*/components 2`, etc.) are harmless local debris, untracked. Fix when it bites: stop dev, `rm -rf apps/*/.next apps/*/.turbo` + `find apps -path "*/.next/*" -name "* 2*" -delete`, restart. Long-term: move the repo off iCloud.
 
+## 2026-08-30 — Post-Week-2: login / register redesign (split-panel, responsive)
+
+**Branch:** `dev1`. `apps/web` only — **presentation only, zero behaviour change**. No API / schema / `@woobe/ui` / `useAuth` / routing / provider changes.
+
+Rebuilt `/login` and `/register` to the supplied mock: split panel (`lg:grid-cols-2`) with a text-only brand panel (`hidden lg:flex` — no product photography exists), a centred form column, a trust-icon row underneath. Responsive at every width (single column < `lg`, brand panel drops out).
+
+- **New (all presentational):**
+  - `AuthShell.tsx` (server) — the split layout + `BrandPanel` + `AuthTrustRow` (Secure Shopping / Free Shipping / Premium Quality / Customer Support). No client JS. `BrandPanel` takes a `src` prop — `/login` uses `public/auth-hero.jpg`, `/register` passes `public/auth-hero-register.jpg` (both user-supplied boutique photos, downscaled to 1240px / ~215 KB via `sips`; `AuthShell`'s `image` prop defaults to the login one). Full-bleed with a soft scrim; brand copy sits over it in a `backdrop-blur` frosted card (`bg-background/70`) so it stays legible regardless of the photo behind it. Plain `<img loading="eager" decoding="async">` per the repo's ProductCard convention (no `next/image`). Social row is Google only (Apple dropped).
+  - `AuthField.tsx` (client, `forwardRef`) — labelled `@woobe/ui` `Input` with a leading icon and an optional password reveal toggle (`revealable`; `aria-pressed` / `aria-label`). **Same forward-props/ref contract as `FormField`** — `@woobe/ui`'s `FormField` was left untouched to keep the blast radius off every other form.
+  - `SocialAuthButtons.tsx` (client) — "or continue with" divider + Google / Apple buttons. Federated sign-in isn't wired, so a click fires an honest `toast.info("Social sign-in is coming soon.")` rather than a dead or fake control.
+- **Changed:** `LoginForm.tsx` / `RegisterForm.tsx` — **JSX only**. The `useForm` + `zodResolver(loginSchema/registerSchema)` + `onSubmit` + `useAuth().login/register` + `router.push("/account")` + `ApiError` branching + toasts are byte-for-byte the same. Login gains a visual "Remember me" checkbox (unwired — sessions are already httpOnly-cookie) and a "Forgot password?" `mailto:` link (no reset flow yet). `login/page.tsx` / `register/page.tsx` now compose `<AuthShell>` + heading + form + the cross-link.
+- **Perf:** no new deps; chrome is server-rendered; no images/fonts added (brand panel is a CSS gradient + text); one ~0.4 KB inline Google glyph. Icons tree-shake from the existing `lucide-react`.
+- **Note:** on desktop the auth pages now show `AuthTrustRow` *and* the global `SiteFooter` (link columns + newsletter). Left as-is — suppressing the global footer here would need a route-group split, which the "don't touch architecture" constraint rules out.
+
+**Guest nav — Wishlist hidden for logged-out visitors.** Every wishlist endpoint requires auth (there's no guest wishlist), so for a guest the nav "Wishlist" link only ever bounced to `/login`. `SiteHeader` (desktop nav) and `BottomNav` now render the Wishlist entry only when `status === "authenticated"` (BottomNav drops to 4 tabs for guests). **Bag/cart is untouched** — guests have a real cart (ADR-011 `cart_id` cookie, merged on login).
+
+**Guest wishlist tap → explanatory toast.** `WishlistButton` (still shown to guests on cards/PDP) previously did a silent `router.push("/login")`. Now a guest tap fires `toast.info("Log in to save items to your wishlist", { action: "Log in" })` — no forced navigation; the toast's action goes to `/login`. Only branch changed; the authenticated toggle path is untouched.
+
+**"Add to bag" on the shop grid.** New `QuickAddToBagButton` (client island, `features/cart/components/`) under each PLP card. `ProductSummary` carries no variant data and the cart is variant-addressed, so a click fetches `getProductBySlug` on demand: single-variant → `useCart().addItem(variant, 1)` + success toast; multi-variant → toast + `router.push('/products/[slug]')` to choose; no stock → error toast. `ProductCard` gained `showQuickAdd?: boolean` (default `false`); `ProductGrid` opts in, the homepage `ProductRail` does not. No new API, no cart-contract change; `ProductCard` stays a Server Component; the detail fetch is click-time only (zero added browse cost). Button is `variant="primary"` (solid rose CTA) and shares a `flex justify-between` row with `PriceTag` (wraps under it on very narrow cards).
+
+**Verification:** `pnpm --filter @woobe/web run lint` PASS, `typecheck` PASS (after clearing iCloud `" 2"` dupes in `.next/types`). No `build` — web dev server was live.
+
 ---
 
 ## 2026-08-30 — Reconciliation: two independent sessions had duplicated the Week 2 review fix, plus a new cart bug fixed
