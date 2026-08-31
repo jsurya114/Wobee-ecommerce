@@ -6,7 +6,6 @@ import { CategoryFilter } from "@/features/catalog/components/CategoryFilter";
 import { CollectionFilter } from "@/features/catalog/components/CollectionFilter";
 import { FiltersPanel } from "@/features/catalog/components/FiltersPanel";
 import { ProductResults } from "@/features/catalog/components/ProductResults";
-import { SearchBar } from "@/features/catalog/components/SearchBar";
 import type { ProductsQueryParams } from "@/features/catalog/lib/build-products-href";
 import { ApiError } from "@/lib/api-client";
 
@@ -121,7 +120,6 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <h1 className="mb-4 font-display text-xl text-text-primary">Shop</h1>
-      <SearchBar currentParams={currentParams} />
       <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
       <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
       <FiltersPanel currentParams={currentParams} />

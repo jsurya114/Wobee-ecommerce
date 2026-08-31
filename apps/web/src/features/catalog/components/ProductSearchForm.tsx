@@ -14,12 +14,12 @@ import {
 } from "react";
 
 /**
- * The one search input, shared by the PLP `SearchBar`, the header
- * `HeaderSearch` and `HomeSearch` (all via `SearchField`). It owns nothing
- * about *where* a search goes — the caller's `onSubmit(query)` decides that
- * (PLP preserves its other filters via buildProductsHref; the others route
- * to /products?q=). Backend search is the existing `?q=` param → GET
- * /api/v1/products.
+ * The one search input, used by the header `HeaderSearch` (via
+ * `SearchField`). It owns nothing about *where* a search goes — the
+ * caller's `onSubmit(query)` decides that (the header routes to
+ * /products?q=). Backend search is the existing `?q=` param → GET
+ * /api/v1/products (full results) and GET /api/v1/products/suggestions
+ * (typeahead).
  *
  * `ref` forwards to the `<input>` so a caller (the header's expand/collapse,
  * or `SearchField`'s keyboard handling) can focus it. `hideIcon` drops the

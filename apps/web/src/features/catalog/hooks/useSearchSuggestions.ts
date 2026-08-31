@@ -5,7 +5,8 @@ import { searchProductSuggestions, type ProductSuggestion } from "../api/product
 
 /** Below this the query is too noisy to suggest against — mirrors the API's own `MIN_SUGGESTION_QUERY_LENGTH`. */
 export const MIN_SUGGESTION_QUERY_LENGTH = 2;
-const DEBOUNCE_MS = 250;
+/** Wait this long after the last keystroke before hitting the search API (no request per character). */
+const DEBOUNCE_MS = 300;
 
 /** Debounce a value — keystrokes settle before we act on them. */
 function useDebouncedValue<T>(value: T, delayMs: number): T {

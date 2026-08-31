@@ -45,17 +45,16 @@ export function HeaderSearch() {
   return (
     // Stays on the right (next to the nav / cart). Button is fixed; the input
     // grows open toward the logo from the button — `justify-end` keeps the
-    // button anchored right. Below md the wrapper is flex-1 so the open input
-    // fills the gap without pushing the cart off-screen; at md+ it's a fixed
-    // slot. `min-w-0` on the animating div is load-bearing (flexbox
+    // button anchored right. Below md the wrapper is `flex-1` so the open
+    // input fills the row without pushing the cart off-screen; at md+ it's a
+    // fixed slot. `min-w-0` on the animating div is load-bearing (flexbox
     // `min-width:auto` otherwise keeps the collapsed input at its intrinsic
     // width).
-    // Mobile relies on the persistent in-page search field on `/` and
-    // `/products` (redesign spec §J); the header search is a desktop
-    // convenience only.
+    // This is the only product search on `/` and `/products` (there is no
+    // in-page search bar) — shown on every viewport, mobile included.
     <div
       ref={containerRef}
-      className="hidden min-w-0 items-center justify-end gap-1 md:flex md:flex-none"
+      className="flex min-w-0 flex-1 items-center justify-end gap-1 md:flex-none"
     >
       <div
         inert={!open}

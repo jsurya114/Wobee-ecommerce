@@ -7,8 +7,8 @@ import { SearchSuggestions } from "./SearchSuggestions";
 
 /**
  * `ProductSearchForm` + a debounced typeahead dropdown (redesign). The one
- * place the two are wired together, so `HeaderSearch` / `HomeSearch` /
- * `SearchBar` all get identical behaviour:
+ * place the two are wired together — used by `HeaderSearch` (the header
+ * search); any future search entry point reuses it for identical behaviour:
  *
  *  - typing → debounced `GET /api/v1/products/suggestions` (previous request
  *    aborted), results shown in an ARIA listbox;
