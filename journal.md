@@ -1971,3 +1971,41 @@ Existing assertion on the no-variant list line tightened to `{ variantId: null, 
 - `pnpm run build` — **not run** (dev servers live; iCloud `.next` corruption risk, same as prior entries). Typecheck + lint + the multi-viewport live pass cover this web-only change.
 
 **Not modified:** auth, cart, wishlist, checkout, product details, category navigation, admin, DB schema, backend business logic, any unrelated API.
+
+## 2026-08-31 — Feature: "Related Products" on the PDP (same-category only)
+
+**Branch:** `woobe-ui/bug-fixes`. Uncommitted, not pushed. **No schema, no migration** — the existing `Product.categoryId` (the one required category relationship in the data model) is the whole relevance signal.
+
+> Built in two passes the same day: a first pass topped up sparse categories with newest products from *other* categories; a follow-up spec forbade that ("do not show arbitrary/old/latest products"; "no products in the same category → handle gracefully rather than showing unrelated"). Final behaviour below is **same-category only, no cross-category fallback**.
+
+**Path:** `page.tsx (RSC) → getRelatedProducts(slug) → GET /api/v1/products/:slug/related → ProductsController.related → GetRelatedProductsUseCase → ProductRepository.findBySlug + findRelatedProducts → Postgres`. `from*` pricing resolved through the **existing shared `resolveFromPricing`** (exported from `list-products.use-case.ts`) — no duplicated pricing logic. Response is the same `ProductSummaryEntity[]` shape `listProducts` returns, so the frontend card grid is reused verbatim.
+
+**Relatedness policy (`GetRelatedProductsUseCase`):** other **ACTIVE** products in the current product's `categoryId`, cheapest-first (mirrors `findMany`'s default sort), never the product itself, capped at `RELATED_PRODUCTS_LIMIT = 8`. **No fallback.** `[]` for an unknown/inactive slug, and `[]` when the category has nothing else — the frontend renders nothing. Visibility = `isActive` only, identical to the catalogue listing's `buildWhere` (a hidden/`isActive:false` product is never recommended).
+
+**Files — backend (6 changed, 2 new):**
+- `product-repository.port.ts` — `+ findRelatedProducts({ excludeProductId, categoryId, limit })` → lean `ProductSummaryProjection[]`.
+- `product.repository.ts` — one `prisma.product.findMany`: `isActive: true` + `id: { not }` + `categoryId`, `orderBy [minPricePaiseCache asc, id asc]`, same `select` block `findMany`/`findByIds` use.
+- **new** `application/use-cases/get-related-products.use-case.ts` — `GetRelatedProductsUseCase` + `RELATED_PRODUCTS_LIMIT = 8`. Single repo call, no fallback branch.
+- `products.controller.ts` — `+ related(req, res)` (thin) + ctor param.
+- `products.routes.ts` — `+ GET /:slug/related` (two-segment path, disjoint from `/:slug`).
+- `products.module.ts` — instantiate + wire into `ProductsController`.
+- **new** `get-related-products.use-case.test.ts` — 5 unit tests: unknown slug → `[]` with no related query; asks the repo only for the current category, exclude-self, capped; **empty category → `[]`, exactly one query, no fallback**; `from*` resolved (no `representativeVariant` leak); current product never in the result.
+
+**Files — frontend (3 changed, 1 new):**
+- `products.client.ts` — `+ getRelatedProducts(slug): Promise<{ products: ProductSummary[] }>` via the existing `apiFetch`.
+- **new** `features/catalog/components/RelatedProducts.tsx` — server component, presentation only: `if (products.length === 0) return null;` else `<section className="mt-12 border-t border-border pt-8">` + `<h2>Related Products</h2>` + `<ProductGrid products={…} />`. Framing matches the sibling `ReviewsSection`. **Reuses `ProductGrid` → `ProductCard`** — wishlist heart, quick-add-to-cart, per-card PDP links all work with zero new code.
+- `ProductDetail.tsx` — `+ relatedProducts: ProductSummary[]` prop, renders `<RelatedProducts>` after `<ReviewsSection>` (bottom of the PDP, before the footer).
+- `products/[slug]/page.tsx` — fetches `getRelatedProducts(product.slug)` server-side alongside `product`/`ratingSummary`, `.catch(() => [])` (transient failure just hides the section, never 500s the PDP).
+
+**Verification (live, chrome-devtools-mcp + curl):**
+- **Clothing → clothing:** `embroidered-top` (Tops) → 3 products, **all in Tops** (`ribbed-knit-sweater`, `linen-coord-set`, `denim-jacket`); Tops has 4 members, minus self. No cross-category items.
+- **Accessory → accessory:** `oxidised-jhumka-earrings` (Accessories) → 6 products, **1 distinct category** (all Accessories).
+- **Current product never in its own list:** `self? false` on every PDP checked.
+- **Empty → hidden:** `floral-wrap-dress` (the only product in Dresses) → `GET …/related` = `{"products":[]}` [200]; the PDP renders **no "Related Products" heading** (`mainHeadings: ["Reviews"]`). Unknown slug → `{"products":[]}` too.
+- **Existing PDP intact:** gallery, size selector, "Add to bag", Reviews all present on the `floral-wrap-dress` PDP alongside the (correctly absent) related section.
+- **Responsive:** reuses `ProductGrid` (`grid-cols-2 sm:grid-cols-3 lg:grid-cols-4`) — desktop 1440 4-up, mobile 500 **2-up**, `pageOverflow: 0`, grid within viewport; first card carries wishlist + quick-add and links to the right PDP. No horizontal overflow at any width. (Pre-existing header-nav tightness at exactly 768 px is unrelated — reproduces on `/cart`.)
+- Console: only the pre-existing guest `/auth/refresh` 401.
+- `pnpm -r run typecheck` **9/9** · `pnpm -r run lint` **9/9** · `pnpm --filter @woobe/api run boundaries:check` **466 modules / 0 violations** · `pnpm --filter @woobe/api exec vitest run` **458/458** (products module 67/67 — 5 unit + 4 integration for `/:slug/related`: same-category-only & self/inactive exclusion, empty-category → `[]`, summary shape, unknown-slug → `{products:[]}`). One pre-existing `pagination` integration test flaked once with "socket hang up" then passed on rerun — the documented shared-`woobe_test` contention flake, not this change.
+- `pnpm run build` — **not run** (web dev server live; iCloud `.next` corruption risk, same as prior entries). Typecheck + lint + full API tests + the live multi-viewport pass cover it; `pnpm --filter @woobe/web run build` after stopping the dev server is the outstanding check.
+
+**Not modified:** auth/OTP/forgot-password, cart, checkout, wishlist logic, product purchasing, admin, DB schema, category behaviour, existing PDP behaviour, any unrelated endpoint. `ProductCard`/`ProductGrid`/`resolveFromPricing`/`findBySlug`/`apiFetch` reused, not duplicated.

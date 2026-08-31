@@ -2,7 +2,7 @@ import { paiseToRupees } from "@woobe/utils";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { listReviews } from "@/features/reviews/api/reviews.client";
-import { getProductBySlug, type ProductDetail } from "@/features/catalog/api/products.client";
+import { getProductBySlug, getRelatedProducts, type ProductDetail } from "@/features/catalog/api/products.client";
 import { ProductDetail as ProductDetailView } from "@/features/catalog/components/ProductDetail";
 import { ApiError } from "@/lib/api-client";
 import { absoluteUrl } from "@/lib/site-url";
@@ -68,6 +68,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     .then((result) => result.ratingSummary)
     .catch(() => null); // Reviews being briefly unreachable shouldn't 500 the whole product page — just omit aggregateRating from the structured data.
 
+  const relatedProducts = await getRelatedProducts(product.slug)
+    .then((result) => result.products)
+    .catch(() => []); // A transient failure just hides the "You may also like" section — it never 500s the PDP.
+
   const inStockVariant = product.variants.find((v) => v.inStock);
   const lowestPrice = product.variants.reduce<number | null>(
     (min, v) => (min === null || v.pricePaise < min ? v.pricePaise : min),
@@ -102,7 +106,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           }}
         />
       ) : null}
-      <ProductDetailView product={product} />
+      <ProductDetailView product={product} relatedProducts={relatedProducts} />
     </main>
   );
 }

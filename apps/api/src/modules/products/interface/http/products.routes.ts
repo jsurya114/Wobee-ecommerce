@@ -18,6 +18,11 @@ export function createProductsRouter(controller: ProductsController): Router {
     validate(productSuggestionQuerySchema, "query"),
     asyncHandler((req, res) => controller.suggestions(req, res)),
   );
+  // Distinct two-segment path — matched before `/:slug` (one segment) regardless of order.
+  router.get(
+    "/:slug/related",
+    asyncHandler((req, res) => controller.related(req, res)),
+  );
   router.get(
     "/:slug",
     asyncHandler((req, res) => controller.getBySlug(req, res)),

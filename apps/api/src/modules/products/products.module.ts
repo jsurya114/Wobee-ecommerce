@@ -29,6 +29,7 @@ import { UpdateProductVariantUseCase } from "./application/use-cases/admin/updat
 import { GetCategoryImagesUseCase } from "./application/use-cases/get-category-images.use-case";
 import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-slug.use-case";
 import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
+import { GetRelatedProductsUseCase } from "./application/use-cases/get-related-products.use-case";
 import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-for-cart.use-case";
 import { ListProductsUseCase } from "./application/use-cases/list-products.use-case";
 import { ResolveProductIdsForVariantsUseCase } from "./application/use-cases/resolve-product-ids-for-variants.use-case";
@@ -52,6 +53,7 @@ const inventoryInitializer: InventoryInitializerPort = {
 
 const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, pricingReader, inventoryReader);
 const searchProductSuggestionsUseCase = new SearchProductSuggestionsUseCase(productRepository);
+const getRelatedProductsUseCase = new GetRelatedProductsUseCase(productRepository, pricingReader);
 
 /** Exported for cross-module use — `home`'s New Arrivals rail (Week 2 Day 8 Part 2) calls this with `sort: "newest"` instead of duplicating catalogue-listing logic. */
 export const listProductsUseCase = new ListProductsUseCase(
@@ -83,6 +85,11 @@ export const addProductImageUseCase = new AddProductImageUseCase(productReposito
 export const removeProductImageUseCase = new RemoveProductImageUseCase(productRepository);
 export const reorderProductImagesUseCase = new ReorderProductImagesUseCase(productRepository);
 
-const productsController = new ProductsController(listProductsUseCase, getProductBySlugUseCase, searchProductSuggestionsUseCase);
+const productsController = new ProductsController(
+  listProductsUseCase,
+  getProductBySlugUseCase,
+  searchProductSuggestionsUseCase,
+  getRelatedProductsUseCase,
+);
 
 export const router = createProductsRouter(productsController);

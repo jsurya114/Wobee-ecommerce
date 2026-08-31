@@ -2,6 +2,7 @@ import type { ProductListQuery, ProductSuggestionQuery } from "@woobe/validation
 import type { Request, Response } from "express";
 import { ValidationError } from "../../../../shared/errors";
 import type { GetProductBySlugUseCase } from "../../application/use-cases/get-product-by-slug.use-case";
+import type { GetRelatedProductsUseCase } from "../../application/use-cases/get-related-products.use-case";
 import type { ListProductsUseCase } from "../../application/use-cases/list-products.use-case";
 import type { SearchProductSuggestionsUseCase } from "../../application/use-cases/search-product-suggestions.use-case";
 
@@ -11,6 +12,7 @@ export class ProductsController {
     private readonly listProductsUseCase: ListProductsUseCase,
     private readonly getProductBySlugUseCase: GetProductBySlugUseCase,
     private readonly searchProductSuggestionsUseCase: SearchProductSuggestionsUseCase,
+    private readonly getRelatedProductsUseCase: GetRelatedProductsUseCase,
   ) {}
 
   async suggestions(req: Request, res: Response): Promise<void> {
@@ -44,5 +46,14 @@ export class ProductsController {
     }
     const product = await this.getProductBySlugUseCase.execute(slug);
     res.status(200).json({ product });
+  }
+
+  async related(req: Request, res: Response): Promise<void> {
+    const slug = req.params.slug;
+    if (!slug || typeof slug !== "string") {
+      throw new ValidationError("Product slug is required");
+    }
+    const products = await this.getRelatedProductsUseCase.execute(slug);
+    res.status(200).json({ products });
   }
 }

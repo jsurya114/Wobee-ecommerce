@@ -181,6 +181,54 @@ export class ProductRepository implements ProductRepositoryPort {
     };
   }
 
+  async findRelatedProducts(params: {
+    excludeProductId: string;
+    categoryId: string;
+    limit: number;
+  }): Promise<ProductSummaryProjection[]> {
+    if (params.limit <= 0) return [];
+    const rows = await prisma.product.findMany({
+      where: {
+        // Same visibility rule as the catalogue listing (buildWhere) — no
+        // separate/stricter rule for related products.
+        isActive: true,
+        id: { not: params.excludeProductId },
+        categoryId: params.categoryId,
+      },
+      // Mirrors findMany's default (price_asc) — deterministic, and reads
+      // as "more of this category" rather than "our newest arrivals".
+      orderBy: [{ minPricePaiseCache: "asc" }, { id: "asc" }],
+      take: params.limit,
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        brand: true,
+        categoryId: true,
+        minPricePaiseCache: true,
+        images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
+        variants: {
+          where: { isActive: true },
+          orderBy: { effectivePricePaiseCache: "asc" },
+          take: 1,
+          select: { weightGrams: true, ratePerKgOverridePaise: true },
+        },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      brand: row.brand,
+      categoryId: row.categoryId,
+      minPricePaiseCache: row.minPricePaiseCache,
+      primaryImage: row.images[0] ?? null,
+      representativeVariant: row.variants[0]
+        ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
+        : null,
+    }));
+  }
+
   async searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]> {
     const trimmed = query.trim();
     if (!trimmed) return [];

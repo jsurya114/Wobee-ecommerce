@@ -102,6 +102,16 @@ export function getProductBySlug(slug: string): Promise<{ product: ProductDetail
   return apiFetch<{ product: ProductDetail }>(`/api/v1/products/${encodeURIComponent(slug)}`);
 }
 
+/**
+ * PDP "Related Products" — other products in the current product's category
+ * (backend `GetRelatedProductsUseCase`; no cross-category fallback). Returns
+ * the same `ProductSummary` shape as `listProducts`, so the card grid is
+ * reused as-is; an empty array means "hide the section".
+ */
+export function getRelatedProducts(slug: string): Promise<{ products: ProductSummary[] }> {
+  return apiFetch<{ products: ProductSummary[] }>(`/api/v1/products/${encodeURIComponent(slug)}/related`);
+}
+
 /** Lean typeahead row — matches the API's `ProductSuggestionEntity`. */
 export interface ProductSuggestion {
   id: string;

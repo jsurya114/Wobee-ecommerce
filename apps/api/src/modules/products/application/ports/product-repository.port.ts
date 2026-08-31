@@ -150,6 +150,20 @@ export interface ProductRepositoryPort {
    * pre-trimmed non-empty query; an empty one returns `[]`.
    */
   searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]>;
+  /**
+   * Related-products candidates for the PDP "Related Products" section —
+   * ACTIVE products in the SAME `categoryId`, never the product itself, in
+   * the lean summary projection `findMany` returns. Cheapest-first with an
+   * `id` tiebreaker (mirrors the catalogue listing's own default sort),
+   * capped at `limit`. Relevance is the category, full stop — there is no
+   * cross-category fallback; an empty result is a valid "nothing else in
+   * this category" state that the caller surfaces as an empty list.
+   */
+  findRelatedProducts(params: {
+    excludeProductId: string;
+    categoryId: string;
+    limit: number;
+  }): Promise<ProductSummaryProjection[]>;
   /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. */
   findVariantsByIds(
     variantIds: string[],

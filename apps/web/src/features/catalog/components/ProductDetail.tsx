@@ -1,19 +1,26 @@
 import { Badge } from "@woobe/ui";
 import { ReviewsSection } from "@/features/reviews/components/ReviewsSection";
-import type { ProductDetail as ProductDetailData } from "../api/products.client";
+import type { ProductDetail as ProductDetailData, ProductSummary } from "../api/products.client";
 import { SelectedVariantProvider } from "../hooks/useSelectedVariant";
 import { ProductGallery } from "./ProductGallery";
 import { ProductPurchasePanel } from "./ProductPurchasePanel";
+import { RelatedProducts } from "./RelatedProducts";
 
 /**
  * PDP (redesign spec §F) — a two-column layout: gallery (thumbnail strip +
  * swipeable main image) on the left, and the product hierarchy on the
  * right: category → name (the one place Playfair is used besides the
  * wordmark) → description → the purchase panel (price + weight·rate + "how
- * this price works" + variants + CTA + details + delivery). Reviews follow
- * below.
+ * this price works" + variants + CTA + details + delivery). Reviews, then
+ * "Related Products", follow below.
  */
-export function ProductDetail({ product }: { product: ProductDetailData }) {
+export function ProductDetail({
+  product,
+  relatedProducts,
+}: {
+  product: ProductDetailData;
+  relatedProducts: ProductSummary[];
+}) {
   return (
     <div>
       <SelectedVariantProvider variants={product.variants}>
@@ -37,6 +44,8 @@ export function ProductDetail({ product }: { product: ProductDetailData }) {
       </SelectedVariantProvider>
 
       <ReviewsSection productId={product.id} />
+
+      <RelatedProducts products={relatedProducts} />
     </div>
   );
 }

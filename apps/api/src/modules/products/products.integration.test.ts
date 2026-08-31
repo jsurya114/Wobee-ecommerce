@@ -232,6 +232,95 @@ describe("GET /api/v1/products/suggestions — search typeahead", () => {
   });
 });
 
+describe("GET /api/v1/products/:slug/related — related products (PDP, same category only)", () => {
+  const currentSlug = `aurora-jacket-${SUFFIX}`;
+  // The 4 other ACTIVE products that share the test category with aurora-jacket.
+  const sameCategoryActiveNames = [
+    `${SEARCH_TOKEN} Aurora Coat`,
+    `${SEARCH_TOKEN} Breeze Top`,
+    `${SEARCH_TOKEN} Breeze Skirt`,
+    `Plain Scarf ${SUFFIX}`,
+  ];
+  let inactiveInCategoryName: string;
+  let loneCategoryId: string;
+  let loneProductSlug: string;
+
+  beforeAll(async () => {
+    inactiveInCategoryName = `${SEARCH_TOKEN} Hidden Draft`;
+    const hidden = await prisma.product.create({
+      data: {
+        name: inactiveInCategoryName,
+        slug: `hidden-draft-${SUFFIX}`,
+        categoryId,
+        isActive: false,
+        minPricePaiseCache: 12_000,
+      },
+    });
+    createdProductIds.push(hidden.id); // module afterAll cleans this up
+
+    // A category with exactly one product — the "no other products in this
+    // category" case must return [] rather than borrowing from elsewhere.
+    const loneCategory = await prisma.category.create({
+      data: { name: `Lone Cat ${SUFFIX}`, slug: `lone-cat-${SUFFIX}`, isActive: true },
+    });
+    loneCategoryId = loneCategory.id;
+    loneProductSlug = `lone-product-${SUFFIX}`;
+    await prisma.product.create({
+      data: { name: `Lone Product ${SUFFIX}`, slug: loneProductSlug, categoryId: loneCategoryId, isActive: true, minPricePaiseCache: 9_000 },
+    });
+  });
+
+  afterAll(async () => {
+    // Cleaned up here (not via the module afterAll) so the product goes
+    // before its category — this describe's afterAll runs before the
+    // module-level one.
+    await prisma.product.delete({ where: { slug: loneProductSlug } });
+    await prisma.category.delete({ where: { id: loneCategoryId } });
+  });
+
+  it("returns ONLY products from the current product's own category, never the product itself or an inactive one", async () => {
+    const res = await request(app).get(`/api/v1/products/${currentSlug}/related`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.products)).toBe(true);
+
+    const names: string[] = namesOf(res.body);
+    const slugs: string[] = res.body.products.map((p: { slug: string }) => p.slug);
+
+    // exactly the 4 active siblings — no more (no cross-category fallback), no self, no inactive
+    expect(res.body.products.length).toBe(4);
+    expect(res.body.products.length).toBeLessThanOrEqual(8);
+    expect((res.body.products as { categoryId: string }[]).every((p) => p.categoryId === categoryId)).toBe(true);
+    expect(slugs).not.toContain(currentSlug);
+    expect(names).not.toContain(inactiveInCategoryName);
+    for (const name of sameCategoryActiveNames) {
+      expect(names).toContain(name);
+    }
+  });
+
+  it("returns [] (no unrelated products) when the category has no other products", async () => {
+    const res = await request(app).get(`/api/v1/products/${loneProductSlug}/related`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ products: [] });
+  });
+
+  it("returns each product in the same summary shape the listing/card uses", async () => {
+    const res = await request(app).get(`/api/v1/products/${currentSlug}/related`);
+    const first = res.body.products[0];
+    expect(Object.keys(first).sort()).toEqual(
+      ["brand", "categoryId", "fromRatePerKgPaise", "fromWeightGrams", "id", "minPricePaiseCache", "primaryImage", "slug", "name"].sort(),
+    );
+    expect(typeof first.minPricePaiseCache).toBe("number");
+    expect(first).not.toHaveProperty("representativeVariant");
+    expect(first).not.toHaveProperty("variants");
+  });
+
+  it("returns 200 with an empty list for an unknown slug (the section just hides itself)", async () => {
+    const res = await request(app).get(`/api/v1/products/does-not-exist-${SUFFIX}/related`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ products: [] });
+  });
+});
+
 describe("GET /api/v1/products — weight/rate on the summary (redesign O-1)", () => {
   it("exposes each product's `from` weight + resolved rate/kg (cheapest active variant)", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
