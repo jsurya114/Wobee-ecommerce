@@ -9,8 +9,9 @@ import type { ShippingRepositoryPort } from "../ports/shipping-repository.port";
 export class EvaluateShippingUseCase {
   constructor(private readonly shippingRepository: ShippingRepositoryPort) {}
 
-  async execute(totalWeightGrams: number): Promise<ShippingEvaluation> {
+  /** Caller passes the cart's WEIGHT-BASED-items-only weight (2026-08-31) — see resolveShippingEvaluation's own doc comment. */
+  async execute(weightBasedTotalGrams: number): Promise<ShippingEvaluation> {
     const rule = await this.shippingRepository.findCurrentRule();
-    return resolveShippingEvaluation(totalWeightGrams, rule);
+    return resolveShippingEvaluation(weightBasedTotalGrams, rule);
   }
 }

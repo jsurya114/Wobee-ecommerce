@@ -1,4 +1,5 @@
 import type { ProductSort } from "@woobe/validation";
+import type { PricingMode } from "@woobe/types";
 import type {
   AdminProductDetailEntity,
   AdminProductImageEntity,
@@ -50,12 +51,14 @@ export interface RepresentativeVariantProjection {
 /**
  * What the listing queries actually return: the summary entity with its
  * `from*` pricing fields still UNRESOLVED — carried instead as the raw
- * representative variant. `ListProductsUseCase` / `GetProductsByIdsUseCase`
- * resolve `fromWeightGrams` / `fromRatePerKgPaise` and drop this field
- * before the entity leaves the application layer.
+ * representative variant plus the product's category pricing mode.
+ * `ListProductsUseCase` / `GetProductsByIdsUseCase` resolve `fromWeightGrams`
+ * / `fromRatePerKgPaise` (null for FIXED, see resolveFromPricing) and drop
+ * both fields before the entity leaves the application layer.
  */
 export type ProductSummaryProjection = Omit<ProductSummaryEntity, "fromWeightGrams" | "fromRatePerKgPaise"> & {
   representativeVariant: RepresentativeVariantProjection | null;
+  pricingMode: PricingMode;
 };
 
 export interface ListProductsResult {
@@ -115,6 +118,8 @@ export interface CreateVariantInput {
   size: string;
   weightGrams: number;
   ratePerKgOverridePaise?: number | null;
+  /** Authoritative for a FIXED-category product (2026-08-31); ignored for WEIGHT_BASED. */
+  fixedPricePaise?: number | null;
   fabric?: string | null;
   fit?: string | null;
   measurements?: string | null;
@@ -128,10 +133,12 @@ export interface UpdateVariantInput {
   size?: string;
   weightGrams?: number;
   ratePerKgOverridePaise?: number | null;
+  /** Authoritative for a FIXED-category product (2026-08-31); ignored for WEIGHT_BASED. */
+  fixedPricePaise?: number | null;
   fabric?: string | null;
   fit?: string | null;
   measurements?: string | null;
-  /** Only set when weight/rate actually changed — see UpdateProductVariantUseCase's own comment. */
+  /** Only set when weight/rate/fixedPrice actually changed — see UpdateProductVariantUseCase's own comment. */
   effectivePricePaiseCache?: number;
 }
 
@@ -164,12 +171,21 @@ export interface ProductRepositoryPort {
     categoryId: string;
     limit: number;
   }): Promise<ProductSummaryProjection[]>;
-  /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. */
+  /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. `pricingMode` is the product's CATEGORY pricing mode (2026-08-31) — needed alongside the variant's own weight/rate/fixedPricePaise to price the line. */
   findVariantsByIds(
     variantIds: string[],
   ): Promise<
-    (ProductVariantEntity & { productId: string; categoryId: string; productName: string; productSlug: string; image: string | null })[]
+    (ProductVariantEntity & {
+      productId: string;
+      categoryId: string;
+      productName: string;
+      productSlug: string;
+      image: string | null;
+      pricingMode: PricingMode;
+    })[]
   >;
+  /** The product's category pricing mode (2026-08-31) — used by admin's create/update-variant use-cases to decide whether a variant needs `ratePerKgOverridePaise` or `fixedPricePaise`. Null if the product doesn't exist. */
+  findProductPricingMode(productId: string): Promise<PricingMode | null>;
   findByIds(productIds: string[]): Promise<ProductSummaryProjectionWithStatus[]>;
   /** Week 2 Day 8 Part 2 (week2 (1).md §12) — batched variantId→productId lookup for `home`'s Best Sellers rail (orders' OrderItem only has variantId; resolving to the product it belongs to is `products`' own data). Missing/unknown variant ids are simply absent from the returned map, never an error — a variant sold in the past can be deleted or reassigned since. */
   findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>>;

@@ -1,10 +1,12 @@
-import { calculateWeightBasedPricePaise } from "@woobe/utils";
-import { resolveEffectiveRatePerKgPaise } from "../../domain/resolve-effective-rate";
+import { resolveEffectivePrice, type ResolveEffectivePriceInput } from "../../domain/resolve-effective-price";
 import type { PricingRepositoryPort } from "../ports/pricing-repository.port";
+
+export type EffectivePriceInput = ResolveEffectivePriceInput;
 
 export interface EffectivePrice {
   pricePaise: number;
-  ratePerKgPaise: number;
+  /** Null for FIXED — there is no rate/kg to show or snapshot. */
+  ratePerKgPaise: number | null;
 }
 
 /**
@@ -13,26 +15,20 @@ export interface EffectivePrice {
  * from pricing.module.ts for cross-module use (products' detail page,
  * cart's live recalculation) — those modules depend on this class, not on
  * PricingRepository/Prisma, so ADR-010's boundary holds even though the
- * call crosses a module.
+ * call crosses a module. Branches on `pricingMode` (2026-08-31) — see
+ * resolve-effective-price.ts's own doc comment.
  */
 export class CalculateEffectivePriceUseCase {
   constructor(private readonly pricingRepository: PricingRepositoryPort) {}
 
-  async execute(input: { weightGrams: number; ratePerKgOverridePaise: number | null }): Promise<EffectivePrice> {
+  async execute(input: EffectivePriceInput): Promise<EffectivePrice> {
     const defaultRate = await this.pricingRepository.findCurrentDefaultRatePerKgPaise();
-    const ratePerKgPaise = resolveEffectiveRatePerKgPaise(defaultRate, input.ratePerKgOverridePaise);
-    const pricePaise = calculateWeightBasedPricePaise(input.weightGrams, ratePerKgPaise);
-    return { pricePaise, ratePerKgPaise };
+    return resolveEffectivePrice(input, defaultRate);
   }
 
   /** Batched form — one findCurrentDefaultRatePerKgPaise() call for N variants instead of N (listing/cart hot paths). */
-  async executeMany(
-    inputs: { weightGrams: number; ratePerKgOverridePaise: number | null }[],
-  ): Promise<EffectivePrice[]> {
+  async executeMany(inputs: EffectivePriceInput[]): Promise<EffectivePrice[]> {
     const defaultRate = await this.pricingRepository.findCurrentDefaultRatePerKgPaise();
-    return inputs.map((input) => {
-      const ratePerKgPaise = resolveEffectiveRatePerKgPaise(defaultRate, input.ratePerKgOverridePaise);
-      return { pricePaise: calculateWeightBasedPricePaise(input.weightGrams, ratePerKgPaise), ratePerKgPaise };
-    });
+    return inputs.map((input) => resolveEffectivePrice(input, defaultRate));
   }
 }

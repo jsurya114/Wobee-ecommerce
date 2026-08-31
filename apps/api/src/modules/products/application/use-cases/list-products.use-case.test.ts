@@ -16,6 +16,7 @@ function projection(overrides: Partial<ProductSummaryProjection> = {}): ProductS
     categoryId: "category-1",
     minPricePaiseCache: 1000,
     primaryImage: null,
+    pricingMode: "WEIGHT_BASED",
     representativeVariant: { weightGrams: 250, ratePerKgOverridePaise: null },
     ...overrides,
   };
@@ -23,11 +24,12 @@ function projection(overrides: Partial<ProductSummaryProjection> = {}): ProductS
 
 /** The resolved entity the use-case is expected to return for `projection(overrides)` given RATE below. */
 function resolved(overrides: Partial<ProductSummaryProjection> = {}) {
-  const { representativeVariant, ...rest } = projection(overrides);
+  const { representativeVariant, pricingMode, ...rest } = projection(overrides);
+  const isWeightBased = pricingMode === "WEIGHT_BASED";
   return {
     ...rest,
-    fromWeightGrams: representativeVariant?.weightGrams ?? null,
-    fromRatePerKgPaise: representativeVariant ? RATE : null,
+    fromWeightGrams: isWeightBased ? (representativeVariant?.weightGrams ?? null) : null,
+    fromRatePerKgPaise: isWeightBased && representativeVariant ? RATE : null,
   };
 }
 
@@ -123,8 +125,8 @@ describe("ListProductsUseCase", () => {
     // one batched call, only for products that have a representative variant
     expect(pricingReader.calculateMany).toHaveBeenCalledTimes(1);
     expect(pricingReader.calculateMany).toHaveBeenCalledWith([
-      { weightGrams: 250, ratePerKgOverridePaise: null },
-      { weightGrams: 500, ratePerKgOverridePaise: 90000 },
+      { pricingMode: "WEIGHT_BASED", weightGrams: 250, ratePerKgOverridePaise: null, fixedPricePaise: null },
+      { pricingMode: "WEIGHT_BASED", weightGrams: 500, ratePerKgOverridePaise: 90000, fixedPricePaise: null },
     ]);
     expect(result.products.map((p) => [p.id, p.fromWeightGrams, p.fromRatePerKgPaise])).toEqual([
       ["p1", 250, RATE],

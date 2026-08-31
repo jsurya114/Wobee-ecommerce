@@ -29,17 +29,27 @@ export interface ShippingEvaluation {
  * cart's progress display and checkout's blocking check (shipping.module.ts's
  * own composition-root comment: fee/threshold logic here, checkout-blocking
  * validation + progress data surfaced through the cart module).
+ *
+ * `weightBasedTotalGrams` (2026-08-31, client-reported business rule): the
+ * caller passes the cart's WEIGHT-BASED-items-only weight here, not its full
+ * physical weight (cart/domain/compute-cart-totals.ts computes both) — the
+ * "smart cart" minimum/free-delivery mechanic only makes sense for
+ * weight-priced goods. A cart with zero weight-based items (all
+ * fixed-price accessories, or empty) is never blocked by the minimum and
+ * never reaches free delivery either — it falls to the standard flat fee,
+ * the same band a 1,000-1,499g weight-based cart pays today, not a new tier.
  */
-export function resolveShippingEvaluation(totalWeightGrams: number, rule: ShippingRuleValues): ShippingEvaluation {
-  const meetsMinimum = totalWeightGrams >= rule.minWeightGramsForCheckout;
-  const isFreeDelivery = totalWeightGrams >= rule.freeDeliveryThresholdGrams;
+export function resolveShippingEvaluation(weightBasedTotalGrams: number, rule: ShippingRuleValues): ShippingEvaluation {
+  const hasWeightBasedItems = weightBasedTotalGrams > 0;
+  const meetsMinimum = !hasWeightBasedItems || weightBasedTotalGrams >= rule.minWeightGramsForCheckout;
+  const isFreeDelivery = hasWeightBasedItems && weightBasedTotalGrams >= rule.freeDeliveryThresholdGrams;
 
   return {
     meetsMinimum,
     isFreeDelivery,
     shippingFeePaise: meetsMinimum && !isFreeDelivery ? rule.standardFeePaise : 0,
-    gramsToMinimum: Math.max(0, rule.minWeightGramsForCheckout - totalWeightGrams),
-    gramsToFreeDelivery: Math.max(0, rule.freeDeliveryThresholdGrams - totalWeightGrams),
+    gramsToMinimum: hasWeightBasedItems ? Math.max(0, rule.minWeightGramsForCheckout - weightBasedTotalGrams) : 0,
+    gramsToFreeDelivery: hasWeightBasedItems ? Math.max(0, rule.freeDeliveryThresholdGrams - weightBasedTotalGrams) : 0,
     estimatedDeliveryDaysMin: rule.estimatedDeliveryDaysMin,
     estimatedDeliveryDaysMax: rule.estimatedDeliveryDaysMax,
   };

@@ -53,7 +53,9 @@ export function CartLineItem({ line }: { line: CartLine }) {
               {line.productName}
             </Link>
             <p className="font-body text-xs text-text-secondary">
-              {line.color} · {line.size} · {formatGrams(line.weightGrams)} · {formatPaiseAsInrCompact(line.ratePerKgPaise)}/kg
+              {line.color} · {line.size}
+              {/* Null ratePerKgPaise (2026-08-31) = a FIXED-category item — weight didn't determine this price, so don't show it as if it did. */}
+              {line.ratePerKgPaise !== null ? ` · ${formatGrams(line.weightGrams)} · ${formatPaiseAsInrCompact(line.ratePerKgPaise)}/kg` : ""}
             </p>
           </div>
           <button

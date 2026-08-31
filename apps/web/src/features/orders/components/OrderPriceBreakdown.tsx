@@ -17,7 +17,10 @@ export function OrderPriceBreakdown({ order }: { order: OrderView }) {
             <div className="min-w-0">
               <p className="truncate text-text-primary">{item.productNameSnapshot}</p>
               <p className="text-micro text-text-secondary">
-                {item.color} · {item.size} · {formatGrams(item.weightGrams)} · {formatPaiseAsInrCompact(item.unitRatePerKgPaise)}/kg · ×{item.quantity}
+                {item.color} · {item.size}
+                {/* Null unitRatePerKgPaise (2026-08-31) = a FIXED-category line — weight didn't determine this price. */}
+                {item.unitRatePerKgPaise !== null ? ` · ${formatGrams(item.weightGrams)} · ${formatPaiseAsInrCompact(item.unitRatePerKgPaise)}/kg` : ""}
+                {` · ×${item.quantity}`}
               </p>
             </div>
             <span className="shrink-0 text-text-primary">{formatPaiseAsInr(item.lineTotalPaise)}</span>

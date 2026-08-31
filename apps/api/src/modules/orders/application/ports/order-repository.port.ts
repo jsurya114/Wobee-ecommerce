@@ -1,3 +1,4 @@
+import type { PricingMode } from "@woobe/types";
 import type { OrderEntity, OrderSummaryEntity, AdminOrderSummaryEntity } from "../../domain/entities/order.entity";
 
 export interface CreateOrderItemInput {
@@ -7,7 +8,10 @@ export interface CreateOrderItemInput {
   color: string;
   size: string;
   weightGrams: number;
-  unitRatePerKgPaise: number;
+  /** 2026-08-31 — snapshot of how this line was actually priced; see schema.prisma's OrderItem.pricingMode comment. */
+  pricingMode: PricingMode;
+  /** Null for FIXED lines. */
+  unitRatePerKgPaise: number | null;
   unitPricePaise: number;
   quantity: number;
   lineTotalPaise: number;

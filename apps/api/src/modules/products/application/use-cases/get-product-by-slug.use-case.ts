@@ -11,7 +11,8 @@ export interface VariantWithPriceAndStock {
   size: string;
   weightGrams: number;
   pricePaise: number;
-  ratePerKgPaise: number;
+  /** Null for a FIXED-category product (2026-08-31) — there is no rate/kg. */
+  ratePerKgPaise: number | null;
   availableQuantity: number;
   inStock: boolean;
   /** Free-text product details (redesign O-2) — the PDP "Details" disclosure. */
@@ -46,7 +47,12 @@ export class GetProductBySlugUseCase {
     const activeVariants = product.variants.filter((v) => v.isActive);
     const [prices, availability] = await Promise.all([
       this.pricingReader.calculateMany(
-        activeVariants.map((v) => ({ weightGrams: v.weightGrams, ratePerKgOverridePaise: v.ratePerKgOverridePaise })),
+        activeVariants.map((v) => ({
+          pricingMode: product.category.pricingMode,
+          weightGrams: v.weightGrams,
+          ratePerKgOverridePaise: v.ratePerKgOverridePaise,
+          fixedPricePaise: v.fixedPricePaise,
+        })),
       ),
       this.inventoryReader.getAvailableQuantities(activeVariants.map((v) => v.id)),
     ]);

@@ -75,7 +75,8 @@ export interface VariantWithPriceAndStock {
   size: string;
   weightGrams: number;
   pricePaise: number;
-  ratePerKgPaise: number;
+  /** Null for a FIXED-category product (2026-08-31) — there is no rate/kg. */
+  ratePerKgPaise: number | null;
   availableQuantity: number;
   inStock: boolean;
   /** Free-text product details for the PDP "Details" disclosure (redesign O-2) — null unless the admin set them. */

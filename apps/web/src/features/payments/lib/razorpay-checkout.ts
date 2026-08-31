@@ -79,7 +79,7 @@ export async function openRazorpayCheckout(config: {
       description: `Order ${config.orderNumber}`,
       handler: () => resolve(),
       modal: { ondismiss: () => reject(new Error("Payment cancelled")) },
-      theme: { color: colors.primary.DEFAULT },
+      theme: { color: colors.brand.primary },
     });
     instance.open();
   });

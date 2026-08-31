@@ -11,7 +11,7 @@ export class CategoryRepository implements CategoryRepositoryPort {
     const rows = await prisma.category.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true, slug: true, sortOrder: true, imageUrl: true },
+      select: { id: true, name: true, slug: true, sortOrder: true, imageUrl: true, pricingMode: true },
     });
     return rows;
   }

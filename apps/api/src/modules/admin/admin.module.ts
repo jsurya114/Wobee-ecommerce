@@ -20,6 +20,15 @@ import {
 } from "../auth/auth.module";
 import { recordAuditLogUseCase } from "../audit/audit.module";
 import {
+  createBannerUseCase,
+  deleteBannerUseCase,
+  getBannerAdminUseCase,
+  listBannersAdminUseCase,
+  reorderBannersUseCase,
+  setBannerActiveUseCase,
+  updateBannerUseCase,
+} from "../banners/banners.module";
+import {
   assignCollectionProductUseCase,
   createCollectionUseCase,
   getCollectionAdminUseCase,
@@ -68,6 +77,8 @@ import { GetCustomerDetailUseCase } from "./application/use-cases/get-customer-d
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
 import { createAdminAuthRouter } from "./interface/http/admin-auth.routes";
+import { AdminBannersController } from "./interface/http/admin-banners.controller";
+import { createAdminBannersRouter } from "./interface/http/admin-banners.routes";
 import { AdminCollectionsController } from "./interface/http/admin-collections.controller";
 import { createAdminCollectionsRouter } from "./interface/http/admin-collections.routes";
 import { AdminCustomersController } from "./interface/http/admin-customers.controller";
@@ -114,6 +125,16 @@ const adminCollectionsController = new AdminCollectionsController(
   reorderCollectionProductsUseCase,
 );
 
+const adminBannersController = new AdminBannersController(
+  listBannersAdminUseCase,
+  getBannerAdminUseCase,
+  createBannerUseCase,
+  updateBannerUseCase,
+  setBannerActiveUseCase,
+  deleteBannerUseCase,
+  reorderBannersUseCase,
+);
+
 const adminReviewsController = new AdminReviewsController(listReviewsAdminUseCase, moderateReviewUseCase);
 const adminReturnsController = new AdminReturnsController(
   listReturnsForAdminUseCase,
@@ -153,6 +174,7 @@ export const router = Router();
 router.use("/auth", createAdminAuthRouter(adminAuthController));
 router.use("/orders", createAdminOrdersRouter(adminOrdersController));
 router.use("/collections", createAdminCollectionsRouter(adminCollectionsController));
+router.use("/banners", createAdminBannersRouter(adminBannersController));
 router.use("/reviews", createAdminReviewsRouter(adminReviewsController));
 router.use("/returns", createAdminReturnsRouter(adminReturnsController));
 router.use("/products", createAdminProductsRouter(adminProductsController));

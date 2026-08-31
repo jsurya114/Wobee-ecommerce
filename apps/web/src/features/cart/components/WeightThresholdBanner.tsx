@@ -9,8 +9,24 @@ import type { CartView } from "../api/cart.client";
  * values, never a client-side sum (ADR-011/ADR-021). Two stages, not one:
  * below the checkout minimum, the bar tracks toward it; between the
  * minimum and the free-delivery threshold, it tracks toward that instead.
+ *
+ * 2026-08-31: the "smart cart" weight incentive only applies to
+ * weight-based (clothing) items — a cart of only fixed-price accessories
+ * has nothing to show a weight progress bar for, so this renders nothing
+ * rather than a permanently-stuck "add 1000g" prompt. `weightBasedTotalGrams`
+ * (not `totalWeightGrams`) is what decides that — see compute-cart-totals.ts.
  */
-export function WeightThresholdBanner({ shipping, totalWeightGrams }: { shipping: CartView["shipping"]; totalWeightGrams: number }) {
+export function WeightThresholdBanner({
+  shipping,
+  weightBasedTotalGrams,
+}: {
+  shipping: CartView["shipping"];
+  weightBasedTotalGrams: number;
+}) {
+  if (weightBasedTotalGrams === 0) {
+    return null;
+  }
+
   if (shipping.isFreeDelivery) {
     return (
       <div className="flex items-center gap-2 rounded-control bg-success/10 p-3">
@@ -21,24 +37,26 @@ export function WeightThresholdBanner({ shipping, totalWeightGrams }: { shipping
   }
 
   if (!shipping.meetsMinimum) {
-    const target = totalWeightGrams + shipping.gramsToMinimum;
-    const percent = target > 0 ? (totalWeightGrams / target) * 100 : 0;
+    const target = weightBasedTotalGrams + shipping.gramsToMinimum;
+    const percent = target > 0 ? (weightBasedTotalGrams / target) * 100 : 0;
     return (
-      <ProgressBar
-        value={percent}
-        label={`Add ${formatGrams(shipping.gramsToMinimum)} more to place your order`}
-        className="rounded-control bg-primary-tint/40 p-3"
-      />
+      <div className="rounded-control bg-primary-tint/40 p-3">
+        <p className="mb-1.5 font-body text-xs font-medium text-text-primary">
+          Add {formatGrams(shipping.gramsToMinimum)} more to place your order
+        </p>
+        <ProgressBar value={percent} />
+      </div>
     );
   }
 
-  const target = totalWeightGrams + shipping.gramsToFreeDelivery;
-  const percent = target > 0 ? (totalWeightGrams / target) * 100 : 0;
+  const target = weightBasedTotalGrams + shipping.gramsToFreeDelivery;
+  const percent = target > 0 ? (weightBasedTotalGrams / target) * 100 : 0;
   return (
-    <ProgressBar
-      value={percent}
-      label={`Add ${formatGrams(shipping.gramsToFreeDelivery)} more for free delivery`}
-      className="rounded-control bg-primary-tint/40 p-3"
-    />
+    <div className="rounded-control bg-primary-tint/40 p-3">
+      <p className="mb-1.5 font-body text-xs font-medium text-text-primary">
+        Add {formatGrams(shipping.gramsToFreeDelivery)} more for free delivery
+      </p>
+      <ProgressBar value={percent} />
+    </div>
   );
 }

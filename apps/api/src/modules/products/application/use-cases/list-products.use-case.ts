@@ -114,33 +114,46 @@ export class ListProductsUseCase {
  * default rate exactly once) — no N+1, and the shown price stays
  * `minPricePaiseCache` (ADR-012); this only adds the rate as a trust signal.
  * Shared by `GetProductsByIdsUseCase` for the id-based (home / wishlist) path.
+ *
+ * 2026-08-31: a FIXED-category product's weight didn't determine its price,
+ * so both fields are `null` for it, same as "no active variant" — no
+ * pricing call is even made for those entries (nothing to resolve, and
+ * calling CalculateEffectivePriceUseCase without a fixedPricePaise here
+ * would throw — this projection never carries one, by design, see
+ * RepresentativeVariantProjection's own comment).
  */
 export async function resolveFromPricing(
   projections: ProductSummaryProjection[],
   pricingReader: PricingReaderPort,
 ): Promise<ProductSummaryEntity[]> {
   const withVariant = projections
-    .map((p, index) => ({ index, variant: p.representativeVariant }))
-    .filter((entry): entry is { index: number; variant: NonNullable<ProductSummaryProjection["representativeVariant"]> } => entry.variant !== null);
+    .map((p, index) => ({ index, variant: p.representativeVariant, pricingMode: p.pricingMode }))
+    .filter(
+      (entry): entry is { index: number; variant: NonNullable<ProductSummaryProjection["representativeVariant"]>; pricingMode: "WEIGHT_BASED" } =>
+        entry.variant !== null && entry.pricingMode === "WEIGHT_BASED",
+    );
 
   const rates = withVariant.length
     ? await pricingReader.calculateMany(
         withVariant.map((entry) => ({
+          pricingMode: entry.pricingMode,
           weightGrams: entry.variant.weightGrams,
           ratePerKgOverridePaise: entry.variant.ratePerKgOverridePaise,
+          fixedPricePaise: null,
         })),
       )
     : [];
 
-  const rateByIndex = new Map<number, number>();
+  const rateByIndex = new Map<number, number | null>();
   withVariant.forEach((entry, i) => rateByIndex.set(entry.index, rates[i]!.ratePerKgPaise));
 
   return projections.map((projection, index) => {
-    const { representativeVariant, ...rest } = projection;
+    const { representativeVariant, pricingMode, ...rest } = projection;
+    const isWeightBased = pricingMode === "WEIGHT_BASED";
     return {
       ...rest,
-      fromWeightGrams: representativeVariant?.weightGrams ?? null,
-      fromRatePerKgPaise: rateByIndex.get(index) ?? null,
+      fromWeightGrams: isWeightBased ? (representativeVariant?.weightGrams ?? null) : null,
+      fromRatePerKgPaise: isWeightBased ? (rateByIndex.get(index) ?? null) : null,
     };
   });
 }

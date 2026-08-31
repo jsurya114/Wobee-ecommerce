@@ -1,4 +1,4 @@
-import type { OrderStatus, PaymentMethod } from "@woobe/types";
+import type { OrderStatus, PaymentMethod, PricingMode } from "@woobe/types";
 
 export interface OrderAddressSnapshot {
   fullName: string;
@@ -18,7 +18,10 @@ export interface OrderItemEntity {
   color: string;
   size: string;
   weightGrams: number;
-  unitRatePerKgPaise: number;
+  /** 2026-08-31 — how this line was actually priced, snapshotted at checkout. */
+  pricingMode: PricingMode;
+  /** Null for FIXED lines. */
+  unitRatePerKgPaise: number | null;
   unitPricePaise: number;
   quantity: number;
   lineTotalPaise: number;

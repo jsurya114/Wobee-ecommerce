@@ -106,16 +106,19 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
           ratePerKgPaise={selectedVariant.ratePerKgPaise}
           size="lg"
         />
-        <details className="group">
-          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 font-body text-xs font-medium text-text-secondary transition-colors hover:text-primary">
-            How is this priced?
-            <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
-          </summary>
-          <p className="mt-1.5 font-body text-xs text-text-secondary">
-            {formatGrams(selectedVariant.weightGrams)} × {formatPaiseAsInrCompact(selectedVariant.ratePerKgPaise)}/kg ={" "}
-            <span className="font-medium text-text-primary">{formatPaiseAsInr(selectedVariant.pricePaise)}</span>
-          </p>
-        </details>
+        {/* Null ratePerKgPaise (2026-08-31) = a FIXED-category product — there is no weight × rate breakdown to show, its price isn't derived that way. */}
+        {selectedVariant.ratePerKgPaise !== null ? (
+          <details className="group">
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 font-body text-xs font-medium text-text-secondary transition-colors hover:text-primary">
+              How is this priced?
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <p className="mt-1.5 font-body text-xs text-text-secondary">
+              {formatGrams(selectedVariant.weightGrams)} × {formatPaiseAsInrCompact(selectedVariant.ratePerKgPaise)}/kg ={" "}
+              <span className="font-medium text-text-primary">{formatPaiseAsInr(selectedVariant.pricePaise)}</span>
+            </p>
+          </details>
+        ) : null}
       </div>
 
       <div>

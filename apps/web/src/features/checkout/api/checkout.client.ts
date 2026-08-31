@@ -9,7 +9,8 @@ export interface OrderItemView {
   color: string;
   size: string;
   weightGrams: number;
-  unitRatePerKgPaise: number;
+  /** Null for a FIXED-category line (2026-08-31) — see this order item's `pricingMode` snapshot. */
+  unitRatePerKgPaise: number | null;
   unitPricePaise: number;
   quantity: number;
   lineTotalPaise: number;

@@ -40,8 +40,8 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6 md:gap-5">
-        <Link href="/" className="shrink-0 font-display text-xl text-primary">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:px-6 md:gap-5">
+        <Link href="/" className="shrink-0 font-display text-lg text-primary sm:text-xl">
           Woobe
         </Link>
 

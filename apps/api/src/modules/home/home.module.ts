@@ -5,6 +5,7 @@
 // own (owns no Prisma model), sits above every module it reads from, and is
 // imported by nothing — see GetHomePageUseCase's own doc comment for why
 // this can't be composed inside any single one of the four instead.
+import { listVisibleBannersUseCase } from "../banners/banners.module";
 import { listCategoriesUseCase } from "../categories/categories.module";
 import { listCollectionsUseCase } from "../collections/collections.module";
 import { getBestSellingVariantQuantitiesUseCase } from "../orders/orders.module";
@@ -28,6 +29,8 @@ const getHomePageUseCase = new GetHomePageUseCase(
   listTopApprovedReviewsUseCase,
   listCategoriesUseCase,
   getCategoryImagesUseCase,
+  listVisibleBannersUseCase,
+  listProductsUseCase,
 );
 
 const homeController = new HomeController(getHomePageUseCase);

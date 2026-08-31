@@ -12,6 +12,7 @@ export interface VariantFormValues {
   size: string;
   weightGrams: string;
   ratePerKgOverridePaise: string;
+  fixedPricePaise: string;
   fabric: string;
   fit: string;
   measurements: string;
@@ -25,6 +26,7 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
     size: variant?.size ?? "",
     weightGrams: variant ? String(variant.weightGrams) : "",
     ratePerKgOverridePaise: variant?.ratePerKgOverridePaise != null ? String(variant.ratePerKgOverridePaise) : "",
+    fixedPricePaise: variant?.fixedPricePaise != null ? String(variant.fixedPricePaise) : "",
     fabric: variant?.fabric ?? "",
     fit: variant?.fit ?? "",
     measurements: variant?.measurements ?? "",
@@ -32,19 +34,33 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
   };
 }
 
-/** Shared by "add a new variant" and "edit an existing variant" (week2 (1).md §16's own "Variant management" operations list). `initialQuantity` only applies when creating. */
+/**
+ * Shared by "add a new variant" and "edit an existing variant" (week2 (1).md
+ * §16's own "Variant management" operations list). `initialQuantity` only
+ * applies when creating.
+ *
+ * `categoryPricingMode` (2026-08-31): decides which pricing field this
+ * variant needs — a WEIGHT_BASED product's variants take an optional rate/kg
+ * override; a FIXED product's variants take a required fixed price instead
+ * (ornaments/footwear/accessories aren't priced by weight, see
+ * PricingMode's own doc comment in schema.prisma). Weight stays required in
+ * both modes — it's real shipping weight either way.
+ */
 export function VariantForm({
   variant,
+  categoryPricingMode,
   onSubmit,
   onCancel,
 }: {
   variant?: AdminProductVariant;
+  categoryPricingMode: "WEIGHT_BASED" | "FIXED";
   onSubmit: (payload: VariantPayload | UpdateVariantPayload) => Promise<void>;
   onCancel?: () => void;
 }) {
   const [values, setValues] = useState<VariantFormValues>(toValues(variant));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isEditing = Boolean(variant);
+  const isFixed = categoryPricingMode === "FIXED";
 
   const set = <K extends keyof VariantFormValues>(key: K, value: VariantFormValues[K]) => setValues((prev) => ({ ...prev, [key]: value }));
 
@@ -55,6 +71,11 @@ export function VariantForm({
       toast.error("SKU, colour, size, and weight are required");
       return;
     }
+    const fixedPricePaise = values.fixedPricePaise ? Number(values.fixedPricePaise) : null;
+    if (isFixed && !fixedPricePaise) {
+      toast.error("This category is fixed-price — enter a price");
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onSubmit({
@@ -62,7 +83,8 @@ export function VariantForm({
         color: values.color.trim(),
         size: values.size.trim(),
         weightGrams,
-        ratePerKgOverridePaise: values.ratePerKgOverridePaise ? Number(values.ratePerKgOverridePaise) : null,
+        ratePerKgOverridePaise: isFixed ? null : values.ratePerKgOverridePaise ? Number(values.ratePerKgOverridePaise) : null,
+        fixedPricePaise: isFixed ? fixedPricePaise : null,
         fabric: values.fabric || null,
         fit: values.fit || null,
         measurements: values.measurements || null,
@@ -83,12 +105,21 @@ export function VariantForm({
         <FormField label="Weight (grams)" type="number" value={values.weightGrams} onChange={(e) => set("weightGrams", e.target.value)} />
         <FormField label="Colour" value={values.color} onChange={(e) => set("color", e.target.value)} />
         <FormField label="Size" value={values.size} onChange={(e) => set("size", e.target.value)} />
-        <FormField
-          label="Rate/kg override (paise, optional)"
-          type="number"
-          value={values.ratePerKgOverridePaise}
-          onChange={(e) => set("ratePerKgOverridePaise", e.target.value)}
-        />
+        {isFixed ? (
+          <FormField
+            label="Fixed price (paise)"
+            type="number"
+            value={values.fixedPricePaise}
+            onChange={(e) => set("fixedPricePaise", e.target.value)}
+          />
+        ) : (
+          <FormField
+            label="Rate/kg override (paise, optional)"
+            type="number"
+            value={values.ratePerKgOverridePaise}
+            onChange={(e) => set("ratePerKgOverridePaise", e.target.value)}
+          />
+        )}
         {!isEditing ? (
           <FormField label="Starting stock" type="number" value={values.initialQuantity} onChange={(e) => set("initialQuantity", e.target.value)} />
         ) : null}

@@ -1,3 +1,4 @@
+import type { PricingMode } from "@woobe/types";
 import { computeCartTotals } from "../../domain/compute-cart-totals";
 import type { CartRepositoryPort } from "../ports/cart-repository.port";
 import type { CouponPreviewPort } from "../ports/coupon-preview.port";
@@ -12,6 +13,8 @@ export interface CartLineView {
   productId: string;
   /** Week 2 Day 5 (week2 (1).md §9) — coupon category-applicability matching. */
   categoryId: string;
+  /** 2026-08-31 — snapshotted onto the OrderItem at checkout (orders' CheckoutUseCase). */
+  pricingMode: PricingMode;
   productSlug: string;
   productName: string;
   image: string | null;
@@ -19,7 +22,8 @@ export interface CartLineView {
   color: string;
   size: string;
   weightGrams: number;
-  ratePerKgPaise: number;
+  /** Null for FIXED lines — there is no rate/kg. */
+  ratePerKgPaise: number | null;
   unitPricePaise: number;
   quantity: number;
   subtotalPaise: number;
@@ -38,7 +42,10 @@ export interface CartView {
   cartId: string;
   items: CartLineView[];
   itemCount: number;
+  /** Physical weight of every item — real shipping weight, unaffected by pricing mode. */
   totalWeightGrams: number;
+  /** 2026-08-31 — weight of WEIGHT_BASED items only; what the "smart cart" threshold banner should key off, not `totalWeightGrams`. */
+  weightBasedTotalGrams: number;
   totalPaise: number;
   /** 0 when no coupon is applied or the applied one no longer validates. */
   discountPaise: number;
@@ -77,6 +84,7 @@ export class GetCartUseCase {
         items: [],
         itemCount: 0,
         totalWeightGrams: 0,
+        weightBasedTotalGrams: 0,
         totalPaise: 0,
         discountPaise: 0,
         appliedCoupon: couponCode ? { code: couponCode, isValid: false, reason: "Your bag is empty" } : null,
@@ -101,8 +109,10 @@ export class GetCartUseCase {
 
     const prices = await this.pricingReader.calculateMany(
       resolvedItems.map(({ variant }) => ({
+        pricingMode: variant.pricingMode,
         weightGrams: variant.weightGrams,
         ratePerKgOverridePaise: variant.ratePerKgOverridePaise,
+        fixedPricePaise: variant.fixedPricePaise,
       })),
     );
 
@@ -114,6 +124,7 @@ export class GetCartUseCase {
         variantId: item.variantId,
         productId: variant.productId,
         categoryId: variant.categoryId,
+        pricingMode: variant.pricingMode,
         productSlug: variant.productSlug,
         productName: variant.productName,
         image: variant.image,
@@ -130,8 +141,10 @@ export class GetCartUseCase {
       };
     });
 
-    const totals = computeCartTotals(lines.map((l) => ({ quantity: l.quantity, unitPricePaise: l.unitPricePaise, weightGrams: l.weightGrams })));
-    const shipping = await this.shippingReader.evaluate(totals.totalWeightGrams);
+    const totals = computeCartTotals(
+      lines.map((l) => ({ quantity: l.quantity, unitPricePaise: l.unitPricePaise, weightGrams: l.weightGrams, pricingMode: l.pricingMode })),
+    );
+    const shipping = await this.shippingReader.evaluate(totals.weightBasedTotalGrams);
 
     let discountPaise = 0;
     let appliedCoupon: AppliedCouponView | null = null;

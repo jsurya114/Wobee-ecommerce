@@ -54,10 +54,11 @@ module.exports = {
       },
       spacing: {
         4.5: "1.125rem",
-        // Redesign: the storefront's compact section rhythm — replaces the
-        // hand-written `py-10` (80px) that made the homepage feel like a
-        // slideshow.
-        section: "1.75rem",
+        // Redesign (tightened 2026-08-31): the storefront's compact section
+        // rhythm — replaces the hand-written `py-10` (80px) that made the
+        // homepage feel like a slideshow. Tightened again from 1.75rem for
+        // mobile discovery density (UI refinement pass).
+        section: "1.125rem",
       },
       borderRadius: {
         control: "8px",

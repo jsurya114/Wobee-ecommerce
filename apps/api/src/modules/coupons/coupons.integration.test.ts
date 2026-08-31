@@ -27,8 +27,14 @@ const createdOrderIds: string[] = [];
 const createdCouponIds: string[] = [];
 
 beforeAll(async () => {
-  const categories = await prisma.category.findMany({ where: { isActive: true }, take: 2 });
-  if (categories.length < 2) throw new Error("test setup: need at least 2 active categories seeded");
+  // WEIGHT_BASED only (2026-08-31) — this suite's fixtures price variants via
+  // `ratePerKgOverridePaise` (see createTestVariant), which only resolves for
+  // a weight-based category; a FIXED one (Accessories) needs
+  // fixedPricePaise instead. Coupon logic itself doesn't care which pricing
+  // mode a category is, so pinning both fixture categories to WEIGHT_BASED
+  // sidesteps that entirely rather than teaching this suite about fixed pricing.
+  const categories = await prisma.category.findMany({ where: { isActive: true, pricingMode: "WEIGHT_BASED" }, take: 2 });
+  if (categories.length < 2) throw new Error("test setup: need at least 2 active weight-based categories seeded");
   categoryId = categories[0]!.id;
   otherCategoryId = categories[1]!.id;
   const warehouse = await prisma.warehouse.findFirstOrThrow({ where: { isActive: true } });

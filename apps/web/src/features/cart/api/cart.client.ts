@@ -10,7 +10,8 @@ export interface CartLine {
   color: string;
   size: string;
   weightGrams: number;
-  ratePerKgPaise: number;
+  /** Null for a FIXED-category product (2026-08-31) — there is no rate/kg. */
+  ratePerKgPaise: number | null;
   unitPricePaise: number;
   quantity: number;
   subtotalPaise: number;
@@ -38,7 +39,10 @@ export interface CartView {
   cartId: string;
   items: CartLine[];
   itemCount: number;
+  /** Physical weight of every item — real shipping weight. */
   totalWeightGrams: number;
+  /** 2026-08-31 — weight of weight-based items only; use this (not `totalWeightGrams`) to decide whether the weight-threshold banner applies. */
+  weightBasedTotalGrams: number;
   totalPaise: number;
   /** Week 2 Day 5 (week2 (1).md §9) — 0 when no coupon is applied or the applied one no longer validates. */
   discountPaise: number;

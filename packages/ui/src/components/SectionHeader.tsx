@@ -19,7 +19,7 @@ export interface SectionHeaderProps {
  */
 export function SectionHeader({ children, action, as: Tag = "h2", className }: SectionHeaderProps) {
   return (
-    <div className={cn("mb-3 flex items-baseline justify-between gap-3", className)}>
+    <div className={cn("mb-2 flex items-baseline justify-between gap-3", className)}>
       <Tag className="font-body text-label font-semibold uppercase tracking-[0.07em] text-text-secondary">{children}</Tag>
       {action ? <div className="shrink-0 font-body text-xs font-medium text-primary">{action}</div> : null}
     </div>

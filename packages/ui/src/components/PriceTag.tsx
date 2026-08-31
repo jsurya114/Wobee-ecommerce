@@ -1,54 +1,51 @@
-import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact } from "@woobe/utils";
-import { cn } from "../lib/cn";
+import React from "react";
+import { formatPaiseAsInrCompact } from "@woobe/utils";
 
 export interface PriceTagProps {
   pricePaise: number;
-  /** Cheapest active variant's weight (grams). Pass together with `ratePerKgPaise` to show the weight·rate line. `null`/`undefined` hides it. */
+  compareAtPricePaise?: number | null;
+  /** Null for a FIXED-category product (2026-08-31), same as omitting it — see below. */
   weightGrams?: number | null;
-  /** Effective rate per kg (paise), server-resolved. */
+  /** Null for a FIXED-category product (2026-08-31) — the weight/rate line simply doesn't render (see below), same as omitting it. */
   ratePerKgPaise?: number | null;
-  /**
-   * "sm"  — card / rail / search result (default)
-   * "md"  — cart line subtotal
-   * "lg"  — PDP main price
-   */
   size?: "sm" | "md" | "lg";
-  /** Prepend a lowercase "from " (a multi-variant "from ₹449"). */
-  from?: boolean;
   className?: string;
 }
 
-/**
- * The weight → rate/kg → price triple — Woobe's pricing mechanic made
- * visible on every product surface (redesign spec §E). Always fed
- * server-computed numbers (DEVELOPMENT_RULES.md #1); this component never
- * computes a price. Typeface is Inter across every size — the serif is
- * reserved for the wordmark and the PDP product name.
- */
-export function PriceTag({ pricePaise, weightGrams, ratePerKgPaise, size = "sm", from = false, className }: PriceTagProps) {
-  const showRate = weightGrams != null && ratePerKgPaise != null;
-  const priceClass =
-    size === "lg"
-      ? "text-[1.75rem] leading-tight lg:text-3xl"
-      : size === "md"
-        ? "text-base"
-        : "text-[0.9375rem] lg:text-base";
-  const rateClass = size === "lg" ? "text-xs lg:text-sm" : "text-micro lg:text-xs";
+export const PriceTag: React.FC<PriceTagProps> = ({
+  pricePaise,
+  compareAtPricePaise,
+  weightGrams,
+  ratePerKgPaise,
+  size = "md",
+  className = "",
+}) => {
+  const sizeClasses = {
+    sm: "text-[12px]",
+    md: "text-[14px]",
+    lg: "text-[18px]",
+  };
+
+  const ratePerKg = ratePerKgPaise ? Math.round(ratePerKgPaise / 100) : null;
 
   return (
-    <div className={cn("flex flex-col", size === "lg" ? "gap-1" : "gap-0.5", className)}>
-      <p className={cn("font-body font-semibold text-text-primary", priceClass)}>
-        {from ? <span className="font-normal text-text-secondary">from </span> : null}
-        {formatPaiseAsInr(pricePaise)}
-      </p>
-      {showRate ? (
-        <p className={cn("font-body text-text-secondary", rateClass)}>
-          {formatGrams(weightGrams)} · {formatPaiseAsInrCompact(ratePerKgPaise)}/kg
-        </p>
-      ) : null}
+    <div className={`flex flex-col gap-0 ${className}`}>
+      <div className="flex items-baseline gap-1.5 flex-wrap">
+        <span className={`font-bold text-[#1A1513] tracking-tight ${sizeClasses[size]}`}>
+          {formatPaiseAsInrCompact(pricePaise)}
+        </span>
+        {compareAtPricePaise && compareAtPricePaise > pricePaise && (
+          <span className="text-[10px] text-[#9C928B] line-through">
+            {formatPaiseAsInrCompact(compareAtPricePaise)}
+          </span>
+        )}
+      </div>
+
+      {weightGrams != null && ratePerKg !== null && (
+        <span className="text-[10px] text-[#6E6560] font-normal leading-none">
+          {weightGrams}g • ₹{ratePerKg}/kg
+        </span>
+      )}
     </div>
   );
-}
-
-/** Redesign alias — same component, spec name. */
-export const PriceBlock = PriceTag;
+};

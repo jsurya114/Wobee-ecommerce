@@ -5,6 +5,8 @@ export interface Collection {
   name: string;
   slug: string;
   description: string | null;
+  /** Only set on the homepage listing (2026-08-31) — the collection's top-sorted product's photo. */
+  coverImageUrl?: string | null;
 }
 
 /** Week 2 Day 1 — listing (GET /api/v1/collections). */

@@ -86,7 +86,13 @@ export function ProductDetail({ productId }: { productId: string }) {
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Variants</h2>
-        <VariantsList variants={product.variants} onCreate={createVariant} onUpdate={updateVariant} onSetActive={setVariantActive} />
+        <VariantsList
+          variants={product.variants}
+          categoryPricingMode={product.categoryPricingMode}
+          onCreate={createVariant}
+          onUpdate={updateVariant}
+          onSetActive={setVariantActive}
+        />
       </Card>
     </div>
   );

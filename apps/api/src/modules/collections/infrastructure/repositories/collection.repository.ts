@@ -19,7 +19,28 @@ export class CollectionRepository implements CollectionRepositoryPort {
     // Category.sortOrder, or ProductCollection.sortOrder this same day adds
     // for products WITHIN a collection) — alphabetical stays the
     // deterministic default (see Week 2 Day 1's identical comment here).
-    return prisma.collection.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: SELECT_FIELDS });
+    const rows = await prisma.collection.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: {
+        ...SELECT_FIELDS,
+        // Cover image (2026-08-31 card redesign) — the top-sorted assigned
+        // product's primary image. One extra join, still one query.
+        products: {
+          orderBy: { sortOrder: "asc" },
+          take: 1,
+          select: { product: { select: { images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } } } } },
+        },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      isActive: row.isActive,
+      coverImageUrl: row.products[0]?.product.images[0]?.url ?? null,
+    }));
   }
 
   async findIdBySlug(slug: string): Promise<string | null> {

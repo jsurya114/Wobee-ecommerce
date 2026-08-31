@@ -23,6 +23,8 @@ function makeUseCase(overrides: {
   reviews?: unknown[];
   categories?: { id: string; name: string; slug: string; sortOrder: number; imageUrl: string | null }[];
   categoryImages?: Map<string, string>;
+  banners?: unknown[];
+  budgetProducts?: unknown[];
 }) {
   const newArrivalsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.newArrivals ?? [], page: 1, limit: 8, total: 0 }) };
   const bestSellingVariantsReader = { execute: vi.fn().mockResolvedValue(overrides.variantSales ?? []) };
@@ -32,6 +34,8 @@ function makeUseCase(overrides: {
   const topApprovedReviewsReader = { execute: vi.fn().mockResolvedValue(overrides.reviews ?? []) };
   const categoriesLister = { execute: vi.fn().mockResolvedValue(overrides.categories ?? []) };
   const categoryImageResolver = { execute: vi.fn().mockResolvedValue(overrides.categoryImages ?? new Map()) };
+  const visibleBannersLister = { execute: vi.fn().mockResolvedValue(overrides.banners ?? []) };
+  const budgetProductsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.budgetProducts ?? [], page: 1, limit: 1, total: 0 }) };
 
   const useCase = new GetHomePageUseCase(
     newArrivalsLister,
@@ -42,6 +46,8 @@ function makeUseCase(overrides: {
     topApprovedReviewsReader,
     categoriesLister,
     categoryImageResolver,
+    visibleBannersLister,
+    budgetProductsLister,
   );
 
   return {
@@ -54,10 +60,21 @@ function makeUseCase(overrides: {
     topApprovedReviewsReader,
     categoriesLister,
     categoryImageResolver,
+    visibleBannersLister,
+    budgetProductsLister,
   };
 }
 
 describe("GetHomePageUseCase", () => {
+  it("composes the visible banners list into the homepage payload unchanged (2026-08-31 promo carousel)", async () => {
+    const banners = [{ id: "b1", imageUrl: "https://img/banner.jpg", title: "Sale", subtitle: null, ctaLabel: null, ctaUrl: null }];
+    const { useCase } = makeUseCase({ banners });
+
+    const result = await useCase.execute();
+
+    expect(result.banners).toEqual(banners);
+  });
+
   it("passes newest-sort through to the product lister for New Arrivals", async () => {
     const arrivals = [product("p1")];
     const { useCase, newArrivalsLister } = makeUseCase({ newArrivals: arrivals });
@@ -212,6 +229,35 @@ describe("GetHomePageUseCase", () => {
 
     const result = await useCase.execute();
 
-    expect(result).toEqual({ categoryTiles: [], newArrivals: arrivals, bestSellers: [], featuredCollections: [], customerReviews: [] });
+    expect(result).toEqual({
+      banners: [],
+      categoryTiles: [],
+      newArrivals: arrivals,
+      bestSellers: [],
+      featuredCollections: [],
+      customerReviews: [],
+      budgetTiles: [
+        { label: "Under ₹499", maxPricePaise: 49_900, imageUrl: null },
+        { label: "Under ₹799", maxPricePaise: 79_900, imageUrl: null },
+        { label: "Under ₹999", maxPricePaise: 99_900, imageUrl: null },
+      ],
+    });
+  });
+
+  it("resolves each budget tile's cover image from the cheapest qualifying product", async () => {
+    const { useCase, budgetProductsLister } = makeUseCase({});
+    budgetProductsLister.execute.mockResolvedValueOnce({
+      products: [{ primaryImage: { url: "https://img/under-499.jpg" } }],
+      page: 1,
+      limit: 1,
+      total: 1,
+    });
+
+    const result = await useCase.execute();
+
+    expect(budgetProductsLister.execute).toHaveBeenCalledTimes(3);
+    expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 49_900, sort: "price_desc", page: 1, limit: 1 });
+    expect(result.budgetTiles[0]).toEqual({ label: "Under ₹499", maxPricePaise: 49_900, imageUrl: "https://img/under-499.jpg" });
+    expect(result.budgetTiles[1]?.imageUrl).toBeNull();
   });
 });

@@ -20,6 +20,8 @@ export interface AdminProductVariant {
   size: string;
   weightGrams: number;
   ratePerKgOverridePaise: number | null;
+  /** Authoritative when the product's category is FIXED (2026-08-31). */
+  fixedPricePaise: number | null;
   effectivePricePaiseCache: number;
   fabric: string | null;
   fit: string | null;
@@ -41,6 +43,8 @@ export interface AdminProductDetail {
   description: string | null;
   brand: string | null;
   categoryId: string;
+  /** The category's pricing mode (2026-08-31) — decides whether VariantForm shows "Rate/kg override" or "Fixed price". */
+  categoryPricingMode: "WEIGHT_BASED" | "FIXED";
   isActive: boolean;
   minPricePaiseCache: number;
   metaTitle: string | null;
@@ -75,6 +79,8 @@ export interface VariantPayload {
   size: string;
   weightGrams: number;
   ratePerKgOverridePaise?: number | null;
+  /** Required when the product's category is FIXED (2026-08-31); ignored for WEIGHT_BASED. */
+  fixedPricePaise?: number | null;
   fabric?: string | null;
   fit?: string | null;
   measurements?: string | null;

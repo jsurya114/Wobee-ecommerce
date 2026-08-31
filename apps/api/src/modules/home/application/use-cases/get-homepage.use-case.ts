@@ -1,3 +1,4 @@
+import type { BannerSummaryEntity } from "../../../banners/domain/entities/banner.entity";
 import type { CategoryEntity } from "../../../categories/domain/entities/category.entity";
 import type { CollectionEntity } from "../../../collections/domain/entities/collection.entity";
 import type { ListProductsResult } from "../../../products/application/use-cases/list-products.use-case";
@@ -15,6 +16,14 @@ const BEST_SELLERS_LIMIT = 8;
 // history exists.
 const BEST_SELLERS_VARIANT_OVERFETCH = 60;
 const FEATURED_COLLECTIONS_LIMIT = 4;
+// 2026-08-31 (card redesign) — fixed price buckets, same values ShopByBudget
+// previously hardcoded client-side; moved here so the cover image and the
+// filter link stay in sync from one source instead of two.
+const BUDGET_TILE_DEFS = [
+  { label: "Under ₹499", maxPricePaise: 49_900 },
+  { label: "Under ₹799", maxPricePaise: 79_900 },
+  { label: "Under ₹999", maxPricePaise: 99_900 },
+];
 const CUSTOMER_REVIEWS_LIMIT = 6;
 // Same reasoning as best sellers: a review's product can since have gone
 // inactive, so overfetch reviews before filtering down to CUSTOMER_REVIEWS_LIMIT.
@@ -60,11 +69,28 @@ interface CategoryImageResolver {
   execute(categoryIds: string[]): Promise<Map<string, string>>;
 }
 
+/** Matches `ListVisibleBannersUseCase`'s own `execute` signature (2026-08-31 promo carousel). */
+interface VisibleBannersLister {
+  execute(): Promise<BannerSummaryEntity[]>;
+}
+
+/** Matches `ListProductsUseCase`'s own `execute` signature (2026-08-31 budget tile cover images) — the same concrete instance as `newArrivalsLister` satisfies both narrow interfaces. */
+interface BudgetProductsLister {
+  execute(input: { maxPricePaise: number; sort: "price_desc"; page: number; limit: number }): Promise<ListProductsResult>;
+}
+
 export interface HomeCategoryTile {
   id: string;
   name: string;
   slug: string;
   /** A representative product image, or null — the rail falls back to a tinted initial. */
+  imageUrl: string | null;
+}
+
+export interface HomeBudgetTile {
+  label: string;
+  maxPricePaise: number;
+  /** The cheapest active product at/under this cap's own image, or null if nothing qualifies yet. */
   imageUrl: string | null;
 }
 
@@ -78,11 +104,13 @@ export interface HomeReviewView {
 }
 
 export interface HomePageView {
+  banners: BannerSummaryEntity[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummaryEntity[];
   bestSellers: ProductSummaryEntity[];
   featuredCollections: CollectionEntity[];
   customerReviews: HomeReviewView[];
+  budgetTiles: HomeBudgetTile[];
 }
 
 /**
@@ -125,23 +153,29 @@ export class GetHomePageUseCase {
     private readonly topApprovedReviewsReader: TopApprovedReviewsReader,
     private readonly categoriesLister: CategoriesLister,
     private readonly categoryImageResolver: CategoryImageResolver,
+    private readonly visibleBannersLister: VisibleBannersLister,
+    private readonly budgetProductsLister: BudgetProductsLister,
   ) {}
 
   async execute(): Promise<HomePageView> {
-    const [categoryTiles, newArrivals, bestSellers, featuredCollections, customerReviews] = await Promise.all([
+    const [banners, categoryTiles, newArrivals, bestSellers, featuredCollections, customerReviews, budgetTiles] = await Promise.all([
+      this.visibleBannersLister.execute(),
       this.resolveCategoryTiles(),
       this.newArrivalsLister.execute({ sort: "newest", page: 1, limit: NEW_ARRIVALS_LIMIT }).then((result) => result.products),
       this.resolveBestSellers(),
       this.activeCollectionsLister.execute(),
       this.resolveCustomerReviews(),
+      this.resolveBudgetTiles(),
     ]);
 
     return {
+      banners,
       categoryTiles,
       newArrivals,
       bestSellers,
       featuredCollections: featuredCollections.slice(0, FEATURED_COLLECTIONS_LIMIT),
       customerReviews,
+      budgetTiles,
     };
   }
 
@@ -185,6 +219,15 @@ export class GetHomePageUseCase {
     // Preserve sales-rank order; a discontinued (inactive) product has no
     // business in a "shop now" rail — skip it rather than link to a dead end.
     return rankedProductIds.map((id) => products.get(id)).filter((product): product is ProductSummaryWithStatus => !!product?.isActive);
+  }
+
+  private async resolveBudgetTiles(): Promise<HomeBudgetTile[]> {
+    return Promise.all(
+      BUDGET_TILE_DEFS.map(async (def) => {
+        const result = await this.budgetProductsLister.execute({ maxPricePaise: def.maxPricePaise, sort: "price_desc", page: 1, limit: 1 });
+        return { label: def.label, maxPricePaise: def.maxPricePaise, imageUrl: result.products[0]?.primaryImage?.url ?? null };
+      }),
+    );
   }
 
   private async resolveCustomerReviews(): Promise<HomeReviewView[]> {

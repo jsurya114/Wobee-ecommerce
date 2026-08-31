@@ -55,14 +55,14 @@ export function QuickAddToBagButton({ slug, productName, className }: { slug: st
       disabled={isBusy}
       aria-label={`Add ${productName} to bag`}
       className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-sm transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60",
+        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-sm transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60",
         className,
       )}
     >
       {isBusy ? (
-        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
       ) : (
-        <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+        <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
       )}
     </button>
   );

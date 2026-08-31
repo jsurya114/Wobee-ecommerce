@@ -60,6 +60,13 @@ export type Role = (typeof ROLE)[number];
 /// union alone is shared so apps/admin can gate nav/buttons the same way
 /// (ADR-020) — client-side is a UI convenience, the server route guard is
 /// what actually enforces it.
+/// Client-reported business rule (2026-08-31): weight-based pricing is only
+/// correct for clothing — ornaments/footwear/accessories need an admin-set
+/// fixed price instead. Hard rule keyed by Category, not per-product. See
+/// docs/superpowers/specs/2026-08-31-category-pricing-mode-design.md.
+export const PRICING_MODE = ["WEIGHT_BASED", "FIXED"] as const;
+export type PricingMode = (typeof PRICING_MODE)[number];
+
 export const PERMISSION = [
   "MANAGE_SETTINGS",
   "MANAGE_CATALOG",

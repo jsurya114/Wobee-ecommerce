@@ -1,4 +1,5 @@
 import type { CreateVariantInput as CreateVariantRequest } from "@woobe/validation";
+import { ValidationError } from "../../../../../shared/errors";
 import type { AdminProductVariantEntity } from "../../../domain/entities/product.entity";
 import type { InventoryInitializerPort } from "../../ports/inventory-initializer.port";
 import type { PricingReaderPort } from "../../ports/pricing-reader.port";
@@ -29,8 +30,23 @@ export class CreateProductVariantUseCase {
   ) {}
 
   async execute(productId: string, input: CreateVariantRequest): Promise<AdminProductVariantEntity> {
+    const pricingMode = await this.productRepository.findProductPricingMode(productId);
+    if (!pricingMode) {
+      throw new ValidationError("Product not found");
+    }
+    if (pricingMode === "FIXED" && input.fixedPricePaise == null) {
+      throw new ValidationError("This category is fixed-price — set a price for this variant", {
+        fixedPricePaise: ["Required for a fixed-price category"],
+      });
+    }
+
     const [price] = await this.pricingReader.calculateMany([
-      { weightGrams: input.weightGrams, ratePerKgOverridePaise: input.ratePerKgOverridePaise ?? null },
+      {
+        pricingMode,
+        weightGrams: input.weightGrams,
+        ratePerKgOverridePaise: input.ratePerKgOverridePaise ?? null,
+        fixedPricePaise: input.fixedPricePaise ?? null,
+      },
     ]);
 
     const created = await this.productRepository.createVariant({
@@ -40,6 +56,7 @@ export class CreateProductVariantUseCase {
       size: input.size,
       weightGrams: input.weightGrams,
       ratePerKgOverridePaise: input.ratePerKgOverridePaise,
+      fixedPricePaise: input.fixedPricePaise,
       fabric: input.fabric,
       fit: input.fit,
       measurements: input.measurements,

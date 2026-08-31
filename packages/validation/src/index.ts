@@ -1,5 +1,6 @@
 export * from "./admin.schema";
 export * from "./auth.schema";
+export * from "./banners.schema";
 export * from "./cart.schema";
 export * from "./checkout.schema";
 export * from "./collections.schema";

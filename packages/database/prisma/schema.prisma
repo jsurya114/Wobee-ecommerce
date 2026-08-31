@@ -105,6 +105,17 @@ enum CouponType {
   FLAT
 }
 
+/// Client-reported business rule (2026-08-31): weight-based pricing is only
+/// correct for clothing. Ornaments/footwear/accessories need an admin-set
+/// fixed price instead — see ProductVariant.fixedPricePaise and
+/// docs/superpowers/specs/2026-08-31-category-pricing-mode-design.md. A hard
+/// rule keyed by Category (confirmed with the user), not a per-product
+/// override.
+enum PricingMode {
+  WEIGHT_BASED
+  FIXED
+}
+
 enum CartStatus {
   ACTIVE
   MERGED
@@ -304,15 +315,30 @@ model Warehouse {
 // Catalogue — products, categories, collections
 // ─────────────────────────────────────────────────────────────────────────
 
+/// `parentId`/`children` (below) is the subcategory hierarchy — already
+/// modeled, not yet surfaced anywhere (every seeded category today is
+/// top-level, `parentId: null`). 2026-08-31: when subcategories are actually
+/// added, the homepage `CategoryRail` should keep showing top-level
+/// categories only (`WHERE parentId IS NULL`) — it's a compact "front door"
+/// nav, not the place to enumerate a deep tree. Subcategories belong on the
+/// PLP as a facet/filter once a category is chosen (`?category=<slug>`
+/// already narrows by exact category; extending that filter to also match
+/// descendants is the natural next step). No `isFeatured`-style "which are
+/// top-level" flag needed; `parentId IS NULL` already answers that.
 model Category {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
-  parentId  String?
-  imageUrl  String?
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id          String      @id @default(uuid())
+  name        String
+  slug        String      @unique
+  parentId    String?
+  imageUrl    String?
+  sortOrder   Int         @default(0)
+  isActive    Boolean     @default(true)
+  /// Hard rule (2026-08-31, client-reported): every product in this category
+  /// is priced this way, no per-product exception. WEIGHT_BASED = the
+  /// original mechanic (price derived from weightGrams x rate/kg).
+  /// FIXED = ProductVariant.fixedPricePaise is authoritative instead.
+  pricingMode PricingMode @default(WEIGHT_BASED)
+  createdAt   DateTime    @default(now())
 
   parent           Category?        @relation("CategoryToCategory", fields: [parentId], references: [id])
   children         Category[]       @relation("CategoryToCategory")
@@ -333,6 +359,28 @@ model Collection {
   products ProductCollection[]
 
   @@map("collections")
+}
+
+/// Homepage promotional carousel slides (2026-08-31, UI density/refinement
+/// pass) — admin-manageable, ordered, schedulable. Deliberately minimal: no
+/// generic CMS, just the fields a merchandising slide needs. `imageUrl`
+/// comes from the existing `media` module upload flow (no new storage).
+model Banner {
+  id        String    @id @default(uuid())
+  imageUrl  String
+  title     String?
+  subtitle  String?
+  ctaLabel  String?
+  ctaUrl    String?
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  startAt   DateTime?
+  endAt     DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("banners")
 }
 
 model ProductCollection {
@@ -375,10 +423,10 @@ model Product {
   /// data; until then these are just admin-editable fields with no
   /// customer-facing effect, same "schema + data-entry now, rendering
   /// later" pattern coupons' schema followed for Week 2 Day 5.
-  metaTitle       String?
-  metaDescription String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  metaTitle          String?
+  metaDescription    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   category       Category            @relation(fields: [categoryId], references: [id])
   variants       ProductVariant[]
@@ -426,13 +474,21 @@ model ProductImage {
   @@map("product_images")
 }
 
-/// Weight-based pricing is the core Woobe mechanic (plan.md §6): price is
-/// DERIVED (weightGrams * effective rate/kg / 1000) by the `pricing`
-/// module's pure domain function at read/checkout time — never stored as a
-/// literal price input. ratePerKgOverridePaise lets admin override the
-/// PricingSetting default for this specific variant (ADR-017).
-/// effectivePricePaiseCache mirrors that derivation for listing/sort display
+/// Weight-based pricing is the core Woobe mechanic (plan.md §6) for
+/// WEIGHT_BASED categories: price is DERIVED (weightGrams * effective
+/// rate/kg / 1000) by the `pricing` module's pure domain function at
+/// read/checkout time — never stored as a literal price input.
+/// ratePerKgOverridePaise lets admin override the PricingSetting default for
+/// this specific variant (ADR-017); ignored when the product's category is
+/// FIXED. effectivePricePaiseCache mirrors the derivation (or, for FIXED
+/// categories, mirrors fixedPricePaise verbatim) for listing/sort display
 /// only, same rule as Product.minPricePaiseCache above.
+///
+/// fixedPricePaise (2026-08-31): authoritative price when the product's
+/// Category.pricingMode is FIXED (ornaments/footwear/accessories — weight
+/// has nothing to do with what they cost). Null/ignored for WEIGHT_BASED
+/// categories. weightGrams stays required either way — it's real shipping
+/// weight regardless of how the item is priced.
 model ProductVariant {
   id                       String   @id @default(uuid())
   productId                String
@@ -441,6 +497,7 @@ model ProductVariant {
   size                     String
   weightGrams              Int
   ratePerKgOverridePaise   Int?
+  fixedPricePaise          Int?
   effectivePricePaiseCache Int      @default(0)
   isActive                 Boolean  @default(true)
   /// Week 2 Day 7 (week2 (1).md §16's own per-variant operations list) —
@@ -449,11 +506,11 @@ model ProductVariant {
   /// inventing an unspecified sub-schema (e.g. structured bust/waist/hip
   /// measurements). Display-only; nothing in pricing/inventory/checkout
   /// reads these.
-  fabric       String?
-  fit          String?
-  measurements String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  fabric                   String?
+  fit                      String?
+  measurements             String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
   inventory     Inventory[]
@@ -755,7 +812,7 @@ model Order {
 /// Full price/tax snapshot per line item — never recomputed from live
 /// product state later (plan.md §6).
 model OrderItem {
-  id                  String @id @default(uuid())
+  id                  String      @id @default(uuid())
   orderId             String
   variantId           String
   productNameSnapshot String
@@ -763,7 +820,13 @@ model OrderItem {
   color               String
   size                String
   weightGrams         Int
-  unitRatePerKgPaise  Int
+  /// Snapshot of how this line was actually priced at checkout (2026-08-31)
+  /// — independent of the product's CURRENT category pricingMode, so a past
+  /// order stays correct even if a category's mode is changed later. Same
+  /// snapshot philosophy this schema already uses for GST slabs.
+  pricingMode         PricingMode @default(WEIGHT_BASED)
+  /// Null for FIXED lines — there is no rate/kg to snapshot.
+  unitRatePerKgPaise  Int?
   unitPricePaise      Int
   quantity            Int
   lineTotalPaise      Int
@@ -772,7 +835,7 @@ model OrderItem {
   /// (largest-remainder split of Order.discountPaise across eligible lines). Persisted
   /// as a snapshot so returns/refunds refund the amount actually paid for these goods,
   /// not the undiscounted unitPricePaise * qty. 0 when no coupon applied.
-  discountPaise       Int @default(0)
+  discountPaise       Int         @default(0)
 
   order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   variant ProductVariant @relation(fields: [variantId], references: [id])

@@ -14,6 +14,7 @@ function projection(id: string, categoryId = "cat-1"): ProductSummaryProjection 
     categoryId,
     minPricePaiseCache: 1000,
     primaryImage: null,
+    pricingMode: "WEIGHT_BASED",
     representativeVariant: { weightGrams: 250, ratePerKgOverridePaise: null },
   };
 }

@@ -1,3 +1,5 @@
+import type { PricingMode } from "@woobe/types";
+
 export interface ProductImageEntity {
   url: string;
   altText: string;
@@ -11,6 +13,8 @@ export interface ProductVariantEntity {
   size: string;
   weightGrams: number;
   ratePerKgOverridePaise: number | null;
+  /** Authoritative for a FIXED-category product (2026-08-31); null/ignored for WEIGHT_BASED. See PricingMode's own doc comment in schema.prisma. */
+  fixedPricePaise: number | null;
   /** Free-text product details (admin-set since Week 2 Day 7) — surfaced on the customer PDP's "Details" disclosure (redesign O-2). */
   fabric: string | null;
   fit: string | null;
@@ -32,9 +36,12 @@ export interface ProductSummaryEntity {
    * Woobe's weight-based pricing surfaced on every card / rail / search
    * result, not just the PDP. `fromRatePerKgPaise` is resolved through the
    * pricing port in the listing/home use-cases (the repository never
-   * derives a rate — see product-repository.port.ts). Both are `null` only
-   * when the product has no active variant. This is a display/trust signal,
-   * NOT an authoritative price — the shown price is still `minPricePaiseCache`.
+   * derives a rate — see product-repository.port.ts). Both are `null` when
+   * the product has no active variant, AND (2026-08-31) both are `null` for
+   * a FIXED-category product — weight didn't determine that price, so
+   * showing it as if it did would be misleading; the card shows price only.
+   * This is a display/trust signal, NOT an authoritative price — the shown
+   * price is still `minPricePaiseCache`.
    */
   fromWeightGrams: number | null;
   fromRatePerKgPaise: number | null;
@@ -60,7 +67,7 @@ export interface ProductDetailEntity {
   name: string;
   description: string | null;
   brand: string | null;
-  category: { id: string; name: string; slug: string };
+  category: { id: string; name: string; slug: string; pricingMode: PricingMode };
   images: ProductImageEntity[];
   variants: ProductVariantEntity[];
   /**
@@ -98,6 +105,8 @@ export interface AdminProductVariantEntity {
   size: string;
   weightGrams: number;
   ratePerKgOverridePaise: number | null;
+  /** Authoritative for a FIXED-category product (2026-08-31); null/ignored for WEIGHT_BASED. */
+  fixedPricePaise: number | null;
   effectivePricePaiseCache: number;
   fabric: string | null;
   fit: string | null;
@@ -125,6 +134,8 @@ export interface AdminProductDetailEntity {
   description: string | null;
   brand: string | null;
   categoryId: string;
+  /** The category's pricing mode (2026-08-31) — tells admin's VariantForm whether to show "Rate/kg override" or "Fixed price" for this product's variants. */
+  categoryPricingMode: PricingMode;
   isActive: boolean;
   minPricePaiseCache: number;
   metaTitle: string | null;

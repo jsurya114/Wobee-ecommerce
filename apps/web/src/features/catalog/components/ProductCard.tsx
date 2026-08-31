@@ -39,7 +39,7 @@ export function ProductCard({ product, showQuickAdd = false }: { product: Produc
           <QuickAddToBagButton slug={product.slug} productName={product.name} className="absolute bottom-2 right-2" />
         ) : null}
       </div>
-      <p className="mt-2 truncate font-body text-[0.8125rem] font-medium text-text-primary lg:text-sm">{product.name}</p>
+      <p className="mt-1.5 truncate font-body text-xs font-medium text-text-primary lg:text-[13px]">{product.name}</p>
       <PriceTag
         className="mt-0.5"
         pricePaise={product.minPricePaiseCache}

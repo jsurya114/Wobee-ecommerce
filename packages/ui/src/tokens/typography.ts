@@ -1,28 +1,17 @@
-/**
- * project_planning/woobe_ui_design_plan.md §4.
- * Display: Playfair Display (editorial serif, matches the wordmark).
- * Body/UI: Inter (readable at small sizes, pairs cleanly against the serif).
- * Both loaded via next/font in apps/web's root layout (Google Fonts, free,
- * variable weight) — see apps/web/src/app/layout.tsx.
- */
 export const typography = {
   fontFamily: {
-    display: "var(--font-playfair), Georgia, serif",
-    body: "var(--font-inter), system-ui, sans-serif",
+    serif: ["Playfair Display", "Cormorant Garamond", "Georgia", "serif"],
+    sans: ["Plus Jakarta Sans", "Inter", "system-ui", "sans-serif"],
   },
-  // rem-based, mobile-first. Display sizes (3xl/4xl) reserved for Playfair.
-  // `micro`/`label` (redesign) are the compact commerce tiers below `xs`:
-  // `micro` = card metadata (weight·rate), `label` = uppercase section labels.
   fontSize: {
-    micro: "0.6875rem",
-    label: "0.8125rem",
-    xs: "0.75rem",
-    sm: "0.875rem",
-    base: "1rem",
-    lg: "1.125rem",
-    xl: "1.25rem",
-    "2xl": "1.5rem",
-    "3xl": "2rem",
-    "4xl": "2.75rem",
+    xs: ["0.6875rem", { lineHeight: "0.875rem" }],   // 11px
+    sm: ["0.75rem", { lineHeight: "1rem" }],          // 12px
+    base: ["0.8125rem", { lineHeight: "1.125rem" }],  // 13px
+    md: ["0.875rem", { lineHeight: "1.25rem" }],      // 14px
+    lg: ["0.9375rem", { lineHeight: "1.375rem" }],    // 15px
+    xl: ["1rem", { lineHeight: "1.5rem" }],          // 16px
+    "2xl": ["1.125rem", { lineHeight: "1.5rem" }],    // 18px
+    "3xl": ["1.25rem", { lineHeight: "1.75rem" }],    // 20px
+    "4xl": ["1.5rem", { lineHeight: "2rem" }],        // 24px
   },
 } as const;

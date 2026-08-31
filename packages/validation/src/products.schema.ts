@@ -137,6 +137,8 @@ export const createVariantSchema = z.object({
   size: z.string().trim().min(1, "Size is required").max(30),
   weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams"),
   ratePerKgOverridePaise: z.coerce.number().int().positive().nullable().optional(),
+  /** Authoritative price for a FIXED-category product (2026-08-31) — ignored for WEIGHT_BASED. Required-when-FIXED is enforced by the use-case, which knows the product's category, not here. */
+  fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),
   fabric: z.string().trim().max(200).nullable().optional(),
   fit: z.string().trim().max(200).nullable().optional(),
   measurements: z.string().trim().max(500).nullable().optional(),
@@ -151,6 +153,8 @@ export const updateVariantSchema = z.object({
   size: z.string().trim().min(1, "Size is required").max(30).optional(),
   weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams").optional(),
   ratePerKgOverridePaise: z.coerce.number().int().positive().nullable().optional(),
+  /** Authoritative price for a FIXED-category product (2026-08-31) — ignored for WEIGHT_BASED. */
+  fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),
   fabric: z.string().trim().max(200).nullable().optional(),
   fit: z.string().trim().max(200).nullable().optional(),
   measurements: z.string().trim().max(500).nullable().optional(),

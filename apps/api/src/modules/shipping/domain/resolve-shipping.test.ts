@@ -39,6 +39,19 @@ describe("resolveShippingEvaluation", () => {
     expect(result.estimatedDeliveryDaysMin).toBe(3);
     expect(result.estimatedDeliveryDaysMax).toBe(7);
   });
+
+  // 2026-08-31 — caller passes weightBasedTotalGrams (cart/domain/compute-cart-totals.ts),
+  // not physical total weight. A cart with zero weight-based items (all
+  // fixed-price accessories, or empty) never blocks checkout on this
+  // formerly-clothing-only mechanic, and never reaches free delivery either.
+  it("never blocks checkout when there are no weight-based items, and doesn't grant free delivery either", () => {
+    const result = resolveShippingEvaluation(0, rule);
+    expect(result.meetsMinimum).toBe(true);
+    expect(result.isFreeDelivery).toBe(false);
+    expect(result.shippingFeePaise).toBe(rule.standardFeePaise);
+    expect(result.gramsToMinimum).toBe(0);
+    expect(result.gramsToFreeDelivery).toBe(0);
+  });
 });
 
 describe("checkPincodeServiceability", () => {

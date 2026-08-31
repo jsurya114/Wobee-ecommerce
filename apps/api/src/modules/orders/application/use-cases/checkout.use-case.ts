@@ -78,7 +78,7 @@ export class CheckoutUseCase {
     // reservation below plus the in-transaction shipping re-read; this can
     // still race and lose to them, which is fine (the transaction's own
     // checks are the real, always-correct guards).
-    const preCheckShipping = await this.shippingReader.evaluate(cart.totalWeightGrams);
+    const preCheckShipping = await this.shippingReader.evaluate(cart.weightBasedTotalGrams);
     if (!preCheckShipping.meetsMinimum) {
       throw new UnprocessableEntityError(
         `Add ${preCheckShipping.gramsToMinimum}g more to your bag to check out (ADR-021 minimum order weight)`,
@@ -119,7 +119,7 @@ export class CheckoutUseCase {
       // minimum-weight rule; using its fee here would let an admin editing
       // ShippingRule mid-checkout commit an order against a stale fee. §9's own
       // flow is "Calculate discount -> Recalculate tax/shipping -> Final total".
-      const shipping = await this.shippingReader.evaluate(cart.totalWeightGrams);
+      const shipping = await this.shippingReader.evaluate(cart.weightBasedTotalGrams);
 
       const items = await this.buildOrderItems(cart.items, lineDiscounts);
       const subtotalPaise = items.reduce((sum, item) => sum + item.lineTotalPaise, 0);
@@ -191,6 +191,7 @@ export class CheckoutUseCase {
       color: line.color,
       size: line.size,
       weightGrams: line.weightGrams,
+      pricingMode: line.pricingMode,
       unitRatePerKgPaise: line.ratePerKgPaise,
       unitPricePaise: line.unitPricePaise,
       quantity: line.quantity,

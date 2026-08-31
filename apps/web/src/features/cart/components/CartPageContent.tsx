@@ -95,7 +95,7 @@ export function CartPageContent() {
           </div>
 
           <div className="mt-4">
-            <WeightThresholdBanner shipping={cart.shipping} totalWeightGrams={cart.totalWeightGrams} />
+            <WeightThresholdBanner shipping={cart.shipping} weightBasedTotalGrams={cart.weightBasedTotalGrams} />
           </div>
 
           <Link

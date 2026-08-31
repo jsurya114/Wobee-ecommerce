@@ -4,6 +4,7 @@ import { CustomerReviewsSection } from "@/features/home/components/CustomerRevie
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
 import { HomeGridSection } from "@/features/home/components/HomeGridSection";
 import { ProductRail } from "@/features/home/components/ProductRail";
+import { PromoCarousel } from "@/features/home/components/PromoCarousel";
 import { ShopByBudget } from "@/features/home/components/ShopByBudget";
 import { TrustStrip } from "@/features/home/components/TrustStrip";
 
@@ -27,10 +28,11 @@ export default async function HomePage() {
 
   return (
     <main>
+      <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
       <ProductRail title="New arrivals" products={home.newArrivals} seeAllHref="/products?sort=newest" />
       <HomeGridSection title="Fresh picks" products={freshPicks} seeAllHref="/products?sort=newest" />
-      <ShopByBudget />
+      <ShopByBudget tiles={home.budgetTiles} />
       <ProductRail title="Best sellers" products={home.bestSellers} />
       <FeaturedCollections collections={home.featuredCollections} />
       <CustomerReviewsSection reviews={home.customerReviews} />

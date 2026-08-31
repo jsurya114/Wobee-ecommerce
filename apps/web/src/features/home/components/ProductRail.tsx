@@ -79,9 +79,9 @@ export function ProductRail({
         </SectionHeader>
 
         <div className="overflow-hidden" ref={emblaRef}>
-          <div className="-ml-3 flex">
+          <div className="-ml-2.5 flex">
             {products.map((product) => (
-              <div key={product.id} className="min-w-0 flex-[0_0_43%] pl-3 sm:flex-[0_0_30%] lg:flex-[0_0_22%]">
+              <div key={product.id} className="min-w-0 flex-[0_0_31%] pl-2.5 sm:flex-[0_0_24%] lg:flex-[0_0_18%]">
                 <ProductCard product={product} />
               </div>
             ))}

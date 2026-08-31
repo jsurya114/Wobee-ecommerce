@@ -5,8 +5,10 @@
  * pass-through adapter rather than a dedicated adapter file (the
  * "adaptation" is trivial: no translation logic needed).
  */
+import type { PricingMode } from "@woobe/types";
+
 export interface PricingReaderPort {
   calculateMany(
-    inputs: { weightGrams: number; ratePerKgOverridePaise: number | null }[],
-  ): Promise<{ pricePaise: number; ratePerKgPaise: number }[]>;
+    inputs: { pricingMode: PricingMode; weightGrams: number; ratePerKgOverridePaise: number | null; fixedPricePaise: number | null }[],
+  ): Promise<{ pricePaise: number; ratePerKgPaise: number | null }[]>;
 }
