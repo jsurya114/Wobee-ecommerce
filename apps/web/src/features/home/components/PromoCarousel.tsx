@@ -8,6 +8,20 @@ import type { HomeBanner } from "../api/home.client";
 const AUTOPLAY_INTERVAL_MS = 5000;
 
 /**
+ * Defense-in-depth for `banner.ctaUrl` (security review, 2026-08-31) — the
+ * write-side schema (`packages/validation/src/banners.schema.ts`'s
+ * `ctaUrlSchema`) already rejects anything that isn't a `/`-relative path
+ * or an `http(s)://` URL, so a `javascript:`/`data:` value can't be saved
+ * through the admin form. This is a second, independent check at the
+ * render site itself — same allowlist, so a future write path that skips
+ * the schema (a direct DB edit, a bulk import) still can't reach `<Link
+ * href>` with an unsafe scheme.
+ */
+function isSafeHref(url: string): boolean {
+  return url.startsWith("/") || /^https:\/\//i.test(url) || /^http:\/\//i.test(url);
+}
+
+/**
  * Compact homepage promo carousel (UI refinement pass, 2026-08-31) — admin-
  * managed slides (banners module), rendered here purely from what
  * `GET /api/v1/home` already returned (no extra request). Deliberately a
@@ -148,7 +162,7 @@ function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boole
     </div>
   );
 
-  if (banner.ctaUrl) {
+  if (banner.ctaUrl && isSafeHref(banner.ctaUrl)) {
     return (
       <Link href={banner.ctaUrl} className="block" aria-label={banner.title ?? "Promotion"}>
         {content}
