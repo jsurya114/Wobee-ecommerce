@@ -1865,3 +1865,109 @@ Catalogue is now **15 products / 37 variants** (Accessories 7, Tops 4, Bottoms 2
 
 - Suggestions rank by price ascending, not relevance — no relevance scoring on the `contains` match; fine at this catalogue size, revisit if the catalogue grows.
 - No result caching / request memoisation across keystrokes (each settled query is one request; the abort prevents stale-result races). Add an LRU or SWR-style cache only if it proves needed.
+
+## 2026-08-31 — Bugfix: PDP-selected variant now carried into the wishlist ("Add to Cart" vs "Choose Size")
+
+**Branch:** `woobe-ui/bug-fixes`. Uncommitted, not pushed (per instruction — user reviews/commits). `apps/web` frontend wiring + `apps/api` wishlist integration-test coverage only. **No schema change, no migration, no API-contract change, backend untouched.**
+
+### Root cause
+
+The backend already supported a per-item wishlist variant end to end — `WishlistItem.variantId String?` (Week 1 schema), `addWishlistItemSchema.variantId?`, `AddWishlistItemUseCase` (validates the variant belongs to the product), `GetWishlistUseCase` → `WishlistLineView.variantId/color/size`, `MoveWishlistItemToCartUseCase` (uses `item.variantId`, 422s when null). `WishlistButton` already accepted a `variantId?` prop; `WishlistLineItem` already branches `line.variantId ? "Move to bag" : "Choose a size"` off that one server field.
+
+The **only** gap: on the PDP the wishlist heart is rendered inside `ProductGallery`, and the selected variant lives in a **sibling** client island, `ProductPurchasePanel` (`selectedVariantId` `useState`), with a Server Component (`ProductDetail`) between them that can't bridge client state. So the PDP heart always saved product-level → the wishlist page always showed "Choose a size" regardless of the selected size. (This was the documented Week 2 Day 2 shortcut — "threading that selection back up to drive the heart wasn't worth the prop-plumbing for this day's scope".) Homepage/Shop `ProductCard` correctly passes no `variantId` and stays unchanged.
+
+### Fix — one shared source of truth, using the codebase's existing context pattern
+
+- **New** `apps/web/src/features/catalog/hooks/useSelectedVariant.tsx` — `SelectedVariantProvider` + `useSelectedVariant()` (throws outside a provider, same as `useCart`/`useWishlist`). Owns the PDP's selected-variant state and the initial-selection rule (`variants.find(v => v.inStock)?.id ?? variants[0]?.id`) — moved here from `ProductPurchasePanel`, so it lives in exactly one place. Quantity stays local to the panel; only "which variant" is shared.
+- **`ProductDetail.tsx`** (Server Component) — wraps `<ProductGallery>` + info column + `<ProductPurchasePanel>` in `<SelectedVariantProvider variants={product.variants}>`. Server component rendering a client provider with server children = standard Next pattern; `variants` is plain serializable data. (Diff looks large only from the indentation shift of the wrapped block.)
+- **`ProductPurchasePanel.tsx`** — `const { selectedVariantId, setSelectedVariantId } = useSelectedVariant();` replaces the local `useState`. `selectColor`/`selectVariant` call the context setter + local `setQuantity(1)` as before. Still reuses `useCart().addItem` — no cart/variant logic duplicated.
+- **`ProductGallery.tsx`** — `const { selectedVariantId } = useSelectedVariant();` → `<WishlistButton productId={productId} variantId={selectedVariantId} … />`. This is the missing wire.
+
+Not touched: `WishlistButton`, `WishlistLineItem`, `WishlistPageContent`, `useWishlist`, `wishlist.client.ts`, `ProductCard` (PLP/homepage — correctly variant-less), and the entire backend.
+
+### DB migration
+
+**Not required** — `WishlistItem.variantId String?` already exists. Existing product-level rows keep `variantId = null` and correctly keep showing "Choose a size".
+
+### Tests
+
+`apps/web` has no component-test harness (`"test"` script is a stub) and standing one up was out of scope. Coverage went where the source of truth is — `apps/api/.../wishlist.integration.test.ts` (**16 → 20 tests**, +4, new `createVariant` helper + a new describe block "saved-variant state drives the wishlist-page CTA"):
+1. Same wishlist holds one no-variant line (`variantId/color/size = null` → "Choose a size") and one variant line (`variantId + size` populated → "Move to bag") — distinct per item.
+2. PDP flow end to end: save the selected variant → `move-to-cart` puts **that exact `variantId`** in the cart (qty 1), removes the wishlist item, no size re-prompt.
+3. Remove a variant item — same 204 path as a no-variant item.
+4. Duplicate behavior unchanged — a 2nd add for the same product (different variant) still 409s, original saved variant untouched.
+Existing assertion on the no-variant list line tightened to `{ variantId: null, color: null, size: null }`. All prior wishlist tests (duplicate 409, auth/IDOR, inactive/OOS, move-to-cart 422 for no-variant) unchanged and green.
+
+### Verification results
+
+- `pnpm -r run typecheck` — **9/9 clean**
+- `pnpm -r run lint` — **9/9 clean** (`--max-warnings=0`)
+- `pnpm --filter @woobe/api run boundaries:check` — **464 modules / 1413 deps / 0 violations**
+- `pnpm --filter @woobe/api exec vitest run` (full) — **449/449** (was 445; +4 wishlist). Targeted `wishlist + cart + products` re-run: 83/83.
+- **Live browser (chrome-devtools-mcp, isolated context, real dev servers :3000/:4000)** — registered an OTP customer, then:
+  - **Homepage** → "Ribbed Knit Sweater" (a multi-variant product) heart → wishlist line `variantId: null` → page shows **"Choose a size" + Remove** ✅
+  - **Shop / PLP** → "Silk Scarf" card heart → wishlist line `variantId: null` → **"Choose a size" + Remove** ✅
+  - **PDP** "Embroidered Top" → selected size **M** (not the default S) → heart → wishlist line `variantId = <M id>`, `size: "M"` → page shows **"Move to bag" + Remove** ✅
+  - **"Move to bag"** on that item → cart gets the exact `variantId` (White/M), qty 1, no size prompt; item leaves the wishlist ✅
+  - Remove on a no-variant item → removed cleanly ✅
+  - Zero console errors/warnings throughout.
+  - Browser-test user deleted from `woobe_dev` afterward.
+- `pnpm run build` — **not run**: the user's `next dev`/api dev servers are live and this repo's iCloud-synced `.next` corrupts under a concurrent prod build (documented in prior entries). `apps/web` `tsc --noEmit` + lint + the live walkthrough cover this client-only change; worth a `build` next time the dev server is down.
+
+**Confirmed:** Homepage, Shop, and Product Details flows all behave per spec; no unrelated functionality (login/OTP/forgot-password, browsing, variant selection, cart, checkout, orders, wishlist removal/toggle, auth, existing API contracts) was modified.
+
+**Known limitation (not in scope):** if a product is already wishlisted product-level (saved earlier from a card), opening its PDP with a size selected and tapping the heart *removes* it (toggle semantics, unchanged) — it does not "upgrade" the existing row to variant-level. Re-saving from the PDP after removing does capture the variant.
+
+## 2026-08-31 — UI: homepage category navigation redesigned to a full-width centered strip
+
+**Branch:** `woobe-ui/bug-fixes`. Uncommitted, not pushed. **One file** — `apps/web/src/features/home/components/CategoryRail.tsx` (presentational only). No data, routing, API, schema, or other-component change.
+
+**Problem:** the homepage "Categories" rail (`CategoryRail`, the only category-navigation section — the marketplace header category strip was reverted earlier) sat inside `mx-auto max-w-6xl` with a left-aligned `flex` and only 5 items, so on desktop the categories clustered at the left with ~770px of dead space to the right. Reference given: LimeRoad's under-header category strip (layout concept only, not cloned).
+
+**Change — mirrors `TrustStrip`'s established full-bleed-band pattern:**
+- `<section>` is now a **full-width band** (`border-b border-border`, no `max-w`), so it reads as a navigation strip directly under the header instead of a small content block. Dropped the visible `SectionHeader` ("Categories") for the nav-strip feel; kept the landmark accessible — `aria-label="Shop by category"` + an `sr-only <h2>` + an inner `<nav>`.
+- Row: `<ul className="mx-auto flex min-w-max items-start justify-center gap-7 sm:gap-10 md:min-w-0 md:max-w-6xl md:gap-14 lg:gap-20 xl:gap-24">` inside an `overflow-x-auto` `<nav>` (scrollbar hidden, `px-4 sm:px-6`, `py-4`).
+  - **Desktop/tablet:** `justify-center` + gaps that widen with the viewport → the group is visually centered and spread across the page; `md:max-w-6xl` keeps it aligned to the same content width as the rails below. Tablet (`sm`, no `md:` yet) uses the smaller `sm:w-[4.5rem]` image + `sm:gap-10`.
+  - **Mobile:** `min-w-max` keeps each item at its natural size so the row overflows and the `<nav>` scrolls (touch carousel). `justify-center` is safe here because with `min-w-max` the `ul` equals its content width → no centering offset → the first item is never pushed off the un-scrollable start (the documented `justify-[safe_center]` clipping trap is avoided). `md:min-w-0` releases it on desktop where everything fits.
+- Item: `w-16 sm:w-[4.5rem] lg:w-20`, circular `aspect-square w-full` thumbnail on `bg-surface-2` with `ring-1 ring-border` (hover → `ring-2 ring-primary` + image `scale-105`, `motion-reduce` guarded). Label beneath: `text-micro sm:text-xs`, `font-medium uppercase tracking-[0.05em] text-text-secondary`, `min-h-[2.4em]` so 1- and 2-line labels ("Ethnic Wear") reserve equal height and the row stays balanced. Image/text stay vertically centered (`flex-col items-center`), all items identical width.
+- Unchanged: `HomeCategoryTile[]` from `GET /api/v1/home`, `href={/products?category=<slug>}`, the imaged/initial fallback, `loading="lazy"`.
+
+**Verified (chrome-devtools-mcp, live dev server):**
+- **Desktop 1440:** section spans full width (`left:0`, `width:1425`), 5 items centered (~321px margin each side), 80px images, no page overflow (`scrollWidth - innerWidth = -15`).
+- **Tablet 820:** horizontal row, centered, reduced 72px images + `md:gap-14`, fits without scroll, no overflow.
+- **Mobile (simulated 375 via clamped `<nav>` width — the test Chrome min-window is 500px):** `ul` computes `min-width: max-content`, `<nav>` `overflow-x: auto`, row is scrollable, first item fully visible at `scrollLeft 0` (left offset = the 16px padding, not clipped), last item fully reachable when scrolled to end, `document` has no horizontal overflow. At the 500px min-window all 5 still fit with no page overflow.
+- **Routing intact:** clicking "TOPS" → `/products?category=tops` → PLP "Showing 4 of 4 products" (Tops). Product filtering unchanged.
+- Accessibility tree: `region "Shop by category"` → `navigation` → 5 links with correct hrefs.
+- `pnpm -r run typecheck` 9/9 · `pnpm -r run lint` 9/9 · `pnpm --filter @woobe/api run boundaries:check` 464 modules / 0 violations.
+- `pnpm run build` — **not run** (dev servers live; iCloud `.next` corruption risk, same as prior entries). CSS-only change in one leaf component; typecheck + lint + the multi-viewport live pass cover it.
+
+**No unrelated changes:** header/nav, PLP/search, product/cart/wishlist/auth, backend — all untouched.
+
+## 2026-08-31 — UI: removed the standalone home/shop search bars; header search is now the single (backend-driven) entry point
+
+**Branch:** `woobe-ui/bug-fixes`. Uncommitted, not pushed. `apps/web` only — no backend, schema, or API-contract change.
+
+**Backend search path (already the one in use — reused verbatim, nothing new built):**
+`type → SearchField → useSearchSuggestions (debounce + AbortController) → searchProductSuggestions(q, signal) → GET /api/v1/products/suggestions?q= → ProductsController.suggestions → SearchProductSuggestionsUseCase.execute → ProductRepository.searchSuggestions` (Prisma name-contains, pg_trgm). Submit → `router.push(/products?q=)` → `products/page.tsx` → `listProducts({q})` → `GET /api/v1/products?q=` → `ListProductsUseCase` → `ProductRepository.findMany` (pagination/filters/sort, all server-side). **There was no frontend-only product search anywhere** — the header search already went through this backend path; the only gap vs. the brief was the debounce interval.
+
+**Changes (6 files, smallest set):**
+- **`apps/web/app/(storefront)/page.tsx`** — removed `<HomeSearch />` + import (homepage standalone bar).
+- **`apps/web/app/(storefront)/products/page.tsx`** — removed `<SearchBar …/>` + import (shop standalone bar). `?q=` handling on this page (`currentParams.q`, `hasActiveFilters`, `ProductResults`) is untouched — a `?q=` from the header submit still renders results, pagination, empty/error state exactly as before.
+- **`apps/web/src/features/home/components/HomeSearch.tsx`** — deleted (only consumer was the homepage; no orphan).
+- **`apps/web/src/features/catalog/components/SearchBar.tsx`** — deleted (only consumer was the shop page).
+- **`apps/web/src/features/catalog/hooks/useSearchSuggestions.ts`** — `DEBOUNCE_MS` 250 → **300** (brief asks ~300 ms). Stale-request cancellation (`AbortController` per settled query + `signal.aborted` guards) and loading/empty/error state were already there — unchanged.
+- **`apps/web/src/features/catalog/components/HeaderSearch.tsx`** — outer wrapper `hidden … md:flex md:flex-none` → `flex … flex-1 md:flex-none` so the header search (which was already coded for mobile but hidden) shows on **every viewport**. Without this, removing the in-page bars would leave mobile home/PLP with no search at all. `SiteHeader`'s route-gating (`SEARCH_ROUTES` = `/` + `/products`) is unchanged — search still appears only on the two browsing surfaces, now via the header icon on desktop and mobile alike. Stale "mobile relies on the in-page field" comments updated.
+- Doc-comment-only touch-ups in `SearchField.tsx` / `ProductSearchForm.tsx` to stop naming the deleted components. `SEARCH_ROUTES`, `SiteHeader.tsx` logic, `SearchField`, `SearchSuggestions`, `products.client.ts`, `build-products-href`, filters, category nav — untouched.
+
+**Verified (chrome-devtools-mcp, live dev servers :3000/:4000):**
+- **Homepage:** no search form/input in `<main>`; the only search UI is the header button. No horizontal overflow.
+- **Shop page:** no standalone search bar; category filter, collection filter, Filters button, sort, and all 15 product cards intact. No overflow.
+- **Header search — backend + debounce:** opened the header search, fast-typed "dress" (5 chars in 173 ms) → **exactly one** network request: `GET http://localhost:4000/api/v1/products/suggestions?q=dress` [200] (not one per keystroke). Dropdown showed the correct backend result "Floral Wrap Dress ₹384.00". Repeated on mobile with "scarf" → one request `…/suggestions?q=scarf` [200] → "Silk Scarf ₹72.00".
+- **Submit:** Enter → `/products?q=dress` → server-side backend list search → "Showing 1 of 1 product" → Floral Wrap Dress.
+- **Empty state:** `/products?q=zzzznomatch` → "No products match your filters…", 0 cards, no overflow (existing `ProductResults` empty state, unchanged).
+- **Mobile (500 px, the test Chrome floor):** header search button visible; opening it expands the input inline (277 px, right edge 365 < 500) with **no horizontal overflow while open**; dropdown renders backend results.
+- Console: only the pre-existing guest `/auth/refresh` 401; no new errors.
+- `pnpm -r run typecheck` **9/9** · `pnpm -r run lint` **9/9** · `pnpm --filter @woobe/api exec vitest run src/modules/products` **58/58** (incl. `search-product-suggestions.use-case.test.ts` — backend search untouched).
+- `pnpm run build` — **not run** (dev servers live; iCloud `.next` corruption risk, same as prior entries). Typecheck + lint + the multi-viewport live pass cover this web-only change.
+
+**Not modified:** auth, cart, wishlist, checkout, product details, category navigation, admin, DB schema, backend business logic, any unrelated API.
