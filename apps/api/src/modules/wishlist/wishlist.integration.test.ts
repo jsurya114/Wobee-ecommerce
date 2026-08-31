@@ -83,6 +83,26 @@ async function createTestProduct(opts: { isActive?: boolean; stock?: number } = 
   return { productId: product.id, variantId: variant.id };
 }
 
+async function createVariant(productId: string, opts: { color?: string; size: string; stock?: number }): Promise<{ variantId: string }> {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const variant = await prisma.productVariant.create({
+    data: {
+      productId,
+      sku: `${TEST_PREFIX}-${suffix}`,
+      color: opts.color ?? "Black",
+      size: opts.size,
+      weightGrams: 500,
+      isActive: true,
+      effectivePricePaiseCache: 10_000,
+    },
+  });
+  createdVariantIds.push(variant.id);
+  await prisma.inventory.create({
+    data: { variantId: variant.id, warehouseId, quantityAvailable: opts.stock ?? 5, quantityReserved: 0 },
+  });
+  return { variantId: variant.id };
+}
+
 describe("wishlist: authentication required", () => {
   it("rejects every route without a token", async () => {
     const getRes = await request(app).get("/api/v1/wishlist");
@@ -114,7 +134,12 @@ describe("wishlist: add/remove", () => {
     expect(listRes.body.itemCount).toBe(2);
     // newest-first: productId2 was added second.
     expect(listRes.body.items.map((i: { productId: string }) => i.productId)).toEqual([productId2, productId]);
+    // PDP flow (variant chosen): line carries the variant + its color/size — the
+    // wishlist page renders "Move to bag" off `variantId` being non-null.
     expect(listRes.body.items[0]).toMatchObject({ productId: productId2, variantId, color: "Black", size: "M", isAvailable: true });
+    // Homepage/Shop flow (no variant chosen): line has no variant/color/size —
+    // the wishlist page renders "Choose a size" off `variantId` being null.
+    expect(listRes.body.items[1]).toMatchObject({ productId, variantId: null, color: null, size: null });
   });
 
   it("removes an item", async () => {
@@ -155,6 +180,83 @@ describe("wishlist: add/remove", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .send({ productId: crypto.randomUUID() });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("wishlist: saved-variant state drives the wishlist-page CTA (PDP vs homepage/shop)", () => {
+  it("keeps a per-item saved variant distinct across items — one variant line, one no-variant line, on the same wishlist", async () => {
+    const { accessToken } = await registerCustomer();
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const fromShop = await createTestProduct(); // no size selected on a listing card
+    const fromPdp = await createTestProduct(); // a size was selected on the PDP
+
+    await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId: fromShop.productId });
+    await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId: fromPdp.productId, variantId: fromPdp.variantId });
+
+    const listRes = await request(app).get("/api/v1/wishlist").set(auth);
+    const byProduct = new Map<string, { variantId: string | null; size: string | null }>(
+      listRes.body.items.map((i: { productId: string; variantId: string | null; size: string | null }) => [
+        i.productId,
+        { variantId: i.variantId, size: i.size },
+      ]),
+    );
+    expect(byProduct.get(fromShop.productId)).toEqual({ variantId: null, size: null });
+    expect(byProduct.get(fromPdp.productId)).toEqual({ variantId: fromPdp.variantId, size: "M" });
+  });
+
+  it("PDP flow end to end: save the selected variant, then add-to-cart uses that exact variant without re-choosing a size", async () => {
+    const { accessToken } = await registerCustomer();
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const { productId } = await createTestProduct({ stock: 5 });
+    const small = await createVariant(productId, { size: "S", stock: 5 });
+
+    // PDP had size "S" selected when the heart was clicked.
+    const addRes = await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId, variantId: small.variantId });
+    expect(addRes.status).toBe(201);
+    const itemId = addRes.body.item.id as string;
+
+    const moveRes = await request(app).post(`/api/v1/wishlist/items/${itemId}/move-to-cart`).set(auth).send({ quantity: 1 });
+    expect(moveRes.status).toBe(200);
+
+    const cartRes = await request(app).get("/api/v1/cart").set(auth);
+    expect(cartRes.body.items).toHaveLength(1);
+    expect(cartRes.body.items[0]).toMatchObject({ variantId: small.variantId, quantity: 1 });
+
+    const listRes = await request(app).get("/api/v1/wishlist").set(auth);
+    expect(listRes.body.itemCount).toBe(0);
+  });
+
+  it("removes a variant item the same way as a no-variant item", async () => {
+    const { accessToken } = await registerCustomer();
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const { productId, variantId } = await createTestProduct();
+
+    const addRes = await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId, variantId });
+    const itemId = addRes.body.item.id as string;
+
+    const removeRes = await request(app).delete(`/api/v1/wishlist/items/${itemId}`).set(auth);
+    expect(removeRes.status).toBe(204);
+
+    const listRes = await request(app).get("/api/v1/wishlist").set(auth);
+    expect(listRes.body.itemCount).toBe(0);
+  });
+
+  it("does not change duplicate behavior — a product is still one wishlist row regardless of which variant a later add sends", async () => {
+    const { accessToken } = await registerCustomer();
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const { productId, variantId } = await createTestProduct();
+    const large = await createVariant(productId, { size: "L" });
+
+    const first = await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId, variantId });
+    expect(first.status).toBe(201);
+
+    const second = await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId, variantId: large.variantId });
+    expect(second.status).toBe(409);
+
+    const listRes = await request(app).get("/api/v1/wishlist").set(auth);
+    expect(listRes.body.itemCount).toBe(1);
+    // the original saved variant is untouched by the rejected second add.
+    expect(listRes.body.items[0]).toMatchObject({ productId, variantId, size: "M" });
   });
 });
 

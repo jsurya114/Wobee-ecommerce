@@ -9,6 +9,7 @@ import { useCart } from "@/features/cart/hooks/useCart";
 import { getShippingEstimate, type ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import { ABOVE_MOBILE_BOTTOM_NAV_STYLE } from "@/lib/layout-constants";
 import type { ProductDetail } from "../api/products.client";
+import { useSelectedVariant } from "../hooks/useSelectedVariant";
 
 /**
  * Client island (redesign spec §F) — variant selection, quantity, add to
@@ -22,9 +23,10 @@ import type { ProductDetail } from "../api/products.client";
  */
 export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   const { addItem } = useCart();
-  const [selectedVariantId, setSelectedVariantId] = useState(
-    product.variants.find((v) => v.inStock)?.id ?? product.variants[0]?.id,
-  );
+  // Selection is shared with the wishlist heart in <ProductGallery> via the
+  // PDP-scoped SelectedVariantProvider (one source of truth); quantity below
+  // stays local to this panel.
+  const { selectedVariantId, setSelectedVariantId } = useSelectedVariant();
   const [isAdding, setIsAdding] = useState(false);
   const [quantity, setQuantity] = useState(1);
 

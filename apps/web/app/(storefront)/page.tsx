@@ -1,6 +1,5 @@
 import { getHomePage } from "@/features/home/api/home.client";
 import { CategoryRail } from "@/features/home/components/CategoryRail";
-import { HomeSearch } from "@/features/home/components/HomeSearch";
 import { CustomerReviewsSection } from "@/features/home/components/CustomerReviewsSection";
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
 import { HomeGridSection } from "@/features/home/components/HomeGridSection";
@@ -10,11 +9,12 @@ import { TrustStrip } from "@/features/home/components/TrustStrip";
 
 /**
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
- * every section: a compact category rail, a New Arrivals rail, a real
- * "Fresh picks" product grid, Shop by Budget, Best Sellers, Featured
- * Collections, Customer Reviews, and a thin trust line above the footer. No
- * hero, no big serif headings, no scroll-fade — the customer meets
- * shoppable products immediately.
+ * every section: the category rail, a New Arrivals rail, a real "Fresh
+ * picks" product grid, Shop by Budget, Best Sellers, Featured Collections,
+ * Customer Reviews, and a thin trust line above the footer. No hero, no big
+ * serif headings, no scroll-fade — the customer meets shoppable products
+ * immediately. Search lives in the header (`HeaderSearch`), not an in-page
+ * bar.
  *
  * `dynamic = "force-dynamic"` (ADR-026): render live, per-request — product
  * and price data must never be frozen at build time.
@@ -27,7 +27,6 @@ export default async function HomePage() {
 
   return (
     <main>
-      <HomeSearch />
       <CategoryRail categories={home.categoryTiles} />
       <ProductRail title="New arrivals" products={home.newArrivals} seeAllHref="/products?sort=newest" />
       <HomeGridSection title="Fresh picks" products={freshPicks} seeAllHref="/products?sort=newest" />
