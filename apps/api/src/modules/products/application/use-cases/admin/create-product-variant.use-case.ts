@@ -1,12 +1,13 @@
 import type { CreateVariantInput as CreateVariantRequest } from "@woobe/validation";
 import { ValidationError } from "../../../../../shared/errors";
+import { resolveUniqueSku } from "../../../domain/resolve-unique-sku";
 import type { AdminProductVariantEntity } from "../../../domain/entities/product.entity";
 import type { InventoryInitializerPort } from "../../ports/inventory-initializer.port";
 import type { PricingReaderPort } from "../../ports/pricing-reader.port";
 import type { ProductRepositoryPort } from "../../ports/product-repository.port";
 
 /**
- * week2 (1).md §16's "Variant management" — weight/rate-override/SKU/
+ * week2 (1).md §16's "Variant management" — weight/rate-override/
  * size/color/fabric/fit/measurements, plus the two side effects a new
  * variant always needs: `effectivePricePaiseCache` (the listing/sort
  * display cache, ADR-012 — computed live from the same PricingReaderPort
@@ -14,6 +15,10 @@ import type { ProductRepositoryPort } from "../../ports/product-repository.port"
  * and an Inventory row (every other inventory operation in this codebase
  * assumes exactly one exists per variant — see
  * InitializeInventoryForVariantUseCase's own comment).
+ *
+ * SKU is server-generated (`resolveUniqueSku`) — the admin never types one;
+ * see that function's own doc comment for the collision-retry shape. It is
+ * intentionally NOT derived from price, weight, display name, or category.
  *
  * Takes `productId` as its own parameter, not read from `input` — the
  * wire-level schema (`createVariantSchema`) makes `productId` optional
@@ -40,18 +45,21 @@ export class CreateProductVariantUseCase {
       });
     }
 
-    const [price] = await this.pricingReader.calculateMany([
-      {
-        pricingMode,
-        weightGrams: input.weightGrams,
-        ratePerKgOverridePaise: input.ratePerKgOverridePaise ?? null,
-        fixedPricePaise: input.fixedPricePaise ?? null,
-      },
+    const [price, sku] = await Promise.all([
+      this.pricingReader.calculateMany([
+        {
+          pricingMode,
+          weightGrams: input.weightGrams,
+          ratePerKgOverridePaise: input.ratePerKgOverridePaise ?? null,
+          fixedPricePaise: input.fixedPricePaise ?? null,
+        },
+      ]).then(([result]) => result!),
+      resolveUniqueSku((candidate) => this.productRepository.skuExists(candidate)),
     ]);
 
     const created = await this.productRepository.createVariant({
       productId,
-      sku: input.sku,
+      sku,
       color: input.color,
       size: input.size,
       weightGrams: input.weightGrams,
@@ -60,7 +68,7 @@ export class CreateProductVariantUseCase {
       fabric: input.fabric,
       fit: input.fit,
       measurements: input.measurements,
-      effectivePricePaiseCache: price!.pricePaise,
+      effectivePricePaiseCache: price.pricePaise,
     });
 
     await this.inventoryInitializer.initializeForVariant(created.id, input.initialQuantity ?? 0);

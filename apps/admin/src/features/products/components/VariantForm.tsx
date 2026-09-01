@@ -7,7 +7,6 @@ import { ApiError } from "@/lib/api-client";
 import type { AdminProductVariant, UpdateVariantPayload, VariantPayload } from "../api/admin-products.client";
 
 export interface VariantFormValues {
-  sku: string;
   color: string;
   size: string;
   weightGrams: string;
@@ -21,7 +20,6 @@ export interface VariantFormValues {
 
 function toValues(variant?: AdminProductVariant): VariantFormValues {
   return {
-    sku: variant?.sku ?? "",
     color: variant?.color ?? "",
     size: variant?.size ?? "",
     weightGrams: variant ? String(variant.weightGrams) : "",
@@ -67,8 +65,8 @@ export function VariantForm({
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const weightGrams = Number(values.weightGrams);
-    if (!values.sku.trim() || !values.color.trim() || !values.size.trim() || !weightGrams) {
-      toast.error("SKU, colour, size, and weight are required");
+    if (!values.color.trim() || !values.size.trim() || !weightGrams) {
+      toast.error("Colour, size, and weight are required");
       return;
     }
     const fixedPricePaise = values.fixedPricePaise ? Number(values.fixedPricePaise) : null;
@@ -79,7 +77,6 @@ export function VariantForm({
     setIsSubmitting(true);
     try {
       await onSubmit({
-        sku: values.sku.trim(),
         color: values.color.trim(),
         size: values.size.trim(),
         weightGrams,
@@ -100,8 +97,13 @@ export function VariantForm({
 
   return (
     <form onSubmit={onFormSubmit} className="flex flex-col gap-3 rounded-control border border-border p-4">
+      <div className="flex flex-col gap-1.5">
+        <span className="font-body text-sm font-medium text-text-primary">SKU</span>
+        <span className="font-body text-sm text-text-secondary">
+          {isEditing ? `${variant!.sku} · Automatically generated` : "Assigned automatically when you save"}
+        </span>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <FormField label="SKU" value={values.sku} onChange={(e) => set("sku", e.target.value)} />
         <FormField label="Weight (grams)" type="number" value={values.weightGrams} onChange={(e) => set("weightGrams", e.target.value)} />
         <FormField label="Colour" value={values.color} onChange={(e) => set("color", e.target.value)} />
         <FormField label="Size" value={values.size} onChange={(e) => set("size", e.target.value)} />

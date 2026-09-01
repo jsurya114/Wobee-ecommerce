@@ -74,7 +74,9 @@ export interface CreateProductPayload {
 export type UpdateProductPayload = Partial<CreateProductPayload>;
 
 export interface VariantPayload {
-  sku: string;
+  // No `sku` — server-generated on create, immutable thereafter (see
+  // CreateProductVariantUseCase). `AdminProductVariant.sku` above is the
+  // read-only value the server returns.
   color: string;
   size: string;
   weightGrams: number;

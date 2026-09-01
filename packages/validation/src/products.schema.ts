@@ -87,14 +87,15 @@ export type ProductSuggestionQuery = z.infer<typeof productSuggestionQuerySchema
 
 // ── Week 2 Day 7 admin product-management shapes (week2 (1).md §16) ──
 
-// Same convention Category/Collection slugs already use — see
-// collections.schema.ts's own comment on this exact regex.
-const slugSchema = z
-  .string()
-  .trim()
-  .min(1, "Slug is required")
-  .max(160)
-  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Slug must be lowercase letters, numbers, and hyphens only");
+// Deliberately NOT a kebab-case regex — CreateProductUseCase/UpdateProductUseCase
+// always canonicalize whatever arrives here through `slugify` + a uniqueness
+// retry loop (resolveUniqueSlug), whether it's the auto-generated preview
+// (already clean) or a raw product name (not yet slugified). Rejecting
+// anything not already kebab-case at the wire layer would defeat that —
+// the server must canonicalize what it receives, not just validate a
+// client-side preview's shape (see the auto-slug design notes). Length is
+// still bounded to something sane.
+const slugSchema = z.string().trim().min(1, "Slug is required").max(200);
 
 /** A query-string boolean arrives as the literal string "true"/"false", never a real boolean — z.coerce.boolean() would treat the string "false" as truthy and is a known Zod footgun for exactly this shape (same reasoning `booleanFlag()` above already applies, kept separate since that one intentionally has no explicit exported type). */
 const queryBooleanSchema = z
@@ -132,7 +133,8 @@ export const createVariantSchema = z.object({
   // the product id from the URL, always overriding whatever (if anything)
   // is sent here, so the URL stays the single authoritative source.
   productId: z.string().uuid("Invalid product id").optional(),
-  sku: z.string().trim().min(1, "SKU is required").max(64),
+  // No `sku` field — SKU is server-generated (CreateProductVariantUseCase,
+  // resolveUniqueSku), stable, and immutable. The admin never types one.
   color: z.string().trim().min(1, "Colour is required").max(60),
   size: z.string().trim().min(1, "Size is required").max(30),
   weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams"),
@@ -148,7 +150,8 @@ export const createVariantSchema = z.object({
 export type CreateVariantInput = z.infer<typeof createVariantSchema>;
 
 export const updateVariantSchema = z.object({
-  sku: z.string().trim().min(1, "SKU is required").max(64).optional(),
+  // No `sku` field — SKU is server-generated at creation and immutable
+  // thereafter (see createVariantSchema's own comment).
   color: z.string().trim().min(1, "Colour is required").max(60).optional(),
   size: z.string().trim().min(1, "Size is required").max(30).optional(),
   weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams").optional(),

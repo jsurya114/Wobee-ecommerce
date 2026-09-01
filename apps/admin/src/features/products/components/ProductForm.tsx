@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, FormField, Textarea } from "@woobe/ui";
+import { slugify } from "@woobe/utils";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
@@ -33,8 +34,24 @@ export function ProductForm({
 }) {
   const [values, setValues] = useState<ProductFormValues>({ ...EMPTY_VALUES, ...initialValues });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // An existing product's slug is never auto-changed by editing its name —
+  // only a brand-new product's slug follows the name as it's typed, and
+  // only until the admin edits the slug field themselves (then it stops
+  // following, same as any other "smart default" text field). The final
+  // slug is still just a preview: the server canonicalizes and
+  // de-duplicates whatever is submitted (see resolveUniqueSlug).
+  const [slugTouched, setSlugTouched] = useState(Boolean(initialValues?.slug));
 
   const set = <K extends keyof ProductFormValues>(key: K, value: ProductFormValues[K]) => setValues((prev) => ({ ...prev, [key]: value }));
+
+  const onNameChange = (name: string) => {
+    setValues((prev) => ({ ...prev, name, slug: slugTouched ? prev.slug : slugify(name) }));
+  };
+
+  const onSlugChange = (slug: string) => {
+    setSlugTouched(true);
+    set("slug", slug);
+  };
 
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,8 +80,18 @@ export function ProductForm({
   return (
     <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Name" value={values.name} onChange={(e) => set("name", e.target.value)} required />
-        <FormField label="Slug" value={values.slug} onChange={(e) => set("slug", e.target.value)} required />
+        <FormField label="Name" value={values.name} onChange={(e) => onNameChange(e.target.value)} required />
+        <FormField
+          label="Slug"
+          value={values.slug}
+          onChange={(e) => onSlugChange(e.target.value)}
+          required
+          helperText={
+            slugTouched
+              ? "Custom URL — won't change automatically."
+              : "Auto-generated from the name. Edit to set a custom URL."
+          }
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">

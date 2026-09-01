@@ -128,7 +128,7 @@ export interface CreateVariantInput {
 }
 
 export interface UpdateVariantInput {
-  sku?: string;
+  // No `sku` — immutable after creation (see CreateProductVariantUseCase's own comment).
   color?: string;
   size?: string;
   weightGrams?: number;
@@ -203,6 +203,10 @@ export interface ProductRepositoryPort {
   createProduct(input: CreateProductInput): Promise<AdminProductDetailEntity>;
   updateProduct(productId: string, input: UpdateProductInput): Promise<AdminProductDetailEntity>;
   setProductActive(productId: string, isActive: boolean): Promise<AdminProductDetailEntity>;
+  /** Used by CreateProductUseCase/UpdateProductUseCase's slug auto-generation (resolveUniqueSlug) to probe candidates before writing — `excludeProductId` lets an update check "is this slug taken by a DIFFERENT product" without tripping on the product's own current row. */
+  slugExists(slug: string, excludeProductId?: string): Promise<boolean>;
+  /** Used by CreateProductVariantUseCase's SKU auto-generation (resolveUniqueSku) to probe a randomly generated candidate before writing. */
+  skuExists(sku: string): Promise<boolean>;
 
   createVariant(input: CreateVariantInput): Promise<AdminProductVariantEntity>;
   updateVariant(variantId: string, input: UpdateVariantInput): Promise<AdminProductVariantEntity>;

@@ -513,7 +513,6 @@ export class ProductRepository implements ProductRepositoryPort {
         prisma.productVariant.update({
           where: { id: variantId },
           data: {
-            sku: input.sku,
             color: input.color,
             size: input.size,
             weightGrams: input.weightGrams,
@@ -600,6 +599,18 @@ export class ProductRepository implements ProductRepositoryPort {
         prisma.productImage.update({ where: { id: imageId, productId }, data: { sortOrder: index } }),
       ),
     );
+  }
+
+  async slugExists(slug: string, excludeProductId?: string): Promise<boolean> {
+    const count = await prisma.product.count({
+      where: { slug, ...(excludeProductId ? { id: { not: excludeProductId } } : {}) },
+    });
+    return count > 0;
+  }
+
+  async skuExists(sku: string): Promise<boolean> {
+    const count = await prisma.productVariant.count({ where: { sku } });
+    return count > 0;
   }
 }
 

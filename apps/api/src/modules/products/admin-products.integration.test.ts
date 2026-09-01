@@ -96,13 +96,38 @@ describe("admin products: CRUD", () => {
     expect(listRes.body.items.map((p: { id: string }) => p.id)).toContain(product.id);
   });
 
-  it("rejects creating a second product with the same slug", async () => {
+  it("auto-suffixes a second product's slug instead of colliding with the first", async () => {
     const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
     const auth = { Authorization: `Bearer ${token}` };
     const product = await createTestProduct(auth);
 
     const res = await request(app).post("/api/v1/admin/products").set(auth).send({ name: "Dup", slug: product.slug, categoryId });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(201);
+    createdProductIds.push(res.body.product.id);
+    expect(res.body.product.slug).toBe(`${product.slug}-2`);
+    expect(res.body.product.slug).not.toBe(product.slug);
+  });
+
+  it("canonicalizes a raw, not-yet-kebab-case slug (e.g. the un-slugified product name) instead of rejecting it", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const suffix = randomUUID().slice(0, 8);
+    const rawName = `${TEST_PREFIX} Linen Blend ${suffix}`;
+
+    const res = await request(app).post("/api/v1/admin/products").set(auth).send({ name: rawName, slug: rawName, categoryId });
+    expect(res.status).toBe(201);
+    createdProductIds.push(res.body.product.id);
+    expect(res.body.product.slug).toBe(`admin-products-integration-linen-blend-${suffix}`);
+  });
+
+  it("does not change a product's slug when only its name is edited", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const product = await createTestProduct(auth);
+
+    const res = await request(app).patch(`/api/v1/admin/products/${product.id}`).set(auth).send({ name: "A Totally Different Name" });
+    expect(res.status).toBe(200);
+    expect(res.body.product.slug).toBe(product.slug);
   });
 
   it("updates a product's metadata", async () => {
@@ -140,7 +165,7 @@ describe("admin products: variants, pricing cache, and inventory", () => {
     const res = await request(app)
       .post(`/api/v1/admin/products/${product.id}/variants`)
       .set(auth)
-      .send({ sku: `${TEST_PREFIX}-${randomUUID().slice(0, 8)}`, color: "Black", size: "M", weightGrams: 500, initialQuantity: 12 });
+      .send({ color: "Black", size: "M", weightGrams: 500, initialQuantity: 12 });
 
     expect(res.status).toBe(201);
     const expectedPrice = Math.round((500 * rate.defaultRatePerKgPaise) / 1000);
@@ -154,6 +179,38 @@ describe("admin products: variants, pricing cache, and inventory", () => {
     expect(productDetail.minPricePaiseCache).toBe(expectedPrice);
   });
 
+  it("auto-generates a stable, unique SKU — the client cannot supply or override one", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const product = await createTestProduct(auth);
+
+    // A client-supplied `sku` is silently ignored (unknown key, dropped by
+    // the schema) — the server always generates its own.
+    const res = await request(app)
+      .post(`/api/v1/admin/products/${product.id}/variants`)
+      .set(auth)
+      .send({ sku: "CLIENT-CHOSEN-SKU", color: "Red", size: "M", weightGrams: 400 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.variant.sku).toMatch(/^WOO-[0-9A-F]{8}$/);
+    expect(res.body.variant.sku).not.toBe("CLIENT-CHOSEN-SKU");
+
+    const second = await request(app)
+      .post(`/api/v1/admin/products/${product.id}/variants`)
+      .set(auth)
+      .send({ color: "Red", size: "L", weightGrams: 450 });
+    expect(second.body.variant.sku).not.toBe(res.body.variant.sku);
+
+    // Immutable: a client-supplied `sku` on update is silently ignored too.
+    const updateRes = await request(app)
+      .patch(`/api/v1/admin/products/${product.id}/variants/${res.body.variant.id}`)
+      .set(auth)
+      .send({ sku: "ATTEMPTED-OVERRIDE", fabric: "Cotton" });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.variant.sku).toBe(res.body.variant.sku);
+    expect(updateRes.body.variant.fabric).toBe("Cotton");
+  });
+
   it("recomputes the price cache and the product's minPrice when a variant's weight changes", async () => {
     const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
     const auth = { Authorization: `Bearer ${token}` };
@@ -163,7 +220,7 @@ describe("admin products: variants, pricing cache, and inventory", () => {
     const created = await request(app)
       .post(`/api/v1/admin/products/${product.id}/variants`)
       .set(auth)
-      .send({ sku: `${TEST_PREFIX}-${randomUUID().slice(0, 8)}`, color: "Black", size: "M", weightGrams: 500 });
+      .send({ color: "Black", size: "M", weightGrams: 500 });
 
     const updated = await request(app)
       .patch(`/api/v1/admin/products/${product.id}/variants/${created.body.variant.id}`)
@@ -186,11 +243,11 @@ describe("admin products: variants, pricing cache, and inventory", () => {
     const cheap = await request(app)
       .post(`/api/v1/admin/products/${product.id}/variants`)
       .set(auth)
-      .send({ sku: `${TEST_PREFIX}-${randomUUID().slice(0, 8)}`, color: "Black", size: "S", weightGrams: 200 });
+      .send({ color: "Black", size: "S", weightGrams: 200 });
     const expensive = await request(app)
       .post(`/api/v1/admin/products/${product.id}/variants`)
       .set(auth)
-      .send({ sku: `${TEST_PREFIX}-${randomUUID().slice(0, 8)}`, color: "Black", size: "L", weightGrams: 2000 });
+      .send({ color: "Black", size: "L", weightGrams: 2000 });
 
     let productDetail = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
     expect(productDetail.minPricePaiseCache).toBe(cheap.body.variant.effectivePricePaiseCache);
