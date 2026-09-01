@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Redesign (2026-09-01): shopping canvas is white (`surface`) — the warm
+   `background` tone is reserved for SiteHeader/SiteFooter, which set it
+   explicitly on themselves and don't rely on this inherited value. */
 body {
-  @apply bg-background text-text-primary font-body;
+  @apply bg-surface text-text-primary font-body;
 }

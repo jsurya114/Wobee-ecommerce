@@ -51,7 +51,7 @@ export interface ProductListParams {
   limit?: number;
 }
 
-export function listProducts(params: ProductListParams = {}): Promise<ProductListResult> {
+export function listProducts(params: ProductListParams = {}, options: { signal?: AbortSignal } = {}): Promise<ProductListResult> {
   const query = new URLSearchParams();
   if (params.category) query.set("category", params.category);
   if (params.collection) query.set("collection", params.collection);
@@ -65,7 +65,7 @@ export function listProducts(params: ProductListParams = {}): Promise<ProductLis
   if (params.page) query.set("page", String(params.page));
   if (params.limit) query.set("limit", String(params.limit));
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  return apiFetch<ProductListResult>(`/api/v1/products${suffix}`);
+  return apiFetch<ProductListResult>(`/api/v1/products${suffix}`, { signal: options.signal });
 }
 
 export interface VariantWithPriceAndStock {

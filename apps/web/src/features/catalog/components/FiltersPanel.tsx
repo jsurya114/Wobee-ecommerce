@@ -4,24 +4,26 @@ import { Button, Chip, Label, Sheet, cn } from "@woobe/ui";
 import { SlidersHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
 import type { ProductSort } from "../api/products.client";
+import { useFilterResultCount } from "../hooks/useFilterResultCount";
+import { buildProductsHref, parseProductsQueryParams, type ProductsQueryParams } from "../lib/build-products-href";
+import { SIZE_OPTIONS } from "../lib/filter-options";
 
 /**
- * PLP filters + sort (redesign spec §G). Filters open in a bottom `Sheet`
- * (accessible dialog — focus trap, Esc, scroll lock, returns focus): the
- * shopper adjusts size / colour / price / availability and commits with
- * "Apply", or "Clear". Sort is a compact inline control that navigates
- * immediately. Only backend-supported facets are exposed — no fabricated
- * filters, no weight facet (deferred, see spec §O).
+ * The full PLP filter sheet (redesign spec §14) — Size, Colour, Price,
+ * Availability. Sort moved out to its own `SortSelector` (it isn't a facet
+ * you narrow by, it's an ordering, and it never needed the multi-select
+ * "Apply" pattern the rest of this sheet uses). Size is repeated here (also
+ * reachable via the standalone `SizeQuickFilter` on the control row) so
+ * anyone who opens "Filters" directly still meets it first, largest, and
+ * before every other facet — both surfaces read/write the same `?size=` URL
+ * param via `buildProductsHref`, so there's nothing to keep in sync by hand.
+ *
+ * Pending edits live in local state and are only committed to the URL (a
+ * real navigation, a real server-filtered result) on "Show results" — the
+ * shopper can flip through every facet without losing earlier choices or
+ * triggering a page change per click.
  */
-const SIZE_OPTIONS = ["S", "M", "L", "XL", "XXL", "One Size"];
-const SORT_OPTIONS: { value: ProductSort; label: string }[] = [
-  { value: "price_asc", label: "Price: Low to High" },
-  { value: "price_desc", label: "Price: High to Low" },
-  { value: "newest", label: "Newest" },
-];
-
 function activeFilterCount(params: ProductsQueryParams): number {
   return [params.size, params.color, params.inStock, params.minPrice, params.maxPrice].filter(Boolean).length;
 }
@@ -36,14 +38,12 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
-  // Pending sheet state — committed only on "Apply".
   const [sizes, setSizes] = useState<string[]>([]);
   const [color, setColor] = useState("");
   const [inStock, setInStock] = useState(false);
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
 
-  // Re-seed the pending state from the URL every time the sheet opens.
   useEffect(() => {
     if (!open) return;
     setSizes(currentParams.size ? currentParams.size.split(",") : []);
@@ -55,9 +55,20 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
 
   const count = activeFilterCount(currentParams);
 
+  const minRupees = minPrice !== "" ? Number(minPrice) : undefined;
+  const maxRupees = maxPrice !== "" ? Number(maxPrice) : undefined;
+  const pendingQuery = {
+    ...parseProductsQueryParams(currentParams),
+    sort: currentParams.sort as ProductSort | undefined,
+    size: sizes.length > 0 ? sizes : undefined,
+    color: color.trim() ? [color.trim()] : undefined,
+    inStock: inStock ? true : undefined,
+    minPrice: minRupees != null && Number.isFinite(minRupees) ? Math.round(minRupees * 100) : undefined,
+    maxPrice: maxRupees != null && Number.isFinite(maxRupees) ? Math.round(maxRupees * 100) : undefined,
+  };
+  const { count: previewCount } = useFilterResultCount(pendingQuery, { enabled: open });
+
   function apply() {
-    const minRupees = minPrice !== "" ? Number(minPrice) : undefined;
-    const maxRupees = maxPrice !== "" ? Number(maxPrice) : undefined;
     router.push(
       buildProductsHref({
         ...currentParams,
@@ -84,33 +95,11 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
   }
 
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-2">
-      <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)}>
+    <>
+      <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)} aria-haspopup="dialog">
         <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
         Filters{count > 0 ? ` (${count})` : ""}
       </Button>
-
-      <label htmlFor="product-sort" className="sr-only">
-        Sort by
-      </label>
-      <select
-        id="product-sort"
-        value={currentParams.sort ?? "price_asc"}
-        onChange={(e) => router.push(buildProductsHref({ ...currentParams, sort: e.target.value as ProductSort }))}
-        className="h-9 rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      >
-        {SORT_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-
-      {count > 0 ? (
-        <Button type="button" variant="ghost" size="sm" onClick={clearAll}>
-          Clear
-        </Button>
-      ) : null}
 
       <Sheet
         open={open}
@@ -119,34 +108,28 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
         footer={
           <div className="flex gap-3">
             <Button type="button" variant="secondary" size="sm" onClick={clearAll} className="flex-1">
-              Clear
+              Clear all
             </Button>
             <Button type="button" size="sm" onClick={apply} className="flex-1">
-              Apply
+              {previewCount != null ? `Show ${previewCount} result${previewCount === 1 ? "" : "s"}` : "Show results"}
             </Button>
           </div>
         }
       >
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-6">
           <fieldset>
-            <legend className="mb-2 font-body text-sm font-medium text-text-primary">Size</legend>
+            <legend className="mb-2 font-body text-sm font-semibold text-text-primary">Size</legend>
             <div className="flex flex-wrap gap-2">
               {SIZE_OPTIONS.map((size) => (
-                <Chip key={size} size="sm" active={sizes.includes(size)} onClick={() => toggleSize(size)}>
+                <Chip key={size} active={sizes.includes(size)} onClick={() => toggleSize(size)}>
                   {size}
                 </Chip>
               ))}
             </div>
           </fieldset>
 
-          <div>
-            <Chip size="sm" active={inStock} onClick={() => setInStock((v) => !v)}>
-              In stock only
-            </Chip>
-          </div>
-
-          <div>
-            <Label htmlFor="filter-color" className="mb-1.5 block">
+          <div className="border-t border-border pt-5">
+            <Label htmlFor="filter-color" className="mb-1.5 block font-medium text-text-primary">
               Colour
             </Label>
             <input
@@ -161,8 +144,8 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
             />
           </div>
 
-          <div>
-            <Label className="mb-1.5 block">Price (₹)</Label>
+          <div className="border-t border-border pt-5">
+            <Label className="mb-1.5 block font-medium text-text-primary">Price (₹)</Label>
             <div className="flex items-center gap-3">
               <input
                 aria-label="Minimum price in rupees"
@@ -187,8 +170,14 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
               />
             </div>
           </div>
+
+          <div className="border-t border-border pt-5">
+            <Chip active={inStock} onClick={() => setInStock((v) => !v)}>
+              In stock only
+            </Chip>
+          </div>
         </div>
       </Sheet>
-    </div>
+    </>
   );
 }

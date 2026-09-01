@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { BottomNav } from "@/features/auth/components/BottomNav";
 import { SiteFooter } from "@/features/auth/components/SiteFooter";
 import { SiteHeader } from "@/features/auth/components/SiteHeader";
+import { FloatingCartWeightIndicator } from "@/features/cart/components/FloatingCartWeightIndicator";
+import { WhatsAppButton } from "@/features/support/components/WhatsAppButton";
 
 export default function StorefrontLayout({ children }: { children: ReactNode }) {
   return (
@@ -31,6 +33,8 @@ export default function StorefrontLayout({ children }: { children: ReactNode }) 
         {children}
       </div>
       <SiteFooter />
+      <FloatingCartWeightIndicator />
+      <WhatsAppButton />
       <BottomNav />
     </div>
   );

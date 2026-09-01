@@ -3,6 +3,7 @@ import { CategoryRail } from "@/features/home/components/CategoryRail";
 import { CustomerReviewsSection } from "@/features/home/components/CustomerReviewsSection";
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
 import { HomeGridSection } from "@/features/home/components/HomeGridSection";
+import { HomeSearchBar } from "@/features/home/components/HomeSearchBar";
 import { ProductRail } from "@/features/home/components/ProductRail";
 import { PromoCarousel } from "@/features/home/components/PromoCarousel";
 import { ShopByBudget } from "@/features/home/components/ShopByBudget";
@@ -28,6 +29,7 @@ export default async function HomePage() {
 
   return (
     <main>
+      <HomeSearchBar />
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
       <ProductRail title="New arrivals" products={home.newArrivals} seeAllHref="/products?sort=newest" />

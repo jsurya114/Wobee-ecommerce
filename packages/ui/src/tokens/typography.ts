@@ -1,17 +1,25 @@
+// Mirror of packages/config/tailwind/preset.cjs's `theme.extend.fontFamily`
+// / `fontSize` — that file is canonical for every Tailwind utility class.
+// This file exists only for a non-Tailwind consumer needing raw JS values
+// (none currently — kept in sync anyway per the no-blind-deletion rule).
+// Verified in sync 2026-09-01: previously listed fonts never loaded by the
+// app (Cormorant Garamond, Plus Jakarta Sans) and a fontSize scale with no
+// relationship to the live one — replaced with the real values.
 export const typography = {
   fontFamily: {
-    serif: ["Playfair Display", "Cormorant Garamond", "Georgia", "serif"],
-    sans: ["Plus Jakarta Sans", "Inter", "system-ui", "sans-serif"],
+    display: ["var(--font-playfair)", "Georgia", "serif"],
+    body: ["var(--font-inter)", "system-ui", "sans-serif"],
   },
   fontSize: {
-    xs: ["0.6875rem", { lineHeight: "0.875rem" }],   // 11px
-    sm: ["0.75rem", { lineHeight: "1rem" }],          // 12px
-    base: ["0.8125rem", { lineHeight: "1.125rem" }],  // 13px
-    md: ["0.875rem", { lineHeight: "1.25rem" }],      // 14px
-    lg: ["0.9375rem", { lineHeight: "1.375rem" }],    // 15px
-    xl: ["1rem", { lineHeight: "1.5rem" }],          // 16px
-    "2xl": ["1.125rem", { lineHeight: "1.5rem" }],    // 18px
-    "3xl": ["1.25rem", { lineHeight: "1.75rem" }],    // 20px
-    "4xl": ["1.5rem", { lineHeight: "2rem" }],        // 24px
+    micro: "0.6875rem", // 11px — card metadata (weight·rate, counts)
+    label: "0.8125rem", // 13px — uppercase section labels
+    xs: "0.75rem", // 12px
+    sm: "0.875rem", // 14px
+    base: "1rem", // 16px
+    lg: "1.125rem", // 18px
+    xl: "1.25rem", // 20px
+    "2xl": "1.5rem", // 24px
+    "3xl": "2rem", // 32px
+    "4xl": "2.75rem", // 44px
   },
 } as const;

@@ -2,6 +2,7 @@ import { formatGrams } from "@woobe/utils";
 import { ProgressBar } from "@woobe/ui";
 import { PackageCheck } from "lucide-react";
 import type { CartView } from "../api/cart.client";
+import { deriveWeightStatus } from "../lib/derive-weight-status";
 
 /**
  * The two-stage weight-threshold indicator (woobe_ui_design_plan.md §8.2,
@@ -23,11 +24,12 @@ export function WeightThresholdBanner({
   shipping: CartView["shipping"];
   weightBasedTotalGrams: number;
 }) {
-  if (weightBasedTotalGrams === 0) {
+  const status = deriveWeightStatus(weightBasedTotalGrams, shipping);
+  if (!status) {
     return null;
   }
 
-  if (shipping.isFreeDelivery) {
+  if (status.kind === "free-delivery") {
     return (
       <div className="flex items-center gap-2 rounded-control bg-success/10 p-3">
         <PackageCheck className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
@@ -36,27 +38,15 @@ export function WeightThresholdBanner({
     );
   }
 
-  if (!shipping.meetsMinimum) {
-    const target = weightBasedTotalGrams + shipping.gramsToMinimum;
-    const percent = target > 0 ? (weightBasedTotalGrams / target) * 100 : 0;
-    return (
-      <div className="rounded-control bg-primary-tint/40 p-3">
-        <p className="mb-1.5 font-body text-xs font-medium text-text-primary">
-          Add {formatGrams(shipping.gramsToMinimum)} more to place your order
-        </p>
-        <ProgressBar value={percent} />
-      </div>
-    );
-  }
+  const message =
+    status.kind === "below-minimum"
+      ? `Add ${formatGrams(status.gramsRemaining)} more to place your order`
+      : `Add ${formatGrams(status.gramsRemaining)} more for free delivery`;
 
-  const target = weightBasedTotalGrams + shipping.gramsToFreeDelivery;
-  const percent = target > 0 ? (weightBasedTotalGrams / target) * 100 : 0;
   return (
     <div className="rounded-control bg-primary-tint/40 p-3">
-      <p className="mb-1.5 font-body text-xs font-medium text-text-primary">
-        Add {formatGrams(shipping.gramsToFreeDelivery)} more for free delivery
-      </p>
-      <ProgressBar value={percent} />
+      <p className="mb-1.5 font-body text-xs font-medium text-text-primary">{message}</p>
+      <ProgressBar value={status.percent} />
     </div>
   );
 }

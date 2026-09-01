@@ -82,7 +82,7 @@ export function ProductRail({
           <div className="-ml-2.5 flex">
             {products.map((product) => (
               <div key={product.id} className="min-w-0 flex-[0_0_31%] pl-2.5 sm:flex-[0_0_24%] lg:flex-[0_0_18%]">
-                <ProductCard product={product} />
+                <ProductCard product={product} showQuickAdd />
               </div>
             ))}
           </div>

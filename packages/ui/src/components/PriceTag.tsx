@@ -31,18 +31,18 @@ export const PriceTag: React.FC<PriceTagProps> = ({
   return (
     <div className={`flex flex-col gap-0 ${className}`}>
       <div className="flex items-baseline gap-1.5 flex-wrap">
-        <span className={`font-bold text-[#1A1513] tracking-tight ${sizeClasses[size]}`}>
+        <span className={`font-bold text-text-primary tracking-tight ${sizeClasses[size]}`}>
           {formatPaiseAsInrCompact(pricePaise)}
         </span>
         {compareAtPricePaise && compareAtPricePaise > pricePaise && (
-          <span className="text-[10px] text-[#9C928B] line-through">
+          <span className="text-[10px] text-text-secondary line-through">
             {formatPaiseAsInrCompact(compareAtPricePaise)}
           </span>
         )}
       </div>
 
       {weightGrams != null && ratePerKg !== null && (
-        <span className="text-[10px] text-[#6E6560] font-normal leading-none">
+        <span className="text-[10px] text-text-secondary font-normal leading-none">
           {weightGrams}g • ₹{ratePerKg}/kg
         </span>
       )}

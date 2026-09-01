@@ -139,7 +139,7 @@ export function PromoCarousel({ banners }: { banners: HomeBanner[] }) {
 
 function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boolean }) {
   const content = (
-    <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-2 sm:aspect-[21/9]">
+    <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-2 sm:aspect-[21/9] sm:max-h-[280px]">
       <img
         src={banner.imageUrl}
         alt={banner.title ?? ""}

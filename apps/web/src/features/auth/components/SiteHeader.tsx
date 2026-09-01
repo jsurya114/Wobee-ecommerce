@@ -19,10 +19,17 @@ import { useCart } from "@/features/cart/hooks/useCart";
 import { useWishlist } from "@/features/wishlist/hooks/useWishlist";
 import { useAuth } from "../hooks/useAuth";
 
-// Global search belongs on the browsing surfaces only — home and the
-// shop listing. Every other page (cart, checkout, account, auth, PDP …)
-// has its own job; a header search there is noise.
+// Global search belongs on the browsing surfaces only — home and the shop
+// listing. Every other page (cart, checkout, account, auth, PDP …) has its
+// own job; a header search there is noise.
 const SEARCH_ROUTES = new Set(["/", "/products"]);
+
+// Home has its own always-visible `HomeSearchBar` between the header and
+// the promo carousel on mobile (UI refinement pass) — showing this
+// collapsible header one there too would be a duplicate entry point on the
+// same viewport, so it's hidden below `md` on home only. Desktop has no
+// such bar (there's room in the nav for this one instead), so it stays.
+const MOBILE_DUPLICATE_SEARCH_ROUTES = new Set(["/"]);
 
 /**
  * Slim top bar — logo + a cart shortcut on mobile (real navigation lives in
@@ -37,6 +44,7 @@ export function SiteHeader() {
   const { wishlist } = useWishlist();
   const pathname = usePathname();
   const showSearch = SEARCH_ROUTES.has(pathname);
+  const hideSearchOnMobile = MOBILE_DUPLICATE_SEARCH_ROUTES.has(pathname);
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
@@ -47,7 +55,11 @@ export function SiteHeader() {
 
         {/* Right cluster — search (route-gated) + nav + mobile cart, right-aligned as a group. */}
         <div className="flex flex-1 items-center gap-3 md:ml-auto md:flex-none md:gap-5">
-          {showSearch ? <HeaderSearch /> : null}
+          {showSearch ? (
+            <div className={hideSearchOnMobile ? "hidden md:contents" : "contents"}>
+              <HeaderSearch />
+            </div>
+          ) : null}
 
           {/* Desktop nav — mirrors BottomNav's destinations (and its icon+label pattern) plus login/register/logout, which the bottom nav folds into its Account tab. */}
           <nav className="hidden shrink-0 items-center gap-6 font-body text-sm md:flex">

@@ -32,3 +32,19 @@ export const ABOVE_MOBILE_BOTTOM_NAV_STYLE = {
 export const SCROLL_MARGIN_ABOVE_BOTTOM_NAV_STYLE = {
   scrollMarginBottom: `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom))`,
 } as const;
+
+/**
+ * UI refinement pass (2026-09-01) — the mobile fixed-position stack now has
+ * three tiers that can be visible at once: BottomNav (always, mobile), at
+ * most one full-width bar directly above it (`ProductPurchasePanel`'s PDP
+ * buy bar, `CartPageContent`'s checkout bar, or `FloatingCartWeightIndicator`
+ * — mutually exclusive by route, see `useCartWeightBarVisibility`'s route
+ * list), and `WhatsAppButton`, a small corner FAB that must clear whichever
+ * of those (if any) is currently showing. Heights below are measured
+ * against the real rendered elements, not guessed — keep them in sync if
+ * any bar's content changes enough to change its height.
+ */
+export const STICKY_ACTION_BAR_HEIGHT_REM = "4.3125rem"; // 69px — PDP buy bar and the cart page's checkout bar, both measured live, happen to match
+export const CART_WEIGHT_INDICATOR_HEIGHT_REM = "2.875rem"; // 46px, measured live
+/** Breathing room between a floating element and whatever it's stacked above. */
+export const FLOATING_STACK_GAP_REM = "0.625rem";

@@ -6,7 +6,9 @@ import { CategoryFilter } from "@/features/catalog/components/CategoryFilter";
 import { CollectionFilter } from "@/features/catalog/components/CollectionFilter";
 import { FiltersPanel } from "@/features/catalog/components/FiltersPanel";
 import { ProductResults } from "@/features/catalog/components/ProductResults";
-import type { ProductsQueryParams } from "@/features/catalog/lib/build-products-href";
+import { SizeQuickFilter } from "@/features/catalog/components/SizeQuickFilter";
+import { SortSelector } from "@/features/catalog/components/SortSelector";
+import { parseProductsQueryParams, type ProductsQueryParams } from "@/features/catalog/lib/build-products-href";
 import { ApiError } from "@/lib/api-client";
 
 // Reads searchParams — already renders dynamically without needing an
@@ -84,14 +86,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   };
 
   const query: Omit<ProductListParams, "page" | "limit"> = {
-    category: currentParams.category,
-    collection: currentParams.collection,
-    q: currentParams.q,
-    size: currentParams.size ? currentParams.size.split(",") : undefined,
-    color: currentParams.color ? currentParams.color.split(",") : undefined,
-    inStock: currentParams.inStock === "true" ? true : undefined,
-    minPrice: currentParams.minPrice ? Number(currentParams.minPrice) : undefined,
-    maxPrice: currentParams.maxPrice ? Number(currentParams.maxPrice) : undefined,
+    ...parseProductsQueryParams(currentParams),
     sort: currentParams.sort as ProductSort,
   };
 
@@ -122,7 +117,11 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       <h1 className="mb-4 font-display text-xl text-text-primary">Shop</h1>
       <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
       <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
-      <FiltersPanel currentParams={currentParams} />
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <SizeQuickFilter currentParams={currentParams} />
+        <FiltersPanel currentParams={currentParams} />
+        <SortSelector currentParams={currentParams} />
+      </div>
       <ProductResults
         key={resultsKey}
         initialProducts={result.products}
