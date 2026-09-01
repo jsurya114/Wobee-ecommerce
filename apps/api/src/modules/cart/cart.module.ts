@@ -15,6 +15,7 @@ import type { ShippingReaderPort } from "./application/ports/shipping-reader.por
 import type { VariantCatalogPort } from "./application/ports/variant-catalog.port";
 import { AddItemUseCase } from "./application/use-cases/add-item.use-case";
 import { ApplyCouponUseCase } from "./application/use-cases/apply-coupon.use-case";
+import { ChangeItemVariantUseCase } from "./application/use-cases/change-item-variant.use-case";
 import { GetCartUseCase } from "./application/use-cases/get-cart.use-case";
 import { GetOrCreateCartUseCase } from "./application/use-cases/get-or-create-cart.use-case";
 import { MarkCartConvertedUseCase } from "./application/use-cases/mark-cart-converted.use-case";
@@ -43,6 +44,7 @@ export const getCartUseCase = new GetCartUseCase(cartRepository, variantCatalog,
 /** Exported for cross-module use — wishlist's move-to-cart action (Week 2 Day 2) adds through the same path the cart page's "Add to bag" does. */
 export const addItemUseCase = new AddItemUseCase(cartRepository, variantCatalog, inventoryReader);
 const updateItemQuantityUseCase = new UpdateItemQuantityUseCase(cartRepository, inventoryReader);
+const changeItemVariantUseCase = new ChangeItemVariantUseCase(cartRepository, variantCatalog, inventoryReader);
 const removeItemUseCase = new RemoveItemUseCase(cartRepository);
 const mergeGuestCartUseCase = new MergeGuestCartUseCase(cartRepository, inventoryReader, getOrCreateCartUseCase);
 /** Exported for cross-module use — see the use-case's own doc comment. */
@@ -55,6 +57,7 @@ const cartController = new CartController(
   getCartUseCase,
   addItemUseCase,
   updateItemQuantityUseCase,
+  changeItemVariantUseCase,
   removeItemUseCase,
   mergeGuestCartUseCase,
   applyCouponUseCase,

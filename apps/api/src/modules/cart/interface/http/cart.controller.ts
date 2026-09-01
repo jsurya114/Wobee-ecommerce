@@ -1,8 +1,9 @@
-import type { AddCartItemInput, ApplyCouponInput, UpdateCartItemInput } from "@woobe/validation";
+import type { AddCartItemInput, ApplyCouponInput, ChangeCartItemVariantInput, UpdateCartItemInput } from "@woobe/validation";
 import type { Request, Response } from "express";
 import { UnauthorizedError, ValidationError } from "../../../../shared/errors";
 import type { AddItemUseCase } from "../../application/use-cases/add-item.use-case";
 import type { ApplyCouponUseCase } from "../../application/use-cases/apply-coupon.use-case";
+import type { ChangeItemVariantUseCase } from "../../application/use-cases/change-item-variant.use-case";
 import type { GetCartUseCase } from "../../application/use-cases/get-cart.use-case";
 import type { GetOrCreateCartUseCase } from "../../application/use-cases/get-or-create-cart.use-case";
 import type { MergeGuestCartUseCase } from "../../application/use-cases/merge-guest-cart.use-case";
@@ -18,6 +19,7 @@ export class CartController {
     private readonly getCartUseCase: GetCartUseCase,
     private readonly addItemUseCase: AddItemUseCase,
     private readonly updateItemQuantityUseCase: UpdateItemQuantityUseCase,
+    private readonly changeItemVariantUseCase: ChangeItemVariantUseCase,
     private readonly removeItemUseCase: RemoveItemUseCase,
     private readonly mergeGuestCartUseCase: MergeGuestCartUseCase,
     private readonly applyCouponUseCase: ApplyCouponUseCase,
@@ -46,6 +48,18 @@ export class CartController {
     }
     const input = req.body as UpdateCartItemInput;
     await this.updateItemQuantityUseCase.execute({ cartId, itemId, quantity: input.quantity });
+    const cart = await this.getCartUseCase.execute(cartId, req.user?.id);
+    res.status(200).json(cart);
+  }
+
+  async changeItemVariant(req: Request, res: Response): Promise<void> {
+    const cartId = await this.resolveCartId(req, res);
+    const itemId = req.params.itemId;
+    if (!itemId || typeof itemId !== "string") {
+      throw new ValidationError("Cart item id is required");
+    }
+    const input = req.body as ChangeCartItemVariantInput;
+    await this.changeItemVariantUseCase.execute({ cartId, itemId, variantId: input.variantId });
     const cart = await this.getCartUseCase.execute(cartId, req.user?.id);
     res.status(200).json(cart);
   }

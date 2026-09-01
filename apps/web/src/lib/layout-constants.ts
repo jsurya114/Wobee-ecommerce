@@ -48,3 +48,12 @@ export const STICKY_ACTION_BAR_HEIGHT_REM = "4.3125rem"; // 69px — PDP buy bar
 export const CART_WEIGHT_INDICATOR_HEIGHT_REM = "2.875rem"; // 46px, measured live
 /** Breathing room between a floating element and whatever it's stacked above. */
 export const FLOATING_STACK_GAP_REM = "0.625rem";
+
+/**
+ * `SiteHeader`'s real rendered height (measured live, both mobile and
+ * desktop rows) — the `top` offset for any `position: sticky` element that
+ * needs to sit flush directly below the header rather than under it (the
+ * PLP's compact Size/Filters/Sort control bar, mobile UI refinement pass
+ * 2026-09-01). Same "measured, not guessed" rule as the constants above.
+ */
+export const SITE_HEADER_HEIGHT_REM = "4.0625rem"; // 65px, measured live

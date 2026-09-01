@@ -5,6 +5,7 @@ import { listProducts, PRODUCT_SORT_VALUES, type ProductListParams, type Product
 import { CategoryFilter } from "@/features/catalog/components/CategoryFilter";
 import { CollectionFilter } from "@/features/catalog/components/CollectionFilter";
 import { FiltersPanel } from "@/features/catalog/components/FiltersPanel";
+import { PlpControlBar } from "@/features/catalog/components/PlpControlBar";
 import { ProductResults } from "@/features/catalog/components/ProductResults";
 import { SizeQuickFilter } from "@/features/catalog/components/SizeQuickFilter";
 import { SortSelector } from "@/features/catalog/components/SortSelector";
@@ -22,8 +23,15 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function parseSort(value: string | undefined): ProductSort {
-  return (PRODUCT_SORT_VALUES as readonly string[]).includes(value ?? "") ? (value as ProductSort) : "price_asc";
+const DEFAULT_SORT: ProductSort = "price_asc";
+
+// Undefined (not defaulted) when the shopper hasn't explicitly picked a
+// sort — the compact control bar (mobile UI refinement pass 2026-09-01)
+// reads plain "Sort" in that case rather than always naming the default,
+// and buildProductsHref correspondingly leaves `sort=` out of every link
+// until one is actually chosen.
+function parseExplicitSort(value: string | undefined): ProductSort | undefined {
+  return (PRODUCT_SORT_VALUES as readonly string[]).includes(value ?? "") ? (value as ProductSort) : undefined;
 }
 
 /**
@@ -82,12 +90,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     inStock: first(raw.inStock) === "true" ? "true" : undefined,
     minPrice: first(raw.minPrice),
     maxPrice: first(raw.maxPrice),
-    sort: parseSort(first(raw.sort)),
+    sort: parseExplicitSort(first(raw.sort)),
   };
 
   const query: Omit<ProductListParams, "page" | "limit"> = {
     ...parseProductsQueryParams(currentParams),
-    sort: currentParams.sort as ProductSort,
+    sort: (currentParams.sort as ProductSort | undefined) ?? DEFAULT_SORT,
   };
 
   const [{ categories }, { collections }] = await Promise.all([listCategories(), listCollections()]);
@@ -117,11 +125,11 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       <h1 className="mb-4 font-display text-xl text-text-primary">Shop</h1>
       <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
       <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <PlpControlBar>
         <SizeQuickFilter currentParams={currentParams} />
         <FiltersPanel currentParams={currentParams} />
         <SortSelector currentParams={currentParams} />
-      </div>
+      </PlpControlBar>
       <ProductResults
         key={resultsKey}
         initialProducts={result.products}

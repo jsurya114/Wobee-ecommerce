@@ -22,3 +22,10 @@ export const updateCartItemSchema = z.object({
   quantity: z.coerce.number().int().min(1, "Quantity must be at least 1").max(20, "Quantity cannot exceed 20"),
 });
 export type UpdateCartItemInput = z.infer<typeof updateCartItemSchema>;
+
+// Cart "change size" — swaps a line to a different variant of the same
+// product; quantity/stock revalidation happens server-side, not here.
+export const changeCartItemVariantSchema = z.object({
+  variantId: z.string().uuid("Invalid variant id"),
+});
+export type ChangeCartItemVariantInput = z.infer<typeof changeCartItemVariantSchema>;

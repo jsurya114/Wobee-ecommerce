@@ -6,12 +6,18 @@ import { Minus, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
+import { getProductBySlug } from "@/features/catalog/api/products.client";
+import { SizeSelectorSheet } from "@/features/catalog/components/SizeSelectorSheet";
+import { groupVariantsBySize, type SizeChoice } from "@/features/catalog/lib/group-variants-by-size";
 import { useCart } from "../hooks/useCart";
 import type { CartLine } from "../api/cart.client";
 
 export function CartLineItem({ line }: { line: CartLine }) {
-  const { updateItem, removeItem } = useCart();
+  const { updateItem, changeItemVariant, removeItem } = useCart();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [sizeChoices, setSizeChoices] = useState<SizeChoice[] | null>(null);
+  const [isLoadingSizes, setIsLoadingSizes] = useState(false);
+  const [isChangingSize, setIsChangingSize] = useState(false);
 
   async function changeQuantity(quantity: number) {
     if (quantity < 1) return;
@@ -32,6 +38,34 @@ export function CartLineItem({ line }: { line: CartLine }) {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't remove this item");
       setIsUpdating(false);
+    }
+  }
+
+  async function openSizeSelector() {
+    setIsLoadingSizes(true);
+    try {
+      const { product } = await getProductBySlug(line.productSlug);
+      setSizeChoices(groupVariantsBySize(product.variants));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't load available sizes");
+    } finally {
+      setIsLoadingSizes(false);
+    }
+  }
+
+  async function handleSelectSize(variantId: string) {
+    if (variantId === line.variantId) {
+      setSizeChoices(null);
+      return;
+    }
+    setIsChangingSize(true);
+    try {
+      await changeItemVariant(line.itemId, variantId);
+      setSizeChoices(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "That size isn't available — your item wasn't changed");
+    } finally {
+      setIsChangingSize(false);
     }
   }
 
@@ -56,6 +90,15 @@ export function CartLineItem({ line }: { line: CartLine }) {
               {line.color} · {line.size}
               {/* Null ratePerKgPaise (2026-08-31) = a FIXED-category item — weight didn't determine this price, so don't show it as if it did. */}
               {line.ratePerKgPaise !== null ? ` · ${formatGrams(line.weightGrams)} · ${formatPaiseAsInrCompact(line.ratePerKgPaise)}/kg` : ""}
+              {" · "}
+              <button
+                type="button"
+                onClick={() => void openSizeSelector()}
+                disabled={isLoadingSizes}
+                className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              >
+                {isLoadingSizes ? "Loading…" : "Change"}
+              </button>
             </p>
           </div>
           <button
@@ -100,6 +143,20 @@ export function CartLineItem({ line }: { line: CartLine }) {
           <PriceTag pricePaise={line.subtotalPaise} />
         </div>
       </div>
+
+      {sizeChoices ? (
+        <SizeSelectorSheet
+          open={sizeChoices !== null}
+          onOpenChange={(open) => {
+            if (!open) setSizeChoices(null);
+          }}
+          title={`Change size — ${line.productName}`}
+          sizes={sizeChoices}
+          selectedVariantId={line.variantId}
+          onSelect={(variantId) => void handleSelectSize(variantId)}
+          isBusy={isChangingSize}
+        />
+      ) : null}
     </div>
   );
 }

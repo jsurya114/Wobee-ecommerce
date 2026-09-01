@@ -38,6 +38,8 @@ export interface CartRepositoryPort {
   findItemByVariant(cartId: string, variantId: string): Promise<CartItemRecord | null>;
   addItem(cartId: string, variantId: string, quantity: number): Promise<CartItemRecord>;
   setItemQuantity(itemId: string, quantity: number): Promise<CartItemRecord>;
+  /** Re-points an existing line at a different variant of the same product (cart "change size") — never called for a variant that already has its own line, see ChangeItemVariantUseCase. */
+  setItemVariant(itemId: string, variantId: string): Promise<CartItemRecord>;
   removeItem(itemId: string): Promise<void>;
 
   /** Week 2 Day 5 (week2 (1).md §9) — the applied coupon's code only, same "store the reference, recompute the money live" rule as everything else on Cart (see Cart.couponCode's own schema comment). null when none is applied. */

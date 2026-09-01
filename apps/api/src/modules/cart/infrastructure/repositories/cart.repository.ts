@@ -79,6 +79,11 @@ export class CartRepository implements CartRepositoryPort {
     return toItemRecord(row);
   }
 
+  async setItemVariant(itemId: string, variantId: string): Promise<CartItemRecord> {
+    const row = await prisma.cartItem.update({ where: { id: itemId }, data: { variantId } });
+    return toItemRecord(row);
+  }
+
   async removeItem(itemId: string): Promise<void> {
     await prisma.cartItem.delete({ where: { id: itemId } });
   }

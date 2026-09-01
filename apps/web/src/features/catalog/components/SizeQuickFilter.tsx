@@ -1,13 +1,13 @@
 "use client";
 
-import { Button, Chip, Sheet } from "@woobe/ui";
+import { Button, Chip, Sheet, cn } from "@woobe/ui";
 import { Ruler } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ProductSort } from "../api/products.client";
 import { useFilterResultCount } from "../hooks/useFilterResultCount";
 import { buildProductsHref, parseProductsQueryParams, type ProductsQueryParams } from "../lib/build-products-href";
-import { SIZE_OPTIONS } from "../lib/filter-options";
+import { PLP_CONTROL_BUTTON_CLASS, SIZE_OPTIONS } from "../lib/filter-options";
 
 /**
  * Size-first quick filter (redesign spec §13/§15) — Woobe is a surplus/
@@ -37,7 +37,11 @@ export function SizeQuickFilter({ currentParams }: { currentParams: ProductsQuer
   };
   const { count } = useFilterResultCount(pendingQuery, { enabled: open });
 
-  const activeCount = currentParams.size ? currentParams.size.split(",").length : 0;
+  const activeSizes = currentParams.size ? currentParams.size.split(",") : [];
+  const activeCount = activeSizes.length;
+  // One selected size names it directly ("Size: M") — the compact control
+  // bar has no room to spell out more than one, so 2+ falls back to a count.
+  const triggerLabel = activeCount === 1 ? `Size: ${activeSizes[0]}` : activeCount > 1 ? `Size (${activeCount})` : "Size";
 
   function toggleSize(size: string) {
     setSizes((prev) => (prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size]));
@@ -56,16 +60,18 @@ export function SizeQuickFilter({ currentParams }: { currentParams: ProductsQuer
 
   return (
     <>
-      <Button
+      <button
         type="button"
-        variant={activeCount > 0 ? "primary" : "secondary"}
-        size="sm"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
+        className={cn(
+          PLP_CONTROL_BUTTON_CLASS,
+          activeCount > 0 ? "border-primary bg-primary text-white" : "border-border bg-surface text-text-primary hover:border-primary",
+        )}
       >
         <Ruler className="h-4 w-4" aria-hidden="true" />
-        Size{activeCount > 0 ? ` (${activeCount})` : ""}
-      </Button>
+        {triggerLabel}
+      </button>
 
       <Sheet
         open={open}

@@ -10,6 +10,8 @@ interface CartContextValue {
   isLoading: boolean;
   addItem: (variantId: string, quantity: number) => Promise<void>;
   updateItem: (itemId: string, quantity: number) => Promise<void>;
+  /** Cart "change size" — swaps a line to a different variant of the same product. */
+  changeItemVariant: (itemId: string, variantId: string) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
   /** Requires a logged-in accessToken — throws if called while signed out (the coupon UI only renders the input for a logged-in customer). */
   applyCoupon: (code: string) => Promise<void>;
@@ -94,6 +96,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [accessToken],
   );
 
+  const changeItemVariant = useCallback(
+    async (itemId: string, variantId: string) => {
+      const result = await cartApi.changeCartItemVariant(itemId, variantId, accessToken ?? undefined);
+      setCart(result);
+    },
+    [accessToken],
+  );
+
   const removeItem = useCallback(
     async (itemId: string) => {
       const result = await cartApi.removeCartItem(itemId, accessToken ?? undefined);
@@ -118,7 +128,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [accessToken]);
 
   return (
-    <CartContext.Provider value={{ cart, isLoading, addItem, updateItem, removeItem, applyCoupon, removeCoupon }}>
+    <CartContext.Provider value={{ cart, isLoading, addItem, updateItem, changeItemVariant, removeItem, applyCoupon, removeCoupon }}>
       {children}
     </CartContext.Provider>
   );

@@ -1,4 +1,4 @@
-import { addCartItemSchema, applyCouponSchema, updateCartItemSchema } from "@woobe/validation";
+import { addCartItemSchema, applyCouponSchema, changeCartItemVariantSchema, updateCartItemSchema } from "@woobe/validation";
 import { Router } from "express";
 import { asyncHandler } from "../../../../middleware/async-handler";
 import { authGuard } from "../../../../middleware/auth-guard";
@@ -27,6 +27,12 @@ export function createCartRouter(controller: CartController): Router {
     optionalAuthGuard,
     validate(updateCartItemSchema),
     asyncHandler((req, res) => controller.updateItem(req, res)),
+  );
+  router.patch(
+    "/items/:itemId/variant",
+    optionalAuthGuard,
+    validate(changeCartItemVariantSchema),
+    asyncHandler((req, res) => controller.changeItemVariant(req, res)),
   );
   router.delete(
     "/items/:itemId",

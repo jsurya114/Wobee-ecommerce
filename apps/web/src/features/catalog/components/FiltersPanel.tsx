@@ -7,17 +7,17 @@ import { useEffect, useState } from "react";
 import type { ProductSort } from "../api/products.client";
 import { useFilterResultCount } from "../hooks/useFilterResultCount";
 import { buildProductsHref, parseProductsQueryParams, type ProductsQueryParams } from "../lib/build-products-href";
-import { SIZE_OPTIONS } from "../lib/filter-options";
+import { PLP_CONTROL_BUTTON_CLASS } from "../lib/filter-options";
 
 /**
- * The full PLP filter sheet (redesign spec §14) — Size, Colour, Price,
+ * The full PLP filter sheet (redesign spec §14) — Colour, Price,
  * Availability. Sort moved out to its own `SortSelector` (it isn't a facet
  * you narrow by, it's an ordering, and it never needed the multi-select
- * "Apply" pattern the rest of this sheet uses). Size is repeated here (also
- * reachable via the standalone `SizeQuickFilter` on the control row) so
- * anyone who opens "Filters" directly still meets it first, largest, and
- * before every other facet — both surfaces read/write the same `?size=` URL
- * param via `buildProductsHref`, so there's nothing to keep in sync by hand.
+ * "Apply" pattern the rest of this sheet uses). Size is NOT repeated here —
+ * it's owned exclusively by the standalone `SizeQuickFilter` on the control
+ * row (one entry point, not two competing ones for the same facet) — this
+ * sheet still reads/writes `currentParams.size` untouched through every
+ * apply/clear so it never drops whatever `SizeQuickFilter` last set.
  *
  * Pending edits live in local state and are only committed to the URL (a
  * real navigation, a real server-filtered result) on "Show results" — the
@@ -38,7 +38,6 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
-  const [sizes, setSizes] = useState<string[]>([]);
   const [color, setColor] = useState("");
   const [inStock, setInStock] = useState(false);
   const [minPrice, setMinPrice] = useState("");
@@ -46,7 +45,6 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
 
   useEffect(() => {
     if (!open) return;
-    setSizes(currentParams.size ? currentParams.size.split(",") : []);
     setColor(currentParams.color ?? "");
     setInStock(Boolean(currentParams.inStock));
     setMinPrice(paiseToRupeeString(currentParams.minPrice));
@@ -60,7 +58,6 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
   const pendingQuery = {
     ...parseProductsQueryParams(currentParams),
     sort: currentParams.sort as ProductSort | undefined,
-    size: sizes.length > 0 ? sizes : undefined,
     color: color.trim() ? [color.trim()] : undefined,
     inStock: inStock ? true : undefined,
     minPrice: minRupees != null && Number.isFinite(minRupees) ? Math.round(minRupees * 100) : undefined,
@@ -72,7 +69,6 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
     router.push(
       buildProductsHref({
         ...currentParams,
-        size: sizes.length > 0 ? sizes.join(",") : undefined,
         color: color.trim() || undefined,
         inStock: inStock ? "true" : undefined,
         minPrice: minRupees != null && Number.isFinite(minRupees) ? String(Math.round(minRupees * 100)) : undefined,
@@ -90,16 +86,20 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
     setOpen(false);
   }
 
-  function toggleSize(size: string) {
-    setSizes((prev) => (prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size]));
-  }
-
   return (
     <>
-      <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)} aria-haspopup="dialog">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        className={cn(
+          PLP_CONTROL_BUTTON_CLASS,
+          count > 0 ? "border-primary bg-primary text-white" : "border-border bg-surface text-text-primary hover:border-primary",
+        )}
+      >
         <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
         Filters{count > 0 ? ` (${count})` : ""}
-      </Button>
+      </button>
 
       <Sheet
         open={open}
@@ -117,18 +117,7 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
         }
       >
         <div className="flex flex-col gap-6">
-          <fieldset>
-            <legend className="mb-2 font-body text-sm font-semibold text-text-primary">Size</legend>
-            <div className="flex flex-wrap gap-2">
-              {SIZE_OPTIONS.map((size) => (
-                <Chip key={size} active={sizes.includes(size)} onClick={() => toggleSize(size)}>
-                  {size}
-                </Chip>
-              ))}
-            </div>
-          </fieldset>
-
-          <div className="border-t border-border pt-5">
+          <div>
             <Label htmlFor="filter-color" className="mb-1.5 block font-medium text-text-primary">
               Colour
             </Label>

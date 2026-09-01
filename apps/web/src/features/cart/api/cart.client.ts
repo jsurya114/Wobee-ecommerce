@@ -71,6 +71,15 @@ export function removeCartItem(itemId: string, accessToken?: string): Promise<Ca
   return apiFetch<CartView>(`/api/v1/cart/items/${encodeURIComponent(itemId)}`, { method: "DELETE", accessToken });
 }
 
+/** Cart "change size" — swaps a line to a different variant of the same product. */
+export function changeCartItemVariant(itemId: string, variantId: string, accessToken?: string): Promise<CartView> {
+  return apiFetch<CartView>(`/api/v1/cart/items/${encodeURIComponent(itemId)}/variant`, {
+    method: "PATCH",
+    body: { variantId },
+    accessToken,
+  });
+}
+
 /** ADR-011: merges the guest cart_id cookie's cart into the caller's account cart. Requires a logged-in accessToken. */
 export function mergeCart(accessToken: string): Promise<CartView> {
   return apiFetch<CartView>("/api/v1/cart/merge", { method: "POST", accessToken });
