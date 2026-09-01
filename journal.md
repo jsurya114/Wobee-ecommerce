@@ -2009,3 +2009,16 @@ Existing assertion on the no-variant list line tightened to `{ variantId: null, 
 - `pnpm run build` — **not run** (web dev server live; iCloud `.next` corruption risk, same as prior entries). Typecheck + lint + full API tests + the live multi-viewport pass cover it; `pnpm --filter @woobe/web run build` after stopping the dev server is the outstanding check.
 
 **Not modified:** auth/OTP/forgot-password, cart, checkout, wishlist logic, product purchasing, admin, DB schema, category behaviour, existing PDP behaviour, any unrelated endpoint. `ProductCard`/`ProductGrid`/`resolveFromPricing`/`findBySlug`/`apiFetch` reused, not duplicated.
+
+---
+
+## 2026-09-01 — Removed TrustStrip from Footer
+
+**Branch:** `woobe-ui/bug-fixes`
+
+**What changed:**
+- Removed `<TrustStrip />` from the storefront homepage (`apps/web/app/(storefront)/page.tsx`).
+- No other functionality was modified. 
+
+**Why:**
+- User requested removal of this section (the "Weight × rate", "Easy exchanges", "Secure payments" strip) from above the footer on the home page.

@@ -7,8 +7,6 @@ import { HomeSearchBar } from "@/features/home/components/HomeSearchBar";
 import { ProductRail } from "@/features/home/components/ProductRail";
 import { PromoCarousel } from "@/features/home/components/PromoCarousel";
 import { ShopByBudget } from "@/features/home/components/ShopByBudget";
-import { TrustStrip } from "@/features/home/components/TrustStrip";
-
 /**
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
  * every section: the category rail, a New Arrivals rail, a real "Fresh
@@ -38,7 +36,6 @@ export default async function HomePage() {
       <ProductRail title="Best sellers" products={home.bestSellers} />
       <FeaturedCollections collections={home.featuredCollections} />
       <CustomerReviewsSection reviews={home.customerReviews} />
-      <TrustStrip />
     </main>
   );
 }
