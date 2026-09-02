@@ -1,5 +1,6 @@
 import { Badge } from "@woobe/ui";
 import { ReviewsSection } from "@/features/reviews/components/ReviewsSection";
+import type { ListReviewsResult } from "@/features/reviews/api/reviews.client";
 import type { ProductDetail as ProductDetailData, ProductSummary } from "../api/products.client";
 import { SelectedVariantProvider } from "../hooks/useSelectedVariant";
 import { ProductGallery } from "./ProductGallery";
@@ -17,9 +18,11 @@ import { RelatedProducts } from "./RelatedProducts";
 export function ProductDetail({
   product,
   relatedProducts,
+  initialReviews,
 }: {
   product: ProductDetailData;
   relatedProducts: ProductSummary[];
+  initialReviews: ListReviewsResult | null;
 }) {
   return (
     <div>
@@ -43,7 +46,7 @@ export function ProductDetail({
         </div>
       </SelectedVariantProvider>
 
-      <ReviewsSection productId={product.id} />
+      <ReviewsSection productId={product.id} initialReviews={initialReviews} />
 
       <RelatedProducts products={relatedProducts} />
     </div>

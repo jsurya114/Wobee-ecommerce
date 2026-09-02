@@ -17,11 +17,20 @@ import { ReviewForm } from "./ReviewForm";
  * doesn't appear here until an admin approves it (reviews.module.ts's own
  * doc comment), so silently adding it to the list would show something
  * that isn't actually visible to anyone else yet.
+ *
+ * `initialReviews` is the same first page (page 1, default pageSize) the
+ * PDP server component already fetched for its JSON-LD aggregateRating
+ * (2026-09-02 perf audit fix) — seeding state with it means the initial
+ * render has real content immediately, no spinner, and no redundant
+ * refetch of the page the server just rendered. Only a genuine interaction
+ * (write a review, load more/pagination, refresh after submit) — or SSR
+ * having failed/omitted it (`initialReviews === null`) — triggers a client
+ * fetch.
  */
-export function ReviewsSection({ productId }: { productId: string }) {
+export function ReviewsSection({ productId, initialReviews = null }: { productId: string; initialReviews?: ListReviewsResult | null }) {
   const { status: authStatus } = useAuth();
-  const [result, setResult] = useState<ListReviewsResult | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [result, setResult] = useState<ListReviewsResult | null>(initialReviews);
+  const [isLoading, setIsLoading] = useState(initialReviews === null);
   const [isWriting, setIsWriting] = useState(false);
 
   const load = useCallback(async () => {
@@ -35,8 +44,9 @@ export function ReviewsSection({ productId }: { productId: string }) {
   }, [productId]);
 
   useEffect(() => {
+    if (initialReviews) return; // SSR already provided this exact first page — don't fetch it again on mount.
     void load();
-  }, [load]);
+  }, [initialReviews, load]);
 
   return (
     <section className="mt-12 border-t border-border pt-8">

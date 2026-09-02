@@ -4,23 +4,27 @@ import { SectionHeader } from "@woobe/ui";
 import useEmblaCarousel from "embla-carousel-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { ProductCard } from "@/features/catalog/components/ProductCard";
-import type { ProductSummary } from "@/features/catalog/api/products.client";
+import { Children, useCallback, useEffect, useState, type ReactNode } from "react";
 
 /**
  * A compact horizontal product rail (redesign spec §B/§M) on Embla
  * (ADR-022) — drag/swipe on mobile, arrow buttons on desktop. Uses the
  * canonical `SectionHeader` (compact uppercase label + optional "See all")
  * rather than a large serif heading.
+ *
+ * Carousel chrome only — no product data, no `ProductCard` import. The
+ * server-rendered caller builds each `<ProductCard>` (already sized for the
+ * track via its own wrapper div) and passes them in as `children`, so this
+ * component's "use client" boundary never pulls product card markup into
+ * the client bundle/hydration tree (2026-09-02 CI/perf audit fix).
  */
 export function ProductRail({
   title,
-  products,
+  children,
   seeAllHref,
 }: {
   title: string;
-  products: ProductSummary[];
+  children: ReactNode;
   seeAllHref?: string;
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ align: "start", dragFree: true, containScroll: "trimSnaps" });
@@ -39,7 +43,7 @@ export function ProductRail({
     emblaApi.on("select", onSelect).on("reInit", onSelect);
   }, [emblaApi, onSelect]);
 
-  if (products.length === 0) return null;
+  if (Children.count(children) === 0) return null;
 
   return (
     <section className="px-4 py-section sm:px-6">
@@ -79,13 +83,7 @@ export function ProductRail({
         </SectionHeader>
 
         <div className="overflow-hidden" ref={emblaRef}>
-          <div className="-ml-2.5 flex">
-            {products.map((product) => (
-              <div key={product.id} className="min-w-0 flex-[0_0_31%] pl-2.5 sm:flex-[0_0_24%] lg:flex-[0_0_18%]">
-                <ProductCard product={product} showQuickAdd />
-              </div>
-            ))}
-          </div>
+          <div className="-ml-2.5 flex">{children}</div>
         </div>
       </div>
     </section>

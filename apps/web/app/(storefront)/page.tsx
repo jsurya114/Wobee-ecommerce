@@ -7,6 +7,17 @@ import { HomeSearchBar } from "@/features/home/components/HomeSearchBar";
 import { ProductRail } from "@/features/home/components/ProductRail";
 import { PromoCarousel } from "@/features/home/components/PromoCarousel";
 import { ShopByBudget } from "@/features/home/components/ShopByBudget";
+import { ProductCard } from "@/features/catalog/components/ProductCard";
+import type { ProductSummary } from "@/features/catalog/api/products.client";
+
+/** Server-rendered per rail item — the same sizing wrapper `ProductRail`'s track previously applied itself, now built by this (server) caller so `ProductCard` never enters `ProductRail`'s client bundle. */
+function railItem(product: ProductSummary) {
+  return (
+    <div key={product.id} className="min-w-0 flex-[0_0_31%] pl-2.5 sm:flex-[0_0_24%] lg:flex-[0_0_18%]">
+      <ProductCard product={product} showQuickAdd />
+    </div>
+  );
+}
 /**
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
  * every section: the category rail, a New Arrivals rail, a real "Fresh
@@ -30,10 +41,12 @@ export default async function HomePage() {
       <HomeSearchBar />
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
-      <ProductRail title="New arrivals" products={home.newArrivals} seeAllHref="/products?sort=newest" />
+      <ProductRail title="New arrivals" seeAllHref="/products?sort=newest">
+        {home.newArrivals.map(railItem)}
+      </ProductRail>
       <HomeGridSection title="Fresh picks" products={freshPicks} seeAllHref="/products?sort=newest" />
       <ShopByBudget tiles={home.budgetTiles} />
-      <ProductRail title="Best sellers" products={home.bestSellers} />
+      <ProductRail title="Best sellers">{home.bestSellers.map(railItem)}</ProductRail>
       <FeaturedCollections collections={home.featuredCollections} />
       <CustomerReviewsSection reviews={home.customerReviews} />
     </main>

@@ -60,13 +60,13 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  // pageSize: 1 — this call only needs `ratingSummary`, which the API
-  // returns alongside the first page of items regardless of how many are
-  // requested; ReviewsSection (a client component) fetches its own actual
-  // review list separately, so there's no point over-fetching here.
-  const ratingSummary = await listReviews(product.id, 1, 1)
-    .then((result) => result.ratingSummary)
-    .catch(() => null); // Reviews being briefly unreachable shouldn't 500 the whole product page — just omit aggregateRating from the structured data.
+  // Default page/pageSize (1/10) — the same first page ReviewsSection would
+  // otherwise fetch client-side on mount. SSR-ing it here serves both the
+  // JSON-LD aggregateRating below AND ReviewsSection's initial render (no
+  // more separate pageSize:1 probe + a second client-side fetch of the same
+  // page — 2026-09-02 perf audit fix).
+  const initialReviews = await listReviews(product.id).catch(() => null); // Reviews being briefly unreachable shouldn't 500 the whole product page — just omit aggregateRating and let ReviewsSection fall back to its own client fetch.
+  const ratingSummary = initialReviews?.ratingSummary ?? null;
 
   const relatedProducts = await getRelatedProducts(product.slug)
     .then((result) => result.products)
@@ -106,7 +106,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           }}
         />
       ) : null}
-      <ProductDetailView product={product} relatedProducts={relatedProducts} />
+      <ProductDetailView product={product} relatedProducts={relatedProducts} initialReviews={initialReviews} />
     </main>
   );
 }

@@ -1,26 +1,23 @@
-"use client";
-
-import { useState } from "react";
-import { Button, EmptyState } from "@woobe/ui";
+import { EmptyState } from "@woobe/ui";
 import { PackageSearch } from "lucide-react";
-import { listProducts, type ProductListParams, type ProductSummary } from "../api/products.client";
+import type { ProductListParams, ProductSummary } from "../api/products.client";
+import { LoadMoreProducts } from "./LoadMoreProducts";
 import { ProductGrid } from "./ProductGrid";
 
 /**
  * Result count + grid + "Load more" (Week 2 Day 1's "Pagination/infinite
- * loading" bullet). This is a UI-only treatment layered on the existing
- * offset pagination (page/limit, capped at 50) rather than a cursor-based
- * rework: the catalogue is nowhere near ADR-012's own scaling trigger (50k
- * products / p95 > 300ms), offset pagination is already correct and
- * server-authoritative here, and "load more" only needs to keep asking for
- * the next page — it doesn't need cursor stability guarantees a
- * fast-changing feed would. Revisit only if that trigger is ever hit.
+ * loading" bullet). Server Component — the initial page's `ProductGrid` is
+ * rendered here directly (server HTML, no client hydration for those cards),
+ * and only the "Load more" interaction itself (result-count text, fetching
+ * subsequent pages, appending them) lives in the small client
+ * `LoadMoreProducts` island below (2026-09-02 perf audit fix; previously
+ * this whole component, initial cards included, was client-rendered).
  *
  * The parent Server Component (app/(storefront)/products/page.tsx) gives
  * this a `key` derived from the full query string, so a filter/search/sort
- * change — a fresh server render with fresh initial props — remounts this
- * component instead of it hanging on to a previous filter's accumulated
- * pages.
+ * change — a fresh server render with fresh initial props — remounts the
+ * nested `LoadMoreProducts` client island instead of it hanging on to a
+ * previous filter's accumulated pages.
  */
 export function ProductResults({
   initialProducts,
@@ -37,24 +34,6 @@ export function ProductResults({
   query: Omit<ProductListParams, "page" | "limit">;
   hasActiveFilters: boolean;
 }) {
-  const [products, setProducts] = useState(initialProducts);
-  const [page, setPage] = useState(initialPage);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-
-  const hasMore = products.length < initialTotal;
-
-  async function loadMore() {
-    setIsLoadingMore(true);
-    try {
-      const nextPage = page + 1;
-      const result = await listProducts({ ...query, page: nextPage, limit });
-      setProducts((prev) => [...prev, ...result.products]);
-      setPage(nextPage);
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }
-
   if (initialTotal === 0) {
     return (
       <div role="status">
@@ -68,20 +47,8 @@ export function ProductResults({
   }
 
   return (
-    <div>
-      <p className="mb-4 font-body text-sm text-text-secondary" role="status">
-        {`Showing ${products.length} of ${initialTotal} product${initialTotal === 1 ? "" : "s"}`}
-      </p>
-
-      <ProductGrid products={products} />
-
-      {hasMore ? (
-        <div className="mt-8 flex justify-center">
-          <Button type="button" variant="secondary" onClick={loadMore} isLoading={isLoadingMore}>
-            Load more
-          </Button>
-        </div>
-      ) : null}
-    </div>
+    <LoadMoreProducts initialCount={initialProducts.length} initialTotal={initialTotal} initialPage={initialPage} limit={limit} query={query}>
+      <ProductGrid products={initialProducts} />
+    </LoadMoreProducts>
   );
 }
