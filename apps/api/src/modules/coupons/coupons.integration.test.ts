@@ -20,7 +20,7 @@ const app = createApp();
 let categoryId: string;
 let otherCategoryId: string;
 let warehouseId: string;
-let globalRatePerKgPaise: number;
+const createdCategoryIds: string[] = [];
 const createdUserIds: string[] = [];
 const createdProductIds: string[] = [];
 const createdVariantIds: string[] = [];
@@ -28,28 +28,30 @@ const createdOrderIds: string[] = [];
 const createdCouponIds: string[] = [];
 
 beforeAll(async () => {
-  // WEIGHT_BASED only (2026-08-31) — this suite's fixtures pin an exact
-  // known price by deriving weightGrams from the live global rate (see
-  // createTestVariant), which only makes sense for a weight-based category;
-  // a FIXED one (Accessories) needs fixedPricePaise instead. Coupon logic
-  // itself doesn't care which pricing mode a category is, so pinning both
-  // fixture categories to WEIGHT_BASED sidesteps that entirely rather than
-  // teaching this suite about fixed pricing.
-  const categories = await prisma.category.findMany({ where: { isActive: true, pricingMode: "WEIGHT_BASED" }, take: 2 });
-  if (categories.length < 2) throw new Error("test setup: need at least 2 active weight-based categories seeded");
-  categoryId = categories[0]!.id;
-  otherCategoryId = categories[1]!.id;
+  // FIXED, not WEIGHT_BASED (2026-09-02 CI fix): this suite pins an exact
+  // known price on every fixture via ProductVariant.fixedPricePaise, which
+  // is only authoritative when the product's category is FIXED
+  // (resolve-effective-price.ts) — WEIGHT_BASED ignores it and derives price
+  // from weightGrams x the live global rate instead, which can only hit an
+  // arbitrary round-number price by exact coincidence (globalRatePerKgPaise
+  // rarely divides it evenly) and, worse, forces weightGrams down into the
+  // tens of grams for a low price target, tripping ADR-021's checkout-wide
+  // 1000g minimum (resolve-shipping.ts) that this suite never meant to
+  // exercise. FIXED-priced lines don't count toward weightBasedTotalGrams at
+  // all (compute-cart-totals.ts), so that minimum can never block them —
+  // this is the same category-pricing-mode split real Accessories products
+  // use, not a bespoke suite mechanism. Seed only guarantees one FIXED
+  // category (Accessories), and this suite's own "matching category only"
+  // test needs two, so both are created here rather than borrowed from seed.
+  const [category, otherCategory] = await Promise.all([
+    prisma.category.create({ data: { name: `${TEST_PREFIX} Category A`, slug: `${TEST_PREFIX}-cat-a`, pricingMode: "FIXED" } }),
+    prisma.category.create({ data: { name: `${TEST_PREFIX} Category B`, slug: `${TEST_PREFIX}-cat-b`, pricingMode: "FIXED" } }),
+  ]);
+  categoryId = category.id;
+  otherCategoryId = otherCategory.id;
+  createdCategoryIds.push(category.id, otherCategory.id);
   const warehouse = await prisma.warehouse.findFirstOrThrow({ where: { isActive: true } });
   warehouseId = warehouse.id;
-  // The per-variant rate override this suite used to pin an exact fixture
-  // price is deprecated and now inert everywhere (resolve-effective-rate.ts)
-  // — see createTestVariant's own comment for how fixtures get an exact
-  // price now instead.
-  const pricingSetting = await prisma.pricingSetting.findFirstOrThrow({
-    where: { effectiveFrom: { lte: new Date() } },
-    orderBy: { effectiveFrom: "desc" },
-  });
-  globalRatePerKgPaise = pricingSetting.defaultRatePerKgPaise;
 });
 
 afterAll(async () => {
@@ -71,6 +73,9 @@ afterAll(async () => {
   if (createdUserIds.length > 0) {
     await prisma.cart.deleteMany({ where: { userId: { in: createdUserIds } } });
     await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+  }
+  if (createdCategoryIds.length > 0) {
+    await prisma.category.deleteMany({ where: { id: { in: createdCategoryIds } } });
   }
   await prisma.$disconnect();
 });
@@ -99,15 +104,11 @@ async function createTestVariant(
       sku: `${TEST_PREFIX}-${suffix}`,
       color: "Black",
       size: "M",
-      // Deriving weightGrams from the desired pricePaise and the live global
-      // rate (ignoring the caller's literal params.weightGrams) is what
-      // pins each fixture to an exact known price now — the per-variant
-      // rate override this suite used to rely on for that is deprecated and
-      // unconditionally ignored by pricing (resolve-effective-rate.ts), so
-      // it's no longer possible to set weight and price independently for a
-      // WEIGHT_BASED variant. Nothing in this suite asserts on the literal
-      // weight value, only on the resulting price.
-      weightGrams: Math.round((params.pricePaise * 1000) / globalRatePerKgPaise),
+      weightGrams: params.weightGrams,
+      // Authoritative price on a FIXED-category variant (see beforeAll) —
+      // exact by construction, independent of weight and the live global
+      // rate/kg, and immune to ADR-021's weight-based checkout minimum.
+      fixedPricePaise: params.pricePaise,
       isActive: true,
     },
   });

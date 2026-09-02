@@ -21,9 +21,16 @@ const CART_COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
  * resolves to whatever old (often already-converted) cart it pointed to.
  * That's the "cart item not found" / "your bag is empty" bug reported from
  * real browsing — findItem/checkout resolve a cart the page never showed.
- * Clearing it below every time we touch the cookie is what actually closes
- * the gap the old comment here used to just warn about ("a mismatched Path
- * is silently a no-op clear, not an error") instead of fixing it.
+ * Only `clearCartIdCookie` needs to sweep this: that's the sole moment the
+ * current cookie's lifecycle actually ends (checkout, cart merge), which is
+ * exactly the moment a surviving legacy duplicate would become the only
+ * `cart_id` sent. Doing the same sweep from `setCartIdCookie` — on every
+ * single cart mutation — was redundant for browsers (which already key
+ * same-name cookies by path, so it fixed nothing extra) and actively
+ * harmful for any HTTP client with a simpler, non-path-aware cookie jar
+ * (e.g. the `cookiejar` package behind supertest's `.agent()`, which
+ * treats the legacy path as colliding with `/api/v1` since one is a string
+ * prefix of the other, and so deletes the just-set real cookie).
  */
 const LEGACY_CART_ID_COOKIE_PATHS = ["/api/v1/cart"];
 
@@ -45,7 +52,6 @@ export function setCartIdCookie(res: Response, cartId: string): void {
     path: "/api/v1",
     maxAge: CART_COOKIE_MAX_AGE_MS,
   });
-  clearLegacyCartIdCookies(res);
 }
 
 export function clearCartIdCookie(res: Response): void {
