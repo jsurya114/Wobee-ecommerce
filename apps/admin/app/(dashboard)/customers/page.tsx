@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { useState } from "react";
 import { CustomerFilters } from "@/features/customers/components/CustomerFilters";
 import { CustomersTable } from "@/features/customers/components/CustomersTable";
@@ -12,10 +13,13 @@ export default function CustomersPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">Customers</h1>
+      <div>
+        <h1 className="font-display text-xl text-text-primary">Customers</h1>
+        <p className="font-body text-sm text-text-secondary">View accounts and manage access.</p>
+      </div>
       <CustomerFilters search={search} isActive={isActive} onSearchChange={setSearch} onActiveChange={setIsActive} />
       {loading ? (
-        <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>
+        <LoadingState />
       ) : error ? (
         <p className="py-12 text-center font-body text-sm text-error">{error}</p>
       ) : (

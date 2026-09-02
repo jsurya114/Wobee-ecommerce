@@ -1,13 +1,14 @@
 "use client";
 
 import { formatPaiseAsInr } from "@woobe/utils";
-import { Badge } from "@woobe/ui";
+import { Badge, EmptyState } from "@woobe/ui";
+import { Shirt } from "lucide-react";
 import Link from "next/link";
 import type { AdminProductSummary } from "../api/admin-products.client";
 
 export function ProductsTable({ items }: { items: AdminProductSummary[] }) {
   if (items.length === 0) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">No products match these filters.</p>;
+    return <EmptyState icon={<Shirt />} title="No products found" description="Try a different search or filter." />;
   }
 
   return (

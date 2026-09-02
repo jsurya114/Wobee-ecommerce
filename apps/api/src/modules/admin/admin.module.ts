@@ -38,6 +38,14 @@ import {
   setCollectionActiveUseCase,
   updateCollectionUseCase,
 } from "../collections/collections.module";
+import {
+  createCategoryUseCase,
+  getCategoryAdminUseCase,
+  listCategoriesAdminUseCase,
+  reorderCategoriesUseCase,
+  setCategoryActiveUseCase,
+  updateCategoryUseCase,
+} from "../categories/categories.module";
 import { adjustInventoryUseCase, listInventoryAdminUseCase } from "../inventory/inventory.module";
 import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import {
@@ -62,6 +70,7 @@ import {
   updateProductUseCase,
   updateProductVariantUseCase,
 } from "../products/products.module";
+import { getPricingSettingUseCase, updatePricingSettingUseCase } from "../pricing/pricing.module";
 import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
 import {
   approveReturnUseCase,
@@ -79,6 +88,8 @@ import { AdminAuthController } from "./interface/http/admin-auth.controller";
 import { createAdminAuthRouter } from "./interface/http/admin-auth.routes";
 import { AdminBannersController } from "./interface/http/admin-banners.controller";
 import { createAdminBannersRouter } from "./interface/http/admin-banners.routes";
+import { AdminCategoriesController } from "./interface/http/admin-categories.controller";
+import { createAdminCategoriesRouter } from "./interface/http/admin-categories.routes";
 import { AdminCollectionsController } from "./interface/http/admin-collections.controller";
 import { createAdminCollectionsRouter } from "./interface/http/admin-collections.routes";
 import { AdminCustomersController } from "./interface/http/admin-customers.controller";
@@ -93,6 +104,8 @@ import { AdminReturnsController } from "./interface/http/admin-returns.controlle
 import { createAdminReturnsRouter } from "./interface/http/admin-returns.routes";
 import { AdminReviewsController } from "./interface/http/admin-reviews.controller";
 import { createAdminReviewsRouter } from "./interface/http/admin-reviews.routes";
+import { AdminSettingsController } from "./interface/http/admin-settings.controller";
+import { createAdminSettingsRouter } from "./interface/http/admin-settings.routes";
 
 // Cancellation is the one admin action that spans three modules (orders +
 // refunds + audit). `orders` can't compose it itself without recreating the
@@ -135,6 +148,15 @@ const adminBannersController = new AdminBannersController(
   reorderBannersUseCase,
 );
 
+const adminCategoriesController = new AdminCategoriesController(
+  listCategoriesAdminUseCase,
+  getCategoryAdminUseCase,
+  createCategoryUseCase,
+  updateCategoryUseCase,
+  setCategoryActiveUseCase,
+  reorderCategoriesUseCase,
+);
+
 const adminReviewsController = new AdminReviewsController(listReviewsAdminUseCase, moderateReviewUseCase);
 const adminReturnsController = new AdminReturnsController(
   listReturnsForAdminUseCase,
@@ -158,6 +180,7 @@ const adminProductsController = new AdminProductsController(
   reorderProductImagesUseCase,
 );
 const adminInventoryController = new AdminInventoryController(listInventoryAdminUseCase, adjustInventoryUseCase);
+const adminSettingsController = new AdminSettingsController(getPricingSettingUseCase, updatePricingSettingUseCase);
 
 // Cross-module customer detail (week2 (1).md §19) — same "compose in admin,
 // nothing imports it back" reasoning as CancelOrderWithRefundUseCase above,
@@ -175,8 +198,10 @@ router.use("/auth", createAdminAuthRouter(adminAuthController));
 router.use("/orders", createAdminOrdersRouter(adminOrdersController));
 router.use("/collections", createAdminCollectionsRouter(adminCollectionsController));
 router.use("/banners", createAdminBannersRouter(adminBannersController));
+router.use("/categories", createAdminCategoriesRouter(adminCategoriesController));
 router.use("/reviews", createAdminReviewsRouter(adminReviewsController));
 router.use("/returns", createAdminReturnsRouter(adminReturnsController));
 router.use("/products", createAdminProductsRouter(adminProductsController));
 router.use("/inventory", createAdminInventoryRouter(adminInventoryController));
 router.use("/customers", createAdminCustomersRouter(adminCustomersController));
+router.use("/settings", createAdminSettingsRouter(adminSettingsController));

@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { useState } from "react";
 import { InventoryFilters } from "@/features/inventory/components/InventoryFilters";
 import { InventoryTable } from "@/features/inventory/components/InventoryTable";
@@ -19,7 +20,10 @@ export default function InventoryPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">Inventory</h1>
+      <div>
+        <h1 className="font-display text-xl text-text-primary">Inventory</h1>
+        <p className="font-body text-sm text-text-secondary">Monitor stock levels and adjust quantities.</p>
+      </div>
       <InventoryFilters
         search={search}
         lowStockOnly={lowStockOnly}
@@ -29,7 +33,7 @@ export default function InventoryPage() {
         onOutOfStockChange={setOutOfStockOnly}
       />
       {loading ? (
-        <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>
+        <LoadingState />
       ) : error ? (
         <p className="py-12 text-center font-body text-sm text-error">{error}</p>
       ) : (

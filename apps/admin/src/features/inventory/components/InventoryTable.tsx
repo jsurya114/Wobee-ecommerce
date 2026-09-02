@@ -1,6 +1,7 @@
 "use client";
 
-import { Badge, Button, Input } from "@woobe/ui";
+import { Badge, Button, EmptyState, Input } from "@woobe/ui";
+import { Package } from "lucide-react";
 import { Fragment, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
@@ -17,7 +18,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   if (items.length === 0) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">No variants match these filters.</p>;
+    return <EmptyState icon={<Package />} title="No variants found" description="Try a different search or filter." />;
   }
 
   const startAdjusting = (variantId: string) => {

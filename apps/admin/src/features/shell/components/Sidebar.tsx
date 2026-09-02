@@ -1,12 +1,38 @@
 "use client";
 
 import { Badge, Button } from "@woobe/ui";
+import {
+  FolderTree,
+  Image as ImageIcon,
+  LayoutGrid,
+  LogOut,
+  Package,
+  RotateCcw,
+  Settings,
+  Shirt,
+  ShoppingBag,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { navEntriesForRole } from "../nav-config";
 import { BrandMark } from "./BrandMark";
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/customers": Users,
+  "/products": Shirt,
+  "/categories": FolderTree,
+  "/collections": LayoutGrid,
+  "/banners": ImageIcon,
+  "/orders": ShoppingBag,
+  "/inventory": Package,
+  "/staff": Users,
+  "/returns": RotateCcw,
+  "/settings": Settings,
+};
 
 export function Sidebar() {
   const { user, logout } = useAdminAuth();
@@ -67,6 +93,7 @@ export function Sidebar() {
       >
         {entries.map((entry) => {
           const isActive = pathname.startsWith(entry.href);
+          const Icon = NAV_ICONS[entry.href];
           if (entry.status === "coming-soon") {
             return (
               // Week 2 Day 9 (week2 (1).md §20) — a Lighthouse audit flagged this
@@ -84,7 +111,10 @@ export function Sidebar() {
                 aria-disabled="true"
                 className="flex items-center justify-between gap-2 rounded-md px-3 py-2 font-body text-sm text-text-secondary opacity-50"
               >
-                {entry.label}
+                <span className="flex items-center gap-2.5">
+                  {Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
+                  {entry.label}
+                </span>
                 <Badge variant="neutral">Soon</Badge>
               </span>
             );
@@ -93,8 +123,14 @@ export function Sidebar() {
             <Link
               key={entry.href}
               href={entry.href}
-              className={`rounded-md px-3 py-2 font-body text-sm ${isActive ? "bg-primary-tint text-primary" : "text-text-primary hover:bg-primary-tint/50"}`}
+              aria-current={isActive ? "page" : undefined}
+              className={`flex items-center gap-2.5 rounded-md px-3 py-2 font-body text-sm transition-colors ${
+                isActive
+                  ? "bg-primary-tint font-medium text-primary"
+                  : "text-text-primary hover:bg-primary-tint/50"
+              }`}
             >
+              {Icon ? <Icon className="h-4 w-4 shrink-0" aria-hidden="true" /> : null}
               {entry.label}
             </Link>
           );
@@ -104,9 +140,10 @@ export function Sidebar() {
         <Button
           variant="secondary"
           size="sm"
-          className="mt-2 md:mt-auto md:w-full"
+          className="mt-2 flex items-center gap-2 md:mt-auto md:w-full"
           onClick={() => void logout()}
         >
+          <LogOut className="h-4 w-4" aria-hidden="true" />
           Log out
         </Button>
       </nav>

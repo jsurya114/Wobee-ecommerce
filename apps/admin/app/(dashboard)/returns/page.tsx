@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { ReturnFilters } from "@/features/returns/components/ReturnFilters";
@@ -19,7 +20,7 @@ function ReturnsPageContent() {
       {orderId ? <p className="font-body text-sm text-text-secondary">Showing returns for this order only.</p> : null}
       <ReturnFilters status={status} onStatusChange={setStatus} />
       {loading ? (
-        <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>
+        <LoadingState />
       ) : error ? (
         <p className="py-12 text-center font-body text-sm text-error">{error}</p>
       ) : (
@@ -32,7 +33,7 @@ function ReturnsPageContent() {
 export default function ReturnsPage() {
   // useSearchParams requires a Suspense boundary (Next.js 15) — falls back to the same loading copy used once data-fetching starts.
   return (
-    <Suspense fallback={<p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>}>
+    <Suspense fallback={<LoadingState />}>
       <ReturnsPageContent />
     </Suspense>
   );

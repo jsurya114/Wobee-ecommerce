@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { useEffect, useState } from "react";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { listCategories } from "@/features/products/api/admin-categories.client";
@@ -22,10 +23,13 @@ export default function ProductsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">Products</h1>
+      <div>
+        <h1 className="font-display text-xl text-text-primary">Products</h1>
+        <p className="font-body text-sm text-text-secondary">Manage your catalogue and variants.</p>
+      </div>
       <ProductFilters search={search} categoryId={categoryId} categories={categories} onSearchChange={setSearch} onCategoryChange={setCategoryId} />
       {loading ? (
-        <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>
+        <LoadingState />
       ) : error ? (
         <p className="py-12 text-center font-body text-sm text-error">{error}</p>
       ) : (

@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { formatPaiseAsInr } from "@woobe/utils";
 import { Badge, Card } from "@woobe/ui";
 import { useAdminReturn } from "../hooks/useAdminReturn";
@@ -9,7 +10,7 @@ export function ReturnDetail({ returnId }: { returnId: string }) {
   const { detail, loading, error, approve, reject, issueRefund, markRefunded, lastRefundOutcome } = useAdminReturn(returnId);
 
   if (loading) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>;
+    return <LoadingState />;
   }
   if (error) {
     return <p className="py-12 text-center font-body text-sm text-error">{error}</p>;

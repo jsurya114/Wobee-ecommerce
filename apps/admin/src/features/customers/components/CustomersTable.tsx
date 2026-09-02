@@ -1,12 +1,13 @@
 "use client";
 
-import { Badge } from "@woobe/ui";
+import { Badge, EmptyState } from "@woobe/ui";
+import { Users } from "lucide-react";
 import Link from "next/link";
 import type { AdminCustomerSummary } from "../api/admin-customers.client";
 
 export function CustomersTable({ items }: { items: AdminCustomerSummary[] }) {
   if (items.length === 0) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">No customers match these filters.</p>;
+    return <EmptyState icon={<Users />} title="No customers found" description="Try a different search or filter." />;
   }
 
   return (

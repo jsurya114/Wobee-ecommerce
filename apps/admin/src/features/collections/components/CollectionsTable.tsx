@@ -1,12 +1,13 @@
 "use client";
 
-import { Badge } from "@woobe/ui";
+import { Badge, EmptyState } from "@woobe/ui";
+import { Layers } from "lucide-react";
 import Link from "next/link";
 import type { AdminCollection } from "../api/admin-collections.client";
 
 export function CollectionsTable({ items }: { items: AdminCollection[] }) {
   if (items.length === 0) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">No collections yet.</p>;
+    return <EmptyState icon={<Layers />} title="No collections yet" description="Group products into a collection to feature them together." />;
   }
 
   return (

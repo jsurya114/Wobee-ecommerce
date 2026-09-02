@@ -1,7 +1,8 @@
 "use client";
 
 import { formatPaiseAsInr } from "@woobe/utils";
-import { Badge } from "@woobe/ui";
+import { Badge, EmptyState } from "@woobe/ui";
+import { ShoppingBag } from "lucide-react";
 import Link from "next/link";
 import type { AdminOrderSummaryView } from "../api/admin-orders.client";
 
@@ -14,7 +15,7 @@ const STATUS_VARIANT: Record<string, "success" | "error" | "neutral"> = {
 
 export function OrdersTable({ items }: { items: AdminOrderSummaryView[] }) {
   if (items.length === 0) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">No orders match these filters.</p>;
+    return <EmptyState icon={<ShoppingBag />} title="No orders found" description="Try a different search or filter." />;
   }
 
   return (

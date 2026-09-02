@@ -1,7 +1,7 @@
 "use client";
 
-import { Badge, Button } from "@woobe/ui";
-import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
+import { Badge, Button, EmptyState } from "@woobe/ui";
+import { ArrowDown, ArrowUp, Image as ImageIcon, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -22,7 +22,7 @@ export function BannersTable({
   const [busyId, setBusyId] = useState<string | null>(null);
 
   if (items.length === 0) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">No banners yet.</p>;
+    return <EmptyState icon={<ImageIcon />} title="No banners yet" description="Create a banner to feature it on the storefront." />;
   }
 
   const withBusy = async (id: string, action: () => Promise<void>, failureMessage: string) => {

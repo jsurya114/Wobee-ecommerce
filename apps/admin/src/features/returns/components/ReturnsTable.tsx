@@ -1,6 +1,7 @@
 "use client";
 
-import { Badge } from "@woobe/ui";
+import { Badge, EmptyState } from "@woobe/ui";
+import { RotateCcw } from "lucide-react";
 import Link from "next/link";
 import type { AdminReturnSummaryView } from "../api/admin-returns.client";
 
@@ -11,7 +12,7 @@ const STATUS_VARIANT: Record<string, "success" | "error" | "neutral"> = {
 
 export function ReturnsTable({ items }: { items: AdminReturnSummaryView[] }) {
   if (items.length === 0) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">No returns match these filters.</p>;
+    return <EmptyState icon={<RotateCcw />} title="No returns found" description="Try a different search or filter." />;
   }
 
   return (

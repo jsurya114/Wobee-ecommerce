@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { formatPaiseAsInr } from "@woobe/utils";
 import { Badge, Card } from "@woobe/ui";
 import Link from "next/link";
@@ -11,7 +12,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const { order, loading, error, startProcessing, ship, deliver, cancel, lastRefundIssued } = useAdminOrder(orderId);
 
   if (loading) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>;
+    return <LoadingState />;
   }
   if (error) {
     return <p className="py-12 text-center font-body text-sm text-error">{error}</p>;

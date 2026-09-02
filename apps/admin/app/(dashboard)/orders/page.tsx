@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import type { OrderStatus } from "@woobe/types";
 import { useState } from "react";
 import { OrderFilters } from "@/features/order-management/components/OrderFilters";
@@ -13,10 +14,13 @@ export default function OrdersPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">Orders</h1>
+      <div>
+        <h1 className="font-display text-xl text-text-primary">Orders</h1>
+        <p className="font-body text-sm text-text-secondary">Track and fulfil customer orders.</p>
+      </div>
       <OrderFilters status={status} search={search} onStatusChange={setStatus} onSearchChange={setSearch} />
       {loading ? (
-        <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>
+        <LoadingState />
       ) : error ? (
         <p className="py-12 text-center font-body text-sm text-error">{error}</p>
       ) : (
