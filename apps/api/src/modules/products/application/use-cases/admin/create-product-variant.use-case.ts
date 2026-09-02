@@ -50,7 +50,11 @@ export class CreateProductVariantUseCase {
         {
           pricingMode,
           weightGrams: input.weightGrams,
-          ratePerKgOverridePaise: input.ratePerKgOverridePaise ?? null,
+          // ratePerKgOverridePaise is deprecated and no longer settable by
+          // the admin (see createVariantSchema's own comment) — always null
+          // for a new variant, and ignored by resolveEffectiveRatePerKgPaise
+          // regardless.
+          ratePerKgOverridePaise: null,
           fixedPricePaise: input.fixedPricePaise ?? null,
         },
       ]).then(([result]) => result!),
@@ -63,7 +67,8 @@ export class CreateProductVariantUseCase {
       color: input.color,
       size: input.size,
       weightGrams: input.weightGrams,
-      ratePerKgOverridePaise: input.ratePerKgOverridePaise,
+      // No ratePerKgOverridePaise — the column is left null (its DB default)
+      // for every newly created variant; see createVariantSchema's comment.
       fixedPricePaise: input.fixedPricePaise,
       fabric: input.fabric,
       fit: input.fit,

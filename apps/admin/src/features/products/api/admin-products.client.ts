@@ -19,6 +19,7 @@ export interface AdminProductVariant {
   color: string;
   size: string;
   weightGrams: number;
+  /** Deprecated legacy field — retained for compatibility, never sent by the admin UI, and ignored by every pricing calculation server-side. See resolve-effective-rate.ts. */
   ratePerKgOverridePaise: number | null;
   /** Authoritative when the product's category is FIXED (2026-08-31). */
   fixedPricePaise: number | null;
@@ -80,7 +81,8 @@ export interface VariantPayload {
   color: string;
   size: string;
   weightGrams: number;
-  ratePerKgOverridePaise?: number | null;
+  // No ratePerKgOverridePaise — deprecated, no longer admin-settable. Price
+  // for a WEIGHT_BASED product is weight × the global rate (Settings).
   /** Required when the product's category is FIXED (2026-08-31); ignored for WEIGHT_BASED. */
   fixedPricePaise?: number | null;
   fabric?: string | null;

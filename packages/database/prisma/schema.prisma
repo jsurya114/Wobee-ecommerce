@@ -477,12 +477,22 @@ model ProductImage {
 /// Weight-based pricing is the core Woobe mechanic (plan.md §6) for
 /// WEIGHT_BASED categories: price is DERIVED (weightGrams * effective
 /// rate/kg / 1000) by the `pricing` module's pure domain function at
-/// read/checkout time — never stored as a literal price input.
-/// ratePerKgOverridePaise lets admin override the PricingSetting default for
-/// this specific variant (ADR-017); ignored when the product's category is
-/// FIXED. effectivePricePaiseCache mirrors the derivation (or, for FIXED
+/// read/checkout time — never stored as a literal price input. The single
+/// global PricingSetting.defaultRatePerKgPaise is authoritative for every
+/// WEIGHT_BASED variant (2026-09-02, admin-managed in Settings).
+/// effectivePricePaiseCache mirrors the derivation (or, for FIXED
 /// categories, mirrors fixedPricePaise verbatim) for listing/sort display
 /// only, same rule as Product.minPricePaiseCache above.
+///
+/// ratePerKgOverridePaise is DEPRECATED (2026-09-02) — originally let admin
+/// override the PricingSetting default for one specific variant (ADR-017).
+/// The admin UI/API no longer accept it (createVariantSchema/
+/// updateVariantSchema have no such field) and it is unconditionally
+/// ignored by resolveEffectiveRatePerKgPaise regardless of what legacy value
+/// a row still carries. The column is intentionally RETAINED, not dropped —
+/// existing values are compatibility-only data with no runtime effect on
+/// any price, cart, checkout, or order calculation. Do not read this column
+/// for pricing. Do not resurrect it without an explicit product decision.
 ///
 /// fixedPricePaise (2026-08-31): authoritative price when the product's
 /// Category.pricingMode is FIXED (ornaments/footwear/accessories — weight
@@ -496,7 +506,7 @@ model ProductVariant {
   color                    String
   size                     String
   weightGrams              Int
-  ratePerKgOverridePaise   Int?
+  ratePerKgOverridePaise   Int? // DEPRECATED (2026-09-02) — retained for compatibility, ignored by all pricing. See model doc comment.
   fixedPricePaise          Int?
   effectivePricePaiseCache Int      @default(0)
   isActive                 Boolean  @default(true)

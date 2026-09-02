@@ -138,7 +138,12 @@ export const createVariantSchema = z.object({
   color: z.string().trim().min(1, "Colour is required").max(60),
   size: z.string().trim().min(1, "Size is required").max(30),
   weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams"),
-  ratePerKgOverridePaise: z.coerce.number().int().positive().nullable().optional(),
+  // No `ratePerKgOverridePaise` field (deprecated) — pricing for a
+  // WEIGHT_BASED product is always weight × the single global rate managed
+  // in admin Settings (PricingSetting). The legacy per-variant override
+  // column still exists in the database for compatibility but is no longer
+  // settable through this API and is ignored by every pricing calculation —
+  // see resolve-effective-rate.ts's own doc comment.
   /** Authoritative price for a FIXED-category product (2026-08-31) — ignored for WEIGHT_BASED. Required-when-FIXED is enforced by the use-case, which knows the product's category, not here. */
   fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),
   fabric: z.string().trim().max(200).nullable().optional(),
@@ -155,7 +160,7 @@ export const updateVariantSchema = z.object({
   color: z.string().trim().min(1, "Colour is required").max(60).optional(),
   size: z.string().trim().min(1, "Size is required").max(30).optional(),
   weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams").optional(),
-  ratePerKgOverridePaise: z.coerce.number().int().positive().nullable().optional(),
+  // No `ratePerKgOverridePaise` field — see createVariantSchema's own comment.
   /** Authoritative price for a FIXED-category product (2026-08-31) — ignored for WEIGHT_BASED. */
   fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),
   fabric: z.string().trim().max(200).nullable().optional(),

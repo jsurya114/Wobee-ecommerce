@@ -492,7 +492,9 @@ export class ProductRepository implements ProductRepositoryPort {
             color: input.color,
             size: input.size,
             weightGrams: input.weightGrams,
-            ratePerKgOverridePaise: input.ratePerKgOverridePaise,
+            // No ratePerKgOverridePaise — omitted so Prisma leaves the
+            // column at its DB default (null) for every new variant; the
+            // deprecated field is never written by this repository anymore.
             fixedPricePaise: input.fixedPricePaise,
             fabric: input.fabric,
             fit: input.fit,
@@ -516,7 +518,9 @@ export class ProductRepository implements ProductRepositoryPort {
             color: input.color,
             size: input.size,
             weightGrams: input.weightGrams,
-            ratePerKgOverridePaise: input.ratePerKgOverridePaise,
+            // No ratePerKgOverridePaise in the update payload — a legacy
+            // value already on this row is left exactly as-is (retained for
+            // compatibility, never overwritten and never applied to price).
             fixedPricePaise: input.fixedPricePaise,
             fabric: input.fabric,
             fit: input.fit,

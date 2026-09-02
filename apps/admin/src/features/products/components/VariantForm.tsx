@@ -10,7 +10,6 @@ export interface VariantFormValues {
   color: string;
   size: string;
   weightGrams: string;
-  ratePerKgOverridePaise: string;
   fixedPricePaise: string;
   fabric: string;
   fit: string;
@@ -23,7 +22,6 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
     color: variant?.color ?? "",
     size: variant?.size ?? "",
     weightGrams: variant ? String(variant.weightGrams) : "",
-    ratePerKgOverridePaise: variant?.ratePerKgOverridePaise != null ? String(variant.ratePerKgOverridePaise) : "",
     fixedPricePaise: variant?.fixedPricePaise != null ? String(variant.fixedPricePaise) : "",
     fabric: variant?.fabric ?? "",
     fit: variant?.fit ?? "",
@@ -38,11 +36,13 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
  * applies when creating.
  *
  * `categoryPricingMode` (2026-08-31): decides which pricing field this
- * variant needs — a WEIGHT_BASED product's variants take an optional rate/kg
- * override; a FIXED product's variants take a required fixed price instead
- * (ornaments/footwear/accessories aren't priced by weight, see
- * PricingMode's own doc comment in schema.prisma). Weight stays required in
- * both modes — it's real shipping weight either way.
+ * variant needs — a WEIGHT_BASED product's price is always weight × the
+ * single global ₹/kg rate managed in Settings (no per-variant override —
+ * that field is deprecated, see resolve-effective-rate.ts); a FIXED
+ * product's variants take a required fixed price instead (ornaments/
+ * footwear/accessories aren't priced by weight, see PricingMode's own doc
+ * comment in schema.prisma). Weight stays required in both modes — it's
+ * real shipping weight either way.
  */
 export function VariantForm({
   variant,
@@ -80,7 +80,6 @@ export function VariantForm({
         color: values.color.trim(),
         size: values.size.trim(),
         weightGrams,
-        ratePerKgOverridePaise: isFixed ? null : values.ratePerKgOverridePaise ? Number(values.ratePerKgOverridePaise) : null,
         fixedPricePaise: isFixed ? fixedPricePaise : null,
         fabric: values.fabric || null,
         fit: values.fit || null,
@@ -115,12 +114,10 @@ export function VariantForm({
             onChange={(e) => set("fixedPricePaise", e.target.value)}
           />
         ) : (
-          <FormField
-            label="Rate/kg override (paise, optional)"
-            type="number"
-            value={values.ratePerKgOverridePaise}
-            onChange={(e) => set("ratePerKgOverridePaise", e.target.value)}
-          />
+          <div className="flex flex-col gap-1.5">
+            <span className="font-body text-sm font-medium text-text-primary">Price</span>
+            <span className="font-body text-sm text-text-secondary">Weight × the global ₹/kg rate — set in Settings, not per variant.</span>
+          </div>
         )}
         {!isEditing ? (
           <FormField label="Starting stock" type="number" value={values.initialQuantity} onChange={(e) => set("initialQuantity", e.target.value)} />

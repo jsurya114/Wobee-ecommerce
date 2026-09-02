@@ -20,6 +20,7 @@ const app = createApp();
 let categoryId: string;
 let otherCategoryId: string;
 let warehouseId: string;
+let globalRatePerKgPaise: number;
 const createdUserIds: string[] = [];
 const createdProductIds: string[] = [];
 const createdVariantIds: string[] = [];
@@ -27,18 +28,28 @@ const createdOrderIds: string[] = [];
 const createdCouponIds: string[] = [];
 
 beforeAll(async () => {
-  // WEIGHT_BASED only (2026-08-31) — this suite's fixtures price variants via
-  // `ratePerKgOverridePaise` (see createTestVariant), which only resolves for
-  // a weight-based category; a FIXED one (Accessories) needs
-  // fixedPricePaise instead. Coupon logic itself doesn't care which pricing
-  // mode a category is, so pinning both fixture categories to WEIGHT_BASED
-  // sidesteps that entirely rather than teaching this suite about fixed pricing.
+  // WEIGHT_BASED only (2026-08-31) — this suite's fixtures pin an exact
+  // known price by deriving weightGrams from the live global rate (see
+  // createTestVariant), which only makes sense for a weight-based category;
+  // a FIXED one (Accessories) needs fixedPricePaise instead. Coupon logic
+  // itself doesn't care which pricing mode a category is, so pinning both
+  // fixture categories to WEIGHT_BASED sidesteps that entirely rather than
+  // teaching this suite about fixed pricing.
   const categories = await prisma.category.findMany({ where: { isActive: true, pricingMode: "WEIGHT_BASED" }, take: 2 });
   if (categories.length < 2) throw new Error("test setup: need at least 2 active weight-based categories seeded");
   categoryId = categories[0]!.id;
   otherCategoryId = categories[1]!.id;
   const warehouse = await prisma.warehouse.findFirstOrThrow({ where: { isActive: true } });
   warehouseId = warehouse.id;
+  // The per-variant rate override this suite used to pin an exact fixture
+  // price is deprecated and now inert everywhere (resolve-effective-rate.ts)
+  // — see createTestVariant's own comment for how fixtures get an exact
+  // price now instead.
+  const pricingSetting = await prisma.pricingSetting.findFirstOrThrow({
+    where: { effectiveFrom: { lte: new Date() } },
+    orderBy: { effectiveFrom: "desc" },
+  });
+  globalRatePerKgPaise = pricingSetting.defaultRatePerKgPaise;
 });
 
 afterAll(async () => {
@@ -88,12 +99,15 @@ async function createTestVariant(
       sku: `${TEST_PREFIX}-${suffix}`,
       color: "Black",
       size: "M",
-      weightGrams: params.weightGrams,
-      // Overriding the rate lets each test fixture pin an exact known price
-      // (ratePerKgOverridePaise / weight * 1000 == pricePaise) rather than
-      // depending on the live global PricingSetting, which other tests in
-      // this suite may not control.
-      ratePerKgOverridePaise: Math.round((params.pricePaise * 1000) / params.weightGrams),
+      // Deriving weightGrams from the desired pricePaise and the live global
+      // rate (ignoring the caller's literal params.weightGrams) is what
+      // pins each fixture to an exact known price now — the per-variant
+      // rate override this suite used to rely on for that is deprecated and
+      // unconditionally ignored by pricing (resolve-effective-rate.ts), so
+      // it's no longer possible to set weight and price independently for a
+      // WEIGHT_BASED variant. Nothing in this suite asserts on the literal
+      // weight value, only on the resulting price.
+      weightGrams: Math.round((params.pricePaise * 1000) / globalRatePerKgPaise),
       isActive: true,
     },
   });

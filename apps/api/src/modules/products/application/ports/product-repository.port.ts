@@ -117,7 +117,9 @@ export interface CreateVariantInput {
   color: string;
   size: string;
   weightGrams: number;
-  ratePerKgOverridePaise?: number | null;
+  // No ratePerKgOverridePaise — deprecated, no longer settable (see
+  // packages/validation's createVariantSchema comment). New rows always get
+  // the column's DB default (null).
   /** Authoritative for a FIXED-category product (2026-08-31); ignored for WEIGHT_BASED. */
   fixedPricePaise?: number | null;
   fabric?: string | null;
@@ -129,10 +131,11 @@ export interface CreateVariantInput {
 
 export interface UpdateVariantInput {
   // No `sku` — immutable after creation (see CreateProductVariantUseCase's own comment).
+  // No ratePerKgOverridePaise — deprecated, no longer settable; existing DB
+  // values are left untouched by every update (see product.repository.ts).
   color?: string;
   size?: string;
   weightGrams?: number;
-  ratePerKgOverridePaise?: number | null;
   /** Authoritative for a FIXED-category product (2026-08-31); ignored for WEIGHT_BASED. */
   fixedPricePaise?: number | null;
   fabric?: string | null;

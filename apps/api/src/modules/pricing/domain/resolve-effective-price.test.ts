@@ -13,12 +13,12 @@ describe("resolveEffectivePrice", () => {
     expect(result).toEqual({ pricePaise: 60_000, ratePerKgPaise: DEFAULT_RATE });
   });
 
-  it("prefers the variant's rate override over the default for WEIGHT_BASED", () => {
+  it("CRITICAL FINANCIAL TEST: ignores a legacy variant rate override for WEIGHT_BASED — the global rate is always authoritative", () => {
     const result = resolveEffectivePrice(
       { pricingMode: "WEIGHT_BASED", weightGrams: 500, ratePerKgOverridePaise: 90_000, fixedPricePaise: null },
       DEFAULT_RATE,
     );
-    expect(result).toEqual({ pricePaise: 45_000, ratePerKgPaise: 90_000 });
+    expect(result).toEqual({ pricePaise: 60_000, ratePerKgPaise: DEFAULT_RATE });
   });
 
   it("returns the admin-set fixedPricePaise verbatim for FIXED, with a null ratePerKgPaise", () => {
