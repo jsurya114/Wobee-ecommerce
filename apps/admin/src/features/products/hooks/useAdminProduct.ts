@@ -1,75 +1,104 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import * as productsApi from "../api/admin-products.client";
-import type { AdminProductDetail, UpdateProductPayload, UpdateVariantPayload, VariantPayload } from "../api/admin-products.client";
+import type { UpdateProductPayload, UpdateVariantPayload, VariantPayload } from "../api/admin-products.client";
+
+export function productQueryKey(productId: string) {
+  return ["admin", "products", "detail", productId] as const;
+}
 
 export function useAdminProduct(productId: string) {
-  const { accessToken } = useAdminAuth();
-  const [product, setProduct] = useState<AdminProductDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { withFreshToken } = useAdminAuth();
+  const queryClient = useQueryClient();
 
-  const refetch = useCallback(async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await productsApi.getProduct(productId, accessToken);
-      setProduct(result.product);
-    } catch {
-      setError("Couldn't load this product.");
-    } finally {
-      setLoading(false);
-    }
-  }, [productId, accessToken]);
+  const query = useQuery({
+    queryKey: productQueryKey(productId),
+    queryFn: () => withFreshToken((token) => productsApi.getProduct(productId, token)),
+  });
 
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  const requireToken = () => {
-    if (!accessToken) throw new Error("Not authenticated");
-    return accessToken;
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: productQueryKey(productId) });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "products", "list"] });
   };
 
+  const updateMutation = useMutation({
+    mutationFn: (input: UpdateProductPayload) => withFreshToken((token) => productsApi.updateProduct(productId, input, token)),
+    onSuccess: (result) => {
+      queryClient.setQueryData(productQueryKey(productId), result);
+      invalidate();
+    },
+  });
+
+  const setActiveMutation = useMutation({
+    mutationFn: (isActive: boolean) => withFreshToken((token) => productsApi.setProductActive(productId, isActive, token)),
+    onSuccess: (result) => {
+      queryClient.setQueryData(productQueryKey(productId), result);
+      invalidate();
+    },
+  });
+
+  const createVariantMutation = useMutation({
+    mutationFn: (input: VariantPayload) => withFreshToken((token) => productsApi.createVariant(productId, input, token)),
+    onSuccess: invalidate,
+  });
+
+  const updateVariantMutation = useMutation({
+    mutationFn: ({ variantId, input }: { variantId: string; input: UpdateVariantPayload }) =>
+      withFreshToken((token) => productsApi.updateVariant(productId, variantId, input, token)),
+    onSuccess: invalidate,
+  });
+
+  const setVariantActiveMutation = useMutation({
+    mutationFn: ({ variantId, isActive }: { variantId: string; isActive: boolean }) =>
+      withFreshToken((token) => productsApi.setVariantActive(productId, variantId, isActive, token)),
+    onSuccess: invalidate,
+  });
+
+  const addImageMutation = useMutation({
+    mutationFn: ({ url, altText }: { url: string; altText: string }) => withFreshToken((token) => productsApi.addImage(productId, url, altText, token)),
+    onSuccess: invalidate,
+  });
+
+  const removeImageMutation = useMutation({
+    mutationFn: (imageId: string) => withFreshToken((token) => productsApi.removeImage(productId, imageId, token)),
+    onSuccess: invalidate,
+  });
+
+  const reorderImagesMutation = useMutation({
+    mutationFn: (imageIds: string[]) => withFreshToken((token) => productsApi.reorderImages(productId, imageIds, token)),
+    onSuccess: invalidate,
+  });
+
   return {
-    product,
-    loading,
-    error,
-    refetch,
+    product: query.data?.product ?? null,
+    loading: query.isPending,
+    error: query.error ? "Couldn't load this product." : null,
+    refetch: query.refetch,
     update: async (input: UpdateProductPayload) => {
-      const result = await productsApi.updateProduct(productId, input, requireToken());
-      setProduct(result.product);
+      await updateMutation.mutateAsync(input);
     },
     setActive: async (isActive: boolean) => {
-      const result = await productsApi.setProductActive(productId, isActive, requireToken());
-      setProduct(result.product);
+      await setActiveMutation.mutateAsync(isActive);
     },
     createVariant: async (input: VariantPayload) => {
-      await productsApi.createVariant(productId, input, requireToken());
-      await refetch();
+      await createVariantMutation.mutateAsync(input);
     },
     updateVariant: async (variantId: string, input: UpdateVariantPayload) => {
-      await productsApi.updateVariant(productId, variantId, input, requireToken());
-      await refetch();
+      await updateVariantMutation.mutateAsync({ variantId, input });
     },
     setVariantActive: async (variantId: string, isActive: boolean) => {
-      await productsApi.setVariantActive(productId, variantId, isActive, requireToken());
-      await refetch();
+      await setVariantActiveMutation.mutateAsync({ variantId, isActive });
     },
     addImage: async (url: string, altText: string) => {
-      await productsApi.addImage(productId, url, altText, requireToken());
-      await refetch();
+      await addImageMutation.mutateAsync({ url, altText });
     },
     removeImage: async (imageId: string) => {
-      await productsApi.removeImage(productId, imageId, requireToken());
-      await refetch();
+      await removeImageMutation.mutateAsync(imageId);
     },
     reorderImages: async (imageIds: string[]) => {
-      await productsApi.reorderImages(productId, imageIds, requireToken());
-      await refetch();
+      await reorderImagesMutation.mutateAsync(imageIds);
     },
   };
 }

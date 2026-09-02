@@ -1,42 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
+import { ApiError } from "@/lib/api-client";
 import * as customersApi from "../api/admin-customers.client";
 import type { AdminCustomerDetail } from "../api/admin-customers.client";
 
+export function customerQueryKey(customerId: string) {
+  return ["admin", "customers", "detail", customerId] as const;
+}
+
 export function useAdminCustomer(customerId: string) {
-  const { accessToken } = useAdminAuth();
-  const [detail, setDetail] = useState<AdminCustomerDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { withFreshToken } = useAdminAuth();
+  const queryClient = useQueryClient();
 
-  const refetch = useCallback(async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      setDetail(await customersApi.getCustomer(customerId, accessToken));
-    } catch {
-      setError("Couldn't load this customer.");
-    } finally {
-      setLoading(false);
-    }
-  }, [customerId, accessToken]);
+  const query = useQuery({
+    queryKey: customerQueryKey(customerId),
+    queryFn: () => withFreshToken((token) => customersApi.getCustomer(customerId, token)),
+  });
 
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
+  const setActiveMutation = useMutation({
+    mutationFn: (isActive: boolean) => withFreshToken((token) => customersApi.setCustomerActive(customerId, isActive, token)),
+    onSuccess: (result) => {
+      queryClient.setQueryData<AdminCustomerDetail>(customerQueryKey(customerId), (prev) => (prev ? { ...prev, customer: result.customer } : prev));
+      void queryClient.invalidateQueries({ queryKey: ["admin", "customers", "list"] });
+    },
+  });
+
+  const error = query.error ? (query.error instanceof ApiError ? query.error.message : "Couldn't load this customer.") : null;
 
   return {
-    detail,
-    loading,
+    detail: query.data ?? null,
+    loading: query.isPending,
     error,
-    refetch,
-    setActive: async (isActive: boolean) => {
-      if (!accessToken) throw new Error("Not authenticated");
-      const result = await customersApi.setCustomerActive(customerId, isActive, accessToken);
-      setDetail((prev) => (prev ? { ...prev, customer: result.customer } : prev));
-    },
+    refetch: query.refetch,
+    setActive: (isActive: boolean) => setActiveMutation.mutateAsync(isActive),
   };
 }

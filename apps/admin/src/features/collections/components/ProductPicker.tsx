@@ -10,7 +10,7 @@ import { ApiError } from "@/lib/api-client";
 
 /** week2 (1).md §16's own note that a Day 7 product picker was owed to the collections admin UI (deferred since Day 2, see collections.module.ts's doc comment) — search-then-assign, not a full catalogue browser. */
 export function ProductPicker({ excludeProductIds, onAssign }: { excludeProductIds: string[]; onAssign: (productId: string) => Promise<void> }) {
-  const { accessToken } = useAdminAuth();
+  const { withFreshToken } = useAdminAuth();
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<AdminProductSummary[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -18,10 +18,10 @@ export function ProductPicker({ excludeProductIds, onAssign }: { excludeProductI
 
   const runSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken || !search.trim()) return;
+    if (!search.trim()) return;
     setIsSearching(true);
     try {
-      const result = await listProducts({ search: search.trim(), pageSize: 20 }, accessToken);
+      const result = await withFreshToken((token) => listProducts({ search: search.trim(), pageSize: 20 }, token));
       setResults(result.items.filter((p) => !excludeProductIds.includes(p.id)));
     } catch {
       toast.error("Search failed.");

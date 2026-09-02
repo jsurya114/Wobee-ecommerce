@@ -1,56 +1,60 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
 import * as bannersApi from "../api/admin-banners.client";
-import type { AdminBanner } from "../api/admin-banners.client";
+
+export const bannersQueryKey = ["admin", "banners"] as const;
 
 export function useAdminBanners() {
-  const { accessToken } = useAdminAuth();
-  const [items, setItems] = useState<AdminBanner[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { withFreshToken } = useAdminAuth();
+  const queryClient = useQueryClient();
 
-  const refetch = useCallback(async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await bannersApi.listBanners(accessToken);
-      setItems(result.banners);
-    } catch (err) {
-      setError(err instanceof ApiError && err.status === 403 ? "You don't have permission to view banners." : "Couldn't load banners.");
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken]);
+  const query = useQuery({
+    queryKey: bannersQueryKey,
+    queryFn: () => withFreshToken((token) => bannersApi.listBanners(token)),
+  });
 
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: bannersQueryKey });
 
-  const requireToken = () => {
-    if (!accessToken) throw new Error("Not authenticated");
-    return accessToken;
-  };
+  const setActiveMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      withFreshToken((token) => bannersApi.setBannerActive(id, isActive, token)),
+    onSuccess: invalidate,
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => withFreshToken((token) => bannersApi.deleteBanner(id, token)),
+    onSuccess: invalidate,
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: (bannerIds: string[]) => withFreshToken((token) => bannersApi.reorderBanners(bannerIds, token)),
+    onSuccess: invalidate,
+  });
+
+  const error = query.error
+    ? query.error instanceof ApiError && query.error.status === 403
+      ? "You don't have permission to view banners."
+      : query.error instanceof ApiError
+        ? query.error.message
+        : "Couldn't load banners."
+    : null;
 
   return {
-    items,
-    loading,
+    items: query.data?.banners ?? [],
+    loading: query.isPending,
     error,
-    refetch,
+    refetch: query.refetch,
     setActive: async (id: string, isActive: boolean) => {
-      await bannersApi.setBannerActive(id, isActive, requireToken());
-      await refetch();
+      await setActiveMutation.mutateAsync({ id, isActive });
     },
     remove: async (id: string) => {
-      await bannersApi.deleteBanner(id, requireToken());
-      await refetch();
+      await removeMutation.mutateAsync(id);
     },
     reorder: async (bannerIds: string[]) => {
-      await bannersApi.reorderBanners(bannerIds, requireToken());
-      await refetch();
+      await reorderMutation.mutateAsync(bannerIds);
     },
   };
 }

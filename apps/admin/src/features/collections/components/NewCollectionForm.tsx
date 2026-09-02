@@ -9,15 +9,14 @@ import { CollectionForm } from "./CollectionForm";
 
 export function NewCollectionForm() {
   const router = useRouter();
-  const { accessToken } = useAdminAuth();
+  const { withFreshToken } = useAdminAuth();
 
   return (
     <Card className="max-w-xl p-4">
       <CollectionForm
         submitLabel="Create collection"
         onSubmit={async (payload) => {
-          if (!accessToken) return;
-          const result = await collectionsApi.createCollection(payload, accessToken);
+          const result = await withFreshToken((token) => collectionsApi.createCollection(payload, token));
           toast.success("Collection created");
           router.push(`/collections/${result.collection.id}`);
         }}

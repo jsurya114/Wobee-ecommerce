@@ -28,7 +28,7 @@ export function ProductImages({
   onRemove: (imageId: string) => Promise<void>;
   onReorder: (imageIds: string[]) => Promise<void>;
 }) {
-  const { accessToken } = useAdminAuth();
+  const { withFreshToken } = useAdminAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -36,14 +36,14 @@ export function ProductImages({
   const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file later
-    if (!file || !accessToken) return;
+    if (!file) return;
     setIsUploading(true);
     try {
-      const media = await uploadMedia(file, `Product image`, accessToken);
+      const media = await withFreshToken((token) => uploadMedia(file, `Product image`, token));
       await onAdd(media.url, media.altText ?? "Product image");
       toast.success("Image added");
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Upload failed.");
+      toast.error(error instanceof ApiError ? error.message : "Upload failed. Please try again.");
     } finally {
       setIsUploading(false);
     }

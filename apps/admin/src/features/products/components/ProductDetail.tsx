@@ -1,31 +1,24 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { Badge, Button, Card } from "@woobe/ui";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
-import { listCategories } from "../api/admin-categories.client";
-import type { CategoryOption } from "../api/admin-categories.client";
+import { useAdminCategories } from "../hooks/useAdminCategories";
 import { useAdminProduct } from "../hooks/useAdminProduct";
 import { ProductForm } from "./ProductForm";
 import { ProductImages } from "./ProductImages";
 import { VariantsList } from "./VariantsList";
 
 export function ProductDetail({ productId }: { productId: string }) {
-  const { accessToken } = useAdminAuth();
   const { product, loading, error, update, setActive, createVariant, updateVariant, setVariantActive, addImage, removeImage, reorderImages } =
     useAdminProduct(productId);
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const { categories } = useAdminCategories();
   const [isTogglingActive, setIsTogglingActive] = useState(false);
 
-  useEffect(() => {
-    if (!accessToken) return;
-    void listCategories(accessToken).then((result) => setCategories(result.categories));
-  }, [accessToken]);
-
   if (loading) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>;
+    return <LoadingState />;
   }
   if (error) {
     return <p className="py-12 text-center font-body text-sm text-error">{error}</p>;
@@ -61,6 +54,12 @@ export function ProductDetail({ productId }: { productId: string }) {
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>
         <ProductForm
+          // Next's App Router reuses this component instance across
+          // /products/[id1] -> /products/[id2] navigation — without a key
+          // tied to the id, ProductForm's internal useState(values) would
+          // keep showing the previous product's values after `product` has
+          // already updated underneath it (same bug class as BannerForm).
+          key={productId}
           categories={categories}
           initialValues={{
             name: product.name,

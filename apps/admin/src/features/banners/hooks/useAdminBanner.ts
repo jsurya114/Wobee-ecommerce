@@ -1,51 +1,58 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
+import { ApiError } from "@/lib/api-client";
 import * as bannersApi from "../api/admin-banners.client";
-import type { AdminBanner, BannerPayload } from "../api/admin-banners.client";
+import type { BannerPayload } from "../api/admin-banners.client";
+import { bannersQueryKey } from "./useAdminBanners";
+
+export function bannerQueryKey(bannerId: string) {
+  return ["admin", "banners", bannerId] as const;
+}
 
 export function useAdminBanner(bannerId: string) {
-  const { accessToken } = useAdminAuth();
-  const [banner, setBanner] = useState<AdminBanner | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { withFreshToken } = useAdminAuth();
+  const queryClient = useQueryClient();
 
-  const refetch = useCallback(async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await bannersApi.getBanner(bannerId, accessToken);
-      setBanner(result.banner);
-    } catch {
-      setError("Couldn't load this banner.");
-    } finally {
-      setLoading(false);
-    }
-  }, [bannerId, accessToken]);
+  const query = useQuery({
+    queryKey: bannerQueryKey(bannerId),
+    queryFn: () => withFreshToken((token) => bannersApi.getBanner(bannerId, token)),
+  });
 
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  const requireToken = () => {
-    if (!accessToken) throw new Error("Not authenticated");
-    return accessToken;
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: bannerQueryKey(bannerId) });
+    void queryClient.invalidateQueries({ queryKey: bannersQueryKey });
   };
 
+  const updateMutation = useMutation({
+    mutationFn: (input: Partial<BannerPayload>) => withFreshToken((token) => bannersApi.updateBanner(bannerId, input, token)),
+    onSuccess: (result) => {
+      queryClient.setQueryData(bannerQueryKey(bannerId), result);
+      invalidate();
+    },
+  });
+
+  const setActiveMutation = useMutation({
+    mutationFn: (isActive: boolean) => withFreshToken((token) => bannersApi.setBannerActive(bannerId, isActive, token)),
+    onSuccess: (result) => {
+      queryClient.setQueryData(bannerQueryKey(bannerId), result);
+      invalidate();
+    },
+  });
+
+  const error = query.error
+    ? query.error instanceof ApiError
+      ? query.error.message
+      : "Couldn't load this banner."
+    : null;
+
   return {
-    banner,
-    loading,
+    banner: query.data?.banner ?? null,
+    loading: query.isPending,
     error,
-    refetch,
-    update: async (input: Partial<BannerPayload>) => {
-      const result = await bannersApi.updateBanner(bannerId, input, requireToken());
-      setBanner(result.banner);
-    },
-    setActive: async (isActive: boolean) => {
-      const result = await bannersApi.setBannerActive(bannerId, isActive, requireToken());
-      setBanner(result.banner);
-    },
+    refetch: query.refetch,
+    update: (input: Partial<BannerPayload>) => updateMutation.mutateAsync(input),
+    setActive: (isActive: boolean) => setActiveMutation.mutateAsync(isActive),
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, FormField } from "@woobe/ui";
+import { Button, FormField, SectionHeader } from "@woobe/ui";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
@@ -28,7 +28,7 @@ export function BannerForm({
   submitLabel: string;
   onSubmit: (payload: BannerPayload) => Promise<void>;
 }) {
-  const { accessToken } = useAdminAuth();
+  const { withFreshToken } = useAdminAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUrl, setImageUrl] = useState(initialValues?.imageUrl ?? "");
   const [title, setTitle] = useState(initialValues?.title ?? "");
@@ -43,13 +43,17 @@ export function BannerForm({
   const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !accessToken) return;
+    // No `if (!accessToken) return` here on purpose — that used to fail the whole
+    // upload silently with zero feedback whenever the in-memory access token was
+    // momentarily unset. `withFreshToken` gets/refreshes a token itself; any real
+    // failure (auth or otherwise) now always surfaces through the catch below.
+    if (!file) return;
     setIsUploading(true);
     try {
-      const media = await uploadMedia(file, title || "Promo banner", accessToken);
+      const media = await withFreshToken((token) => uploadMedia(file, title || "Promo banner", token));
       setImageUrl(media.url);
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Upload failed.");
+      toast.error(error instanceof ApiError ? error.message : "Upload failed. Please try again.");
     } finally {
       setIsUploading(false);
     }
@@ -80,9 +84,9 @@ export function BannerForm({
   };
 
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <span className="font-body text-sm font-medium text-text-primary">Image</span>
+        <SectionHeader as="h3">Media</SectionHeader>
         {imageUrl ? (
           // Plain <img>, not next/image — same reasoning as ProductImages' own thumbnail (arbitrary admin-entered URL).
           <img src={imageUrl} alt="" className="aspect-[21/9] w-full max-w-md rounded-control object-cover" />
@@ -103,18 +107,33 @@ export function BannerForm({
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <FormField label="Subtitle (optional)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} />
-        <FormField label="CTA label (optional)" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} />
-        <FormField
-          label="CTA link (optional)"
-          value={ctaUrl}
-          onChange={(e) => setCtaUrl(e.target.value)}
-          placeholder="/products?category=dresses"
-        />
-        <FormField label="Starts (optional)" type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
-        <FormField label="Ends (optional)" type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} />
+      <div className="flex flex-col gap-3">
+        <SectionHeader as="h3">Content</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <FormField label="Subtitle (optional)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <SectionHeader as="h3">Action</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="CTA label (optional)" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} />
+          <FormField
+            label="CTA link (optional)"
+            value={ctaUrl}
+            onChange={(e) => setCtaUrl(e.target.value)}
+            placeholder="/products?category=dresses"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <SectionHeader as="h3">Display</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Starts (optional)" type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+          <FormField label="Ends (optional)" type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} />
+        </div>
       </div>
 
       <Button type="submit" isLoading={isSubmitting} className="self-start">

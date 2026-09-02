@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
+    "@tanstack/react-query": "^5.102.8",
     "@woobe/types": "workspace:*",
     "@woobe/ui": "workspace:*",
     "@woobe/utils": "workspace:*",
@@ -24,10 +25,10 @@
     "sonner": "^1.7.1"
   },
   "devDependencies": {
-    "@woobe/config": "workspace:*",
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "@woobe/config": "workspace:*",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.18.0",
     "postcss": "^8.4.49",

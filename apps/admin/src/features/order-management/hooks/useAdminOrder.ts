@@ -1,59 +1,77 @@
 "use client";
 
 import type { CancelOrderInput, ShipOrderInput } from "@woobe/validation";
-import { useCallback, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import * as ordersApi from "../api/admin-orders.client";
-import type { AdminOrderView } from "../api/admin-orders.client";
+
+export function orderQueryKey(orderId: string) {
+  return ["admin", "orders", "detail", orderId] as const;
+}
 
 export function useAdminOrder(orderId: string) {
-  const { accessToken } = useAdminAuth();
-  const [order, setOrder] = useState<AdminOrderView | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefundIssued, setLastRefundIssued] = useState<boolean | null>(null);
+  const { withFreshToken } = useAdminAuth();
+  const queryClient = useQueryClient();
 
-  const refetch = useCallback(async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      setOrder(await ordersApi.getOrder(orderId, accessToken));
-    } catch {
-      setError("Couldn't load this order.");
-    } finally {
-      setLoading(false);
-    }
-  }, [orderId, accessToken]);
+  const query = useQuery({
+    queryKey: orderQueryKey(orderId),
+    queryFn: () => withFreshToken((token) => ordersApi.getOrder(orderId, token)),
+  });
 
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  const requireToken = () => {
-    if (!accessToken) throw new Error("Not authenticated");
-    return accessToken;
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: orderQueryKey(orderId) });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "orders", "list"] });
   };
 
+  const startProcessingMutation = useMutation({
+    mutationFn: () => withFreshToken((token) => ordersApi.startProcessing(orderId, token)),
+    onSuccess: (order) => {
+      queryClient.setQueryData(orderQueryKey(orderId), order);
+      invalidate();
+    },
+  });
+
+  const shipMutation = useMutation({
+    mutationFn: (input: ShipOrderInput) => withFreshToken((token) => ordersApi.ship(orderId, input, token)),
+    onSuccess: (order) => {
+      queryClient.setQueryData(orderQueryKey(orderId), order);
+      invalidate();
+    },
+  });
+
+  const deliverMutation = useMutation({
+    mutationFn: () => withFreshToken((token) => ordersApi.deliver(orderId, token)),
+    onSuccess: (order) => {
+      queryClient.setQueryData(orderQueryKey(orderId), order);
+      invalidate();
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (input: CancelOrderInput) => withFreshToken((token) => ordersApi.cancel(orderId, input, token)),
+    onSuccess: (result) => {
+      queryClient.setQueryData(orderQueryKey(orderId), result.order);
+      invalidate();
+    },
+  });
+
   return {
-    order,
-    loading,
-    error,
-    lastRefundIssued,
-    refetch,
+    order: query.data ?? null,
+    loading: query.isPending,
+    error: query.error ? "Couldn't load this order." : null,
+    lastRefundIssued: cancelMutation.data?.refundIssued ?? null,
+    refetch: query.refetch,
     startProcessing: async () => {
-      setOrder(await ordersApi.startProcessing(orderId, requireToken()));
+      await startProcessingMutation.mutateAsync();
     },
     ship: async (input: ShipOrderInput) => {
-      setOrder(await ordersApi.ship(orderId, input, requireToken()));
+      await shipMutation.mutateAsync(input);
     },
     deliver: async () => {
-      setOrder(await ordersApi.deliver(orderId, requireToken()));
+      await deliverMutation.mutateAsync();
     },
     cancel: async (input: CancelOrderInput) => {
-      const result = await ordersApi.cancel(orderId, input, requireToken());
-      setOrder(result.order);
-      setLastRefundIssued(result.refundIssued);
+      await cancelMutation.mutateAsync(input);
     },
   };
 }

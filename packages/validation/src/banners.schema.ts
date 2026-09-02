@@ -18,10 +18,13 @@ const isoDateSchema = z.string().trim().datetime({ message: "Must be an ISO 8601
 
 export const createBannerSchema = z.object({
   imageUrl: urlSchema,
-  title: z.string().trim().max(200).optional(),
-  subtitle: z.string().trim().max(300).optional(),
-  ctaLabel: z.string().trim().max(60).optional(),
-  ctaUrl: ctaUrlSchema.optional(),
+  // Nullable (not just optional) to match updateBannerSchema below — the admin
+  // form always sends an explicit `null` for a blank optional field rather than
+  // omitting the key, so create must accept the same shape update already does.
+  title: z.string().trim().max(200).nullable().optional(),
+  subtitle: z.string().trim().max(300).nullable().optional(),
+  ctaLabel: z.string().trim().max(60).nullable().optional(),
+  ctaUrl: ctaUrlSchema.nullable().optional(),
   startAt: isoDateSchema.nullable().optional(),
   endAt: isoDateSchema.nullable().optional(),
 });

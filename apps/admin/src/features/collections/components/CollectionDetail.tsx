@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { Badge, Button, Card } from "@woobe/ui";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -15,7 +16,7 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
   const [isTogglingActive, setIsTogglingActive] = useState(false);
 
   if (loading) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>;
+    return <LoadingState />;
   }
   if (error) {
     return <p className="py-12 text-center font-body text-sm text-error">{error}</p>;
@@ -51,6 +52,11 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>
         <CollectionForm
+          // Same fix as ProductForm/BannerForm: Next reuses this component
+          // instance across /collections/[id1] -> [id2] navigation, so the
+          // form's internal useState needs to remount on id change or it
+          // keeps showing the previous collection's values.
+          key={collectionId}
           initialValues={{ name: collection.name, slug: collection.slug, description: collection.description ?? undefined }}
           submitLabel="Save changes"
           onSubmit={async (payload) => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { Badge, Button, Card } from "@woobe/ui";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -12,7 +13,7 @@ export function BannerDetail({ bannerId }: { bannerId: string }) {
   const [isTogglingActive, setIsTogglingActive] = useState(false);
 
   if (loading) {
-    return <p className="py-12 text-center font-body text-sm text-text-secondary">Loading…</p>;
+    return <LoadingState />;
   }
   if (error) {
     return <p className="py-12 text-center font-body text-sm text-error">{error}</p>;
@@ -48,6 +49,11 @@ export function BannerDetail({ bannerId }: { bannerId: string }) {
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>
         <BannerForm
+          // Next's App Router reuses this component instance across /banners/[id1] ->
+          // /banners/[id2] navigation — without a key tied to the id, BannerForm's
+          // internal useState (image/title/etc.) would keep showing the previous
+          // banner's values after `banner` has already updated underneath it.
+          key={bannerId}
           initialValues={banner}
           submitLabel="Save changes"
           onSubmit={async (payload) => {

@@ -1,37 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
 import * as customersApi from "../api/admin-customers.client";
-import type { AdminCustomerSummary, ListCustomersParams } from "../api/admin-customers.client";
+import type { ListCustomersParams } from "../api/admin-customers.client";
+
+export function customersQueryKey(filter: ListCustomersParams) {
+  return ["admin", "customers", "list", filter] as const;
+}
 
 export function useAdminCustomers(filter: ListCustomersParams) {
-  const { accessToken } = useAdminAuth();
-  const [items, setItems] = useState<AdminCustomerSummary[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { withFreshToken } = useAdminAuth();
 
-  const refetch = useCallback(async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await customersApi.listCustomers(filter, accessToken);
-      setItems(result.items);
-      setTotal(result.total);
-    } catch (err) {
-      setError(err instanceof ApiError && err.status === 403 ? "You don't have permission to view customers." : "Couldn't load customers.");
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, filter.search, filter.isActive, filter.page, filter.pageSize]);
+  const query = useQuery({
+    queryKey: customersQueryKey(filter),
+    queryFn: () => withFreshToken((token) => customersApi.listCustomers(filter, token)),
+  });
 
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
+  const error = query.error
+    ? query.error instanceof ApiError && query.error.status === 403
+      ? "You don't have permission to view customers."
+      : "Couldn't load customers."
+    : null;
 
-  return { items, total, loading, error, refetch };
+  return {
+    items: query.data?.items ?? [],
+    total: query.data?.total ?? 0,
+    loading: query.isPending,
+    error,
+    refetch: query.refetch,
+  };
 }

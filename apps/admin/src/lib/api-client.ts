@@ -24,6 +24,9 @@ function apiBaseUrl(): string {
   return url;
 }
 
+// `signal` (from RequestInit, kept via the Omit below) is threaded through from React
+// Query's queryFn context so a superseded request (route change, refetch) is actually
+// cancelled instead of racing the request that replaced it.
 interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   accessToken?: string;

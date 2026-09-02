@@ -1,24 +1,17 @@
 "use client";
 
 import { Card } from "@woobe/ui";
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
-import { listCategories } from "../api/admin-categories.client";
-import type { CategoryOption } from "../api/admin-categories.client";
+import { useAdminCategories } from "../hooks/useAdminCategories";
 import * as productsApi from "../api/admin-products.client";
 import { ProductForm } from "./ProductForm";
 
 export function NewProductForm() {
   const router = useRouter();
-  const { accessToken } = useAdminAuth();
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    void listCategories(accessToken).then((result) => setCategories(result.categories));
-  }, [accessToken]);
+  const { withFreshToken } = useAdminAuth();
+  const { categories } = useAdminCategories();
 
   return (
     <Card className="max-w-2xl p-4">
@@ -26,8 +19,7 @@ export function NewProductForm() {
         categories={categories}
         submitLabel="Create product"
         onSubmit={async (payload) => {
-          if (!accessToken) return;
-          const result = await productsApi.createProduct(payload, accessToken);
+          const result = await withFreshToken((token) => productsApi.createProduct(payload, token));
           toast.success("Product created");
           router.push(`/products/${result.product.id}`);
         }}
