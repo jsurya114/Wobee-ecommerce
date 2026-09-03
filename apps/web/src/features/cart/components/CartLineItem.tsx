@@ -70,10 +70,10 @@ export function CartLineItem({ line }: { line: CartLine }) {
   }
 
   return (
-    <div className="flex gap-4 border-b border-border py-4 last:border-b-0">
+    <div className="flex gap-3 border-b border-border py-3 last:border-b-0">
       <Link
         href={`/products/${line.productSlug}`}
-        className="aspect-[3/4] w-20 shrink-0 overflow-hidden rounded-control bg-surface-2 sm:w-24"
+        className="aspect-[3/4] w-[4.75rem] shrink-0 overflow-hidden rounded-control bg-surface-2 sm:w-20"
       >
         {line.image ? (
           <img src={line.image} alt={line.productName} loading="lazy" decoding="async" className="h-full w-full object-cover" />

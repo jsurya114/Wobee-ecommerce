@@ -1,22 +1,29 @@
 "use client";
 
-import { Badge } from "@woobe/ui";
+import { Badge, cn } from "@woobe/ui";
 import { Heart, Home, ShoppingBag, Store, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useCart } from "@/features/cart/hooks/useCart";
 import { useWishlist } from "@/features/wishlist/hooks/useWishlist";
-import { MOBILE_BOTTOM_NAV_HEIGHT_REM } from "@/lib/layout-constants";
+import { BOTTOM_NAV_DOCK_HEIGHT_REM, BOTTOM_NAV_FLOAT_GAP_REM } from "@/lib/layout-constants";
 
 /**
- * Sticky mobile bottom nav (woobe_ui_design_plan.md §10) — 5 tabs now that
- * Wishlist is a real feature (Week 2 Day 2; Search still isn't, so it stays
- * a 5th-slot gap rather than forcing a 6th tab — search lives inline on
- * /products instead). Fixes the cramped top-header nav flagged in the
- * Week 1 completion audit: SiteHeader now only carries the logo + a cart
- * shortcut, this carries the actual navigation on mobile. `md:hidden` —
- * desktop keeps SiteHeader's horizontal nav.
+ * Floating liquid-glass mobile bottom nav (woobe_ui_design_plan.md §10;
+ * liquid-glass redesign 2026-09-03) — 5 tabs now that Wishlist is a real
+ * feature (Week 2 Day 2; Search still isn't, so it stays a 5th-slot gap
+ * rather than forcing a 6th tab — search lives inline on /products
+ * instead). Fixes the cramped top-header nav flagged in the Week 1
+ * completion audit: SiteHeader now only carries the logo + motto, this
+ * carries the actual navigation on mobile. `md:hidden` — desktop keeps
+ * SiteHeader's horizontal nav.
+ *
+ * Floats as a rounded, translucent capsule inset from the edge rather than
+ * a flush full-width bar — `BOTTOM_NAV_DOCK_HEIGHT_REM`/`_FLOAT_GAP_REM`
+ * (layout-constants.ts) are this component's own two real numbers; every
+ * other fixed bottom-pinned element derives its offset from their sum
+ * (`MOBILE_BOTTOM_NAV_HEIGHT_REM`) rather than duplicating them.
  */
 export function BottomNav() {
   const pathname = usePathname();
@@ -47,15 +54,13 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface/95 backdrop-blur md:hidden"
+      className="fixed inset-x-3 z-30 flex items-center rounded-pill border border-white/60 bg-surface/75 shadow-modal backdrop-blur-xl md:hidden"
       style={{
-        // border-box: padding eats into `height`, so grow the box by the
-        // safe-area inset first, then carve that same amount back out as
-        // padding — content area stays a constant MOBILE_BOTTOM_NAV_HEIGHT_REM
-        // tall, and the total rendered height (what fixed siblings offset
-        // against) is exactly what ABOVE_MOBILE_BOTTOM_NAV_STYLE expects.
-        height: `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom))`,
-        paddingBottom: "env(safe-area-inset-bottom)",
+        // The dock's own two real numbers (layout-constants.ts) — every other
+        // fixed bottom-pinned element derives its offset from their sum
+        // instead of duplicating either one.
+        height: BOTTOM_NAV_DOCK_HEIGHT_REM,
+        bottom: `calc(env(safe-area-inset-bottom) + ${BOTTOM_NAV_FLOAT_GAP_REM})`,
       }}
     >
       {items.map((item) => {
@@ -65,16 +70,17 @@ export function BottomNav() {
             key={item.label}
             href={item.href}
             aria-current={item.isActive ? "page" : undefined}
-            className={`relative flex flex-1 flex-col items-center justify-center gap-1 px-2 font-body text-[11px] transition-colors ${
-              item.isActive ? "text-primary" : "text-text-secondary hover:text-text-primary"
-            }`}
+            className={cn(
+              "relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-pill py-1.5 font-body text-[10px] font-medium transition-colors",
+              item.isActive ? "text-primary" : "text-text-secondary hover:text-text-primary",
+            )}
           >
             <span className="relative">
-              <Icon className="h-6 w-6" strokeWidth={item.isActive ? 2.25 : 1.75} aria-hidden="true" />
+              <Icon className="h-5 w-5" strokeWidth={item.isActive ? 2.25 : 1.75} aria-hidden="true" />
               {item.count ? (
                 <Badge
                   variant="neutral"
-                  className="absolute -right-2 -top-2 min-w-[1.1rem] justify-center bg-primary px-1 py-0 text-[10px] leading-4 text-white"
+                  className="absolute -right-2 -top-1.5 min-w-[1.1rem] justify-center bg-primary px-1 py-0 text-[10px] leading-4 text-white"
                 >
                   {item.count > 9 ? "9+" : item.count}
                 </Badge>

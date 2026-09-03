@@ -30,10 +30,18 @@ export function CategoryRail({ categories }: { categories: HomeCategoryTile[] })
   return (
     <section aria-label="Shop by category" className="border-b border-border px-4 py-section sm:px-6">
       <div className="mx-auto max-w-6xl">
-        <SectionHeader>Shop by category</SectionHeader>
+        <SectionHeader
+          action={
+            <Link href="/products" className="hover:underline">
+              See all
+            </Link>
+          }
+        >
+          Shop by category
+        </SectionHeader>
       </div>
       <nav className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <ul className="mx-auto flex min-w-max items-start justify-center gap-6 sm:gap-8 md:min-w-0 md:max-w-6xl md:gap-10 lg:gap-12">
+        <ul className="mx-auto flex min-w-max items-start justify-center gap-5 sm:gap-8 md:min-w-0 md:max-w-6xl md:gap-10 lg:gap-12">
           {categories.map((category) => (
             <li key={category.id} className="shrink-0">
               <Link

@@ -28,7 +28,7 @@ export function CategoryFilter({
       <Link
         href={buildProductsHref({ ...currentParams, category: undefined })}
         aria-current={!activeSlug || undefined}
-        className={chipVariants({ active: !activeSlug })}
+        className={chipVariants({ active: !activeSlug, size: "sm" })}
       >
         All
       </Link>
@@ -37,7 +37,7 @@ export function CategoryFilter({
           key={category.id}
           href={buildProductsHref({ ...currentParams, category: category.slug })}
           aria-current={activeSlug === category.slug || undefined}
-          className={chipVariants({ active: activeSlug === category.slug })}
+          className={chipVariants({ active: activeSlug === category.slug, size: "sm" })}
         >
           {category.name}
         </Link>

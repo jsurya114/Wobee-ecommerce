@@ -44,10 +44,10 @@ export function WhatsAppButton() {
       // the fill no longer needs to be WhatsApp's own #25D366 green, which
       // read as a bolted-on third-party widget against this site's warm
       // rose/clay palette everywhere else.
-      className="fixed right-3 bottom-[var(--wa-offset)] z-20 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-modal transition-transform hover:scale-105 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 md:bottom-6 md:right-6"
+      className="fixed right-3 bottom-[var(--wa-offset)] z-20 flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white shadow-card transition-transform hover:scale-105 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 md:bottom-6 md:right-6"
       style={{ "--wa-offset": bottomOffset } as CSSProperties}
     >
-      <WhatsAppIcon className="h-6 w-6" />
+      <WhatsAppIcon className="h-5 w-5" />
     </a>
   );
 }

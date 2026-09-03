@@ -1,12 +1,22 @@
 /**
- * Shared height for the mobile-only sticky BottomNav (`BottomNav.tsx`).
- * Any other `fixed`, bottom-pinned element that needs to sit flush above
- * the nav (e.g. ProductPurchasePanel's mobile buy bar) must offset itself
- * by this same value — a hardcoded guess (e.g. Tailwind's `bottom-20`)
- * silently drifts from BottomNav's real rendered height and leaves a gap
- * of exposed page background between the two bars.
+ * BottomNav (`BottomNav.tsx`, liquid-glass redesign 2026-09-03) floats as a
+ * rounded dock inset from the viewport edge, rather than sitting flush at
+ * `bottom: 0` — its own two pieces, exported so BottomNav is the only place
+ * that hardcodes either number.
  */
-export const MOBILE_BOTTOM_NAV_HEIGHT_REM = "4.25rem";
+export const BOTTOM_NAV_DOCK_HEIGHT_REM = "3.75rem"; // capsule content height, measured live
+export const BOTTOM_NAV_FLOAT_GAP_REM = "0.75rem"; // gap between the capsule and the safe-area edge
+
+/**
+ * Total footprint the floating dock claims at the bottom of the viewport
+ * (capsule height + its own floating gap, safe-area handled separately by
+ * each consumer below). Any other `fixed`, bottom-pinned element that needs
+ * to sit flush above the nav (e.g. ProductPurchasePanel's mobile buy bar)
+ * must offset itself by this same value — a hardcoded guess (e.g. Tailwind's
+ * `bottom-20`) silently drifts from BottomNav's real rendered footprint and
+ * leaves a gap of exposed page background between the two bars.
+ */
+export const MOBILE_BOTTOM_NAV_HEIGHT_REM = `calc(${BOTTOM_NAV_DOCK_HEIGHT_REM} + ${BOTTOM_NAV_FLOAT_GAP_REM})`;
 
 /** `bottom` offset for a fixed element that should sit directly on top of BottomNav, safe-area included. */
 export const ABOVE_MOBILE_BOTTOM_NAV_STYLE = {
@@ -56,4 +66,4 @@ export const FLOATING_STACK_GAP_REM = "0.625rem";
  * PLP's compact Size/Filters/Sort control bar, mobile UI refinement pass
  * 2026-09-01). Same "measured, not guessed" rule as the constants above.
  */
-export const SITE_HEADER_HEIGHT_REM = "4.0625rem"; // 65px, measured live
+export const SITE_HEADER_HEIGHT_REM = "3.1875rem"; // 51px, measured live (centered-logo mobile header, liquid-glass redesign 2026-09-03)

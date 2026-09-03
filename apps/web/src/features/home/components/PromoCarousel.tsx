@@ -97,7 +97,7 @@ export function PromoCarousel({ banners }: { banners: HomeBanner[] }) {
                 autoplayEnabled.current = false;
                 emblaApi?.scrollPrev();
               }}
-              className="absolute left-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-surface/80 text-text-primary shadow-card backdrop-blur transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="absolute left-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-surface/60 text-text-primary shadow-card backdrop-blur-md transition-colors hover:bg-surface/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <span aria-hidden="true">‹</span>
             </button>
@@ -108,12 +108,12 @@ export function PromoCarousel({ banners }: { banners: HomeBanner[] }) {
                 autoplayEnabled.current = false;
                 emblaApi?.scrollNext();
               }}
-              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-surface/80 text-text-primary shadow-card backdrop-blur transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-surface/60 text-text-primary shadow-card backdrop-blur-md transition-colors hover:bg-surface/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <span aria-hidden="true">›</span>
             </button>
 
-            <div className="absolute inset-x-0 bottom-2 flex justify-center gap-1.5">
+            <div className="absolute inset-x-0 bottom-2.5 flex justify-center gap-1.5">
               {banners.map((banner, index) => (
                 <button
                   key={banner.id}
@@ -125,7 +125,7 @@ export function PromoCarousel({ banners }: { banners: HomeBanner[] }) {
                     emblaApi?.scrollTo(index);
                   }}
                   className={`h-1.5 rounded-pill transition-all ${
-                    index === selectedIndex ? "w-4 bg-surface" : "w-1.5 bg-surface/60"
+                    index === selectedIndex ? "w-3.5 bg-surface" : "w-1.5 bg-surface/50"
                   }`}
                 />
               ))}

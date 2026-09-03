@@ -1,11 +1,27 @@
 "use client";
 
 import { Button, Card } from "@woobe/ui";
-import { ChevronRight, MapPin, Package, Pencil } from "lucide-react";
+import { ChevronRight, HelpCircle, Heart, LogOut, MapPin, Package, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, type ComponentType, type SVGProps } from "react";
 import { useAuth } from "../hooks/useAuth";
+
+/**
+ * Compact grouped settings rows (UI/UX refinement pass, 2026-09-03) —
+ * replaces the old one-card-per-row layout (each its own `<Card>` with its
+ * own padding + a `gap-6` between them, needlessly tall) with a single
+ * bordered list, divider-separated rows. "Help & Support" reuses the same
+ * `mailto:` action `SiteFooter`'s "Contact us" link already uses — every
+ * `href` here is a real, existing route/action, nothing invented.
+ */
+const ACCOUNT_LINKS: { href: string; label: string; icon: ComponentType<SVGProps<SVGSVGElement>> }[] = [
+  { href: "/account/profile", label: "Edit profile", icon: Pencil },
+  { href: "/account/addresses", label: "Your addresses", icon: MapPin },
+  { href: "/account/orders", label: "My orders", icon: Package },
+  { href: "/wishlist", label: "Wishlist", icon: Heart },
+  { href: "mailto:hello@woobe.in", label: "Help & Support", icon: HelpCircle },
+];
 
 /**
  * The Week 1 Day 2 protected-route proof: unreachable without a valid
@@ -32,59 +48,32 @@ export function AccountView() {
   }
 
   return (
-    <main className="mx-auto flex max-w-md flex-col gap-6 px-6 py-10">
-      <div className="flex items-center gap-4">
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary-tint font-display text-xl text-primary">
+    <main className="mx-auto flex max-w-md flex-col gap-5 px-6 py-8">
+      <div className="flex items-center gap-3.5">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-tint font-display text-lg text-primary">
           {user.name.slice(0, 1).toUpperCase()}
         </span>
-        <div>
-          <h1 className="font-display text-xl text-text-primary">{user.name}</h1>
-          <p className="font-body text-sm text-text-secondary">{user.email}</p>
+        <div className="min-w-0">
+          <h1 className="truncate font-display text-lg text-text-primary">{user.name}</h1>
+          <p className="truncate font-body text-xs text-text-secondary">{user.email}</p>
         </div>
       </div>
 
-      <Card className="flex flex-col gap-3 p-5">
-        <div>
-          <p className="font-body text-xs text-text-secondary">Name</p>
-          <p className="font-body text-sm text-text-primary">{user.name}</p>
-        </div>
-        <div>
-          <p className="font-body text-xs text-text-secondary">Email</p>
-          <p className="font-body text-sm text-text-primary">{user.email}</p>
-        </div>
-        {user.phone ? (
-          <div>
-            <p className="font-body text-xs text-text-secondary">Phone</p>
-            <p className="font-body text-sm text-text-primary">{user.phone}</p>
-          </div>
-        ) : null}
-      </Card>
-
-      <Link href="/account/profile">
-        <Card className="flex items-center gap-3 p-4 transition-colors hover:border-primary">
-          <Pencil className="h-5 w-5 text-primary" aria-hidden="true" />
-          <span className="flex-1 font-body text-sm font-medium text-text-primary">Edit profile</span>
-          <ChevronRight className="h-4 w-4 text-text-secondary" aria-hidden="true" />
+      <div>
+        <p className="mb-1.5 px-1 font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-text-secondary">Account</p>
+        <Card className="divide-y divide-border overflow-hidden p-0">
+          {ACCOUNT_LINKS.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
+              <Icon className="h-[18px] w-[18px] shrink-0 text-primary" aria-hidden="true" />
+              <span className="flex-1 font-body text-sm font-medium text-text-primary">{label}</span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" />
+            </Link>
+          ))}
         </Card>
-      </Link>
-
-      <Link href="/account/addresses">
-        <Card className="flex items-center gap-3 p-4 transition-colors hover:border-primary">
-          <MapPin className="h-5 w-5 text-primary" aria-hidden="true" />
-          <span className="flex-1 font-body text-sm font-medium text-text-primary">Your addresses</span>
-          <ChevronRight className="h-4 w-4 text-text-secondary" aria-hidden="true" />
-        </Card>
-      </Link>
-
-      <Link href="/account/orders">
-        <Card className="flex items-center gap-3 p-4 transition-colors hover:border-primary">
-          <Package className="h-5 w-5 text-primary" aria-hidden="true" />
-          <span className="flex-1 font-body text-sm font-medium text-text-primary">My orders</span>
-          <ChevronRight className="h-4 w-4 text-text-secondary" aria-hidden="true" />
-        </Card>
-      </Link>
+      </div>
 
       <Button variant="secondary" onClick={() => void logout()}>
+        <LogOut className="h-4 w-4" aria-hidden="true" />
         Log out
       </Button>
     </main>

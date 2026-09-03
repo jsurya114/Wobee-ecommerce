@@ -121,8 +121,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const resultsKey = JSON.stringify({ ...query, category: currentParams.category, collection: currentParams.collection });
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <h1 className="mb-4 font-display text-xl text-text-primary">Shop</h1>
+    <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
+      <h1 className="mb-3 font-display text-xl text-text-primary">Shop</h1>
       <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
       <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
       <PlpControlBar>

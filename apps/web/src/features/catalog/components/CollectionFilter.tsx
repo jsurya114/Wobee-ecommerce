@@ -29,7 +29,7 @@ export function CollectionFilter({
       <Link
         href={buildProductsHref({ ...currentParams, collection: undefined })}
         aria-current={!activeSlug || undefined}
-        className={chipVariants({ active: !activeSlug })}
+        className={chipVariants({ active: !activeSlug, size: "sm" })}
       >
         All collections
       </Link>
@@ -38,7 +38,7 @@ export function CollectionFilter({
           key={collection.id}
           href={buildProductsHref({ ...currentParams, collection: collection.slug })}
           aria-current={activeSlug === collection.slug || undefined}
-          className={chipVariants({ active: activeSlug === collection.slug })}
+          className={chipVariants({ active: activeSlug === collection.slug, size: "sm" })}
         >
           {collection.name}
         </Link>

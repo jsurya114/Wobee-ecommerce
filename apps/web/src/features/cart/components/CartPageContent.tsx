@@ -53,16 +53,16 @@ export function CartPageContent() {
 
   return (
     <>
-      <div className="grid gap-8 pb-24 md:grid-cols-[1fr_320px] md:pb-0">
-        <Card className="p-4 sm:p-5">
+      <div className="grid gap-6 pb-24 md:grid-cols-[1fr_320px] md:pb-0">
+        <Card className="p-4">
           {cart.items.map((line) => (
             <CartLineItem key={line.itemId} line={line} />
           ))}
         </Card>
 
         {/* Server-computed totals only — nothing here is derived from a client-held value (DEVELOPMENT_RULES.md #1). */}
-        <Card className="h-fit p-5">
-          <h2 className="mb-4 font-body text-sm font-semibold uppercase tracking-[0.06em] text-text-secondary">Order summary</h2>
+        <Card className="h-fit p-4">
+          <h2 className="mb-3 font-body text-xs font-semibold uppercase tracking-[0.06em] text-text-secondary">Order summary</h2>
           <dl className="flex flex-col gap-2 font-body text-sm">
             <div className="flex justify-between">
               <dt className="text-text-secondary">Items ({cart.itemCount})</dt>
@@ -85,16 +85,16 @@ export function CartPageContent() {
               </div>
             ) : null}
           </dl>
-          <div className="mt-4 flex justify-between border-t border-border pt-4 font-body text-base font-semibold">
-            <span className="text-text-primary">Total</span>
-            <span className="text-text-primary">{formatPaiseAsInr(payableTotal)}</span>
+          <div className="mt-3 flex items-baseline justify-between border-t border-border pt-3 font-body">
+            <span className="text-sm font-medium text-text-primary">Total</span>
+            <span className="text-lg font-bold text-text-primary">{formatPaiseAsInr(payableTotal)}</span>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-3">
             <CouponForm appliedCoupon={cart.appliedCoupon} />
           </div>
 
-          <div className="mt-4">
+          <div className="mt-3">
             <WeightThresholdBanner shipping={cart.shipping} weightBasedTotalGrams={cart.weightBasedTotalGrams} />
           </div>
 
@@ -108,12 +108,12 @@ export function CartPageContent() {
         </Card>
       </div>
 
-      {/* Mobile: a slim sticky checkout bar so the CTA is always in reach on a long bag. */}
+      {/* Mobile: a slim sticky checkout bar so the CTA is always in reach on a long bag — rounded top + upward shadow reads as a polished action surface rather than a plain cut-off strip. */}
       <div
-        className="fixed inset-x-0 z-20 flex items-center gap-3 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur md:hidden"
+        className="fixed inset-x-0 z-20 flex items-center gap-3 rounded-t-card border-t border-border bg-surface/90 px-4 py-3 shadow-sheet backdrop-blur-xl md:hidden"
         style={ABOVE_MOBILE_BOTTOM_NAV_STYLE}
       >
-        <span className="font-body text-base font-semibold text-text-primary">{formatPaiseAsInr(payableTotal)}</span>
+        <span className="font-body text-lg font-bold text-text-primary">{formatPaiseAsInr(payableTotal)}</span>
         <Link
           href="/checkout"
           aria-disabled={!cart.shipping.meetsMinimum}

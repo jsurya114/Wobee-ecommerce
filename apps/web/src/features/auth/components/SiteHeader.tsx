@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@woobe/ui";
 import {
   Heart,
   Home,
@@ -24,19 +23,18 @@ import { useAuth } from "../hooks/useAuth";
 // own job; a header search there is noise.
 const SEARCH_ROUTES = new Set(["/", "/products"]);
 
-// Home has its own always-visible `HomeSearchBar` between the header and
-// the promo carousel on mobile (UI refinement pass) — showing this
-// collapsible header one there too would be a duplicate entry point on the
-// same viewport, so it's hidden below `md` on home only. Desktop has no
-// such bar (there's room in the nav for this one instead), so it stays.
-const MOBILE_DUPLICATE_SEARCH_ROUTES = new Set(["/"]);
-
 /**
- * Slim top bar — logo + a cart shortcut on mobile (real navigation lives in
- * BottomNav, `md:hidden`, per woobe_ui_design_plan.md §10); the full
- * horizontal nav reappears here at `md:` and up, where there's room for it
+ * Top bar (liquid-glass redesign 2026-09-03). Mobile: a centered "Woobe /
+ * move freely" brand lockup ONLY — real navigation lives in the floating
+ * BottomNav dock (`md:hidden`), and Bag already has a tab there too, so this
+ * carries no nav/cart chrome of its own (no duplicate Bag action). Search on
+ * mobile lives in its own row BELOW this header (`CompactSearchBar`,
+ * rendered by the home/shop pages themselves) — deliberately never inside
+ * this header, so it can never expand over and hide the centered logo the
+ * old inline `HeaderSearch` risked. Desktop (`md:` and up) keeps the full
+ * horizontal nav + inline `HeaderSearch`, unchanged — there's room for both
  * without cramming (the cramped-mobile-nav issue flagged in the Week 1
- * completion audit was this component trying to do both jobs at once).
+ * completion audit was this component trying to do every job on one row).
  */
 export function SiteHeader() {
   const { user, status, logout } = useAuth();
@@ -44,25 +42,35 @@ export function SiteHeader() {
   const { wishlist } = useWishlist();
   const pathname = usePathname();
   const showSearch = SEARCH_ROUTES.has(pathname);
-  const hideSearchOnMobile = MOBILE_DUPLICATE_SEARCH_ROUTES.has(pathname);
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:px-6 md:gap-5">
-        <Link href="/" className="shrink-0 font-display text-lg text-primary sm:text-xl">
+      {/* Mobile — guaranteed-centered logo lockup. The two outer grid
+          columns are forced to an equal `minmax(0,1fr)` share regardless of
+          their content, which is what actually guarantees the center column
+          stays centered (a plain flex row with unequal left/right content
+          only gets it approximately right). */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-4 py-2.5 md:hidden">
+        <span aria-hidden="true" />
+        <Link href="/" className="flex flex-col items-center leading-none">
+          <span className="font-display text-lg text-primary">Woobe</span>
+          <span className="mt-0.5 font-body text-[10px] font-medium uppercase tracking-[0.16em] text-text-secondary">move freely</span>
+        </Link>
+        <span aria-hidden="true" />
+      </div>
+
+      {/* Desktop — unchanged full horizontal bar. */}
+      <div className="mx-auto hidden max-w-6xl items-center gap-3 px-6 py-2.5 md:flex md:gap-5">
+        <Link href="/" className="shrink-0 font-display text-xl text-primary">
           Woobe
         </Link>
 
-        {/* Right cluster — search (route-gated) + nav + mobile cart, right-aligned as a group. */}
+        {/* Right cluster — search (route-gated) + nav, right-aligned as a group. */}
         <div className="flex flex-1 items-center gap-3 md:ml-auto md:flex-none md:gap-5">
-          {showSearch ? (
-            <div className={hideSearchOnMobile ? "hidden md:contents" : "contents"}>
-              <HeaderSearch />
-            </div>
-          ) : null}
+          {showSearch ? <HeaderSearch /> : null}
 
-          {/* Desktop nav — mirrors BottomNav's destinations (and its icon+label pattern) plus login/register/logout, which the bottom nav folds into its Account tab. */}
-          <nav className="hidden shrink-0 items-center gap-6 font-body text-sm md:flex">
+          {/* Nav — mirrors BottomNav's destinations (and its icon+label pattern) plus login/register/logout, which the bottom nav folds into its Account tab. */}
+          <nav className="flex shrink-0 items-center gap-6 font-body text-sm">
             <Link
               href="/"
               className="flex items-center gap-1.5 text-text-primary transition-colors hover:text-primary"
@@ -175,27 +183,6 @@ export function SiteHeader() {
               </>
             )}
           </nav>
-
-          {/* Mobile cart shortcut — the rest of the nav lives in BottomNav. `ml-auto` keeps it at the right edge on pages with no header search. */}
-          <Link
-            href="/cart"
-            aria-label="Bag"
-            className="relative ml-auto flex h-11 w-11 shrink-0 items-center justify-center text-text-primary md:ml-0 md:hidden"
-          >
-            <ShoppingBag
-              className="h-6 w-6"
-              strokeWidth={1.75}
-              aria-hidden="true"
-            />
-            {cart && cart.itemCount > 0 ? (
-              <Badge
-                variant="neutral"
-                className="absolute right-1 top-1 min-w-[1.1rem] justify-center bg-primary px-1 py-0 text-[10px] leading-4 text-white"
-              >
-                {cart.itemCount > 9 ? "9+" : cart.itemCount}
-              </Badge>
-            ) : null}
-          </Link>
         </div>
       </div>
     </header>
