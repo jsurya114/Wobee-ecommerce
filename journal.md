@@ -2207,3 +2207,30 @@ Fixed once, applied everywhere: new `apps/admin/src/lib/resolve-image-url.ts` �
 **Verified:** `pnpm -r run typecheck` **9/9** · `pnpm -r run lint` **9/9**. Live (chrome-devtools-mcp, 440px mobile): the home pill now visually matches the reference — soft warm-neutral fill, no visible border, fully rounded ends, magnifier + evocative placeholder. Confirmed the header's expanding search (`/products`, and `/` on desktop) picked up the same pill treatment when opened. Zero new console errors (only the pre-existing guest `/auth/refresh` 401).
 
 **Follow-ups:** none — this was a pure styling match to an approved reference, no new gaps introduced.
+
+---
+
+## 2026-09-03 — Merged `woobe-ui/bug-fixes` into `main`; found and fixed a stale `.next` cache breaking the dev app after a teammate's pull
+
+**Branch:** `main` now at `8e3a035` (fast-forwarded from `8c9a8d2`), `woobe-ui/bug-fixes` unchanged, identical to `main`.
+
+**Context:** a teammate pushed `8e3a035` ("liquid-glass storefront redesign — header, nav, cart, account") directly onto `woobe-ui/bug-fixes` on top of this session's own work (guest-order-claim, COD-payment fix + analytics dashboard, admin coupon management, order-item photos + cross-app image fix, WhatsApp theming, pill search bar). The user pulled it locally and hit an error running the app; separately asked for `main` to be merged and CI checked.
+
+**No GitHub CLI (`gh`) available in this environment** — `.github/workflows/ci.yml` only triggers on `pull_request` and `push: branches: [main]`, so nothing had actually run CI on any of these commits yet (they were pushed straight to the feature branch, no PR opened). Replicated the full pipeline locally, in order, against the actual merged tree rather than skip straight to pushing:
+
+- `check:migrations` — no new migrations on the branch (neither this session's work nor the teammate's redesign touched `schema.prisma`).
+- `db:generate` — clean.
+- `migrate:diff:check` (schema vs. migration history drift) — "No difference detected."
+- `lint` **9/9** · `typecheck` **9/9** · `boundaries:check` **546 modules / 0 violations** — the teammate's redesign included, all clean.
+- `test` — **81/81 files** on the first run except 2 (`collections`, `reviews` integration tests) hit the same documented pre-existing "shared `woobe_test` contention" flake this journal has recorded multiple times before (a raw HTTP parse error + a spurious 404-on-register) — both passed cleanly in isolation, and the full suite was clean end to end on the next run. Not a regression from either the redesign or this session's own work.
+- **`build`** — run for real for the first time all session (every prior entry deferred it while dev servers were live, citing this repo's own documented iCloud-`.next` risk). All three apps (`apps/api` tsc build, `apps/web`/`apps/admin` `next build`) compiled clean — confirms ADR-026 still holds (`/`, `/products`, `/products/[slug]` still render `ƒ` dynamic).
+
+CI-equivalent pipeline fully green → fast-forward merged `main` to `origin/woobe-ui/bug-fixes` (no divergence — `main` was a strict ancestor, verified via `git merge-base --is-ancestor` before merging) and pushed.
+
+**The actual bug behind the user's "error occurred when running the application":** rebooting the dev fleet against the newly-merged tree, the homepage threw four **404**s in the console — `main-app.js`, `app-pages-internals.js`, and two route-specific chunk files (`app/(storefront)/layout.js`, `app/(storefront)/page.js`) — a different failure class than this session's own well-known pre-existing "guest `/auth/refresh` 401" noise, and it persisted across a hard reload. Root cause: a `next dev` process that had been running continuously straight through the git pull/merge (which touched ~120 files) was still serving its pre-merge `.next` chunk manifest — exactly the "iCloud-synced `.next` corrupts" class of issue this journal has flagged several times before (Week 2/3 entries), just triggered by a `git pull` this time instead of a concurrent prod build. Fix: stopped the dev fleet, `rm -rf apps/web/.next apps/admin/.next`, restarted clean. Confirmed both apps boot with zero console errors beyond the one pre-existing 401, and did a full live pass afterward (storefront homepage, admin login → dashboard with real figures, Coupons nav entry present) — everything from this session's own work survived the merge with the redesign intact.
+
+**Verified:** see the full CI-equivalent run above; live smoke-check of both apps post-merge, post-cache-clear, zero unexpected console errors.
+
+**Follow-ups / known gaps:**
+- `gh` CLI isn't installed in this environment — GitHub Actions' own CI has still never actually run on this exact commit; the local replication above covers the same steps but isn't a substitute for seeing the real workflow run green. Worth checking on GitHub directly (or installing `gh`) next time this matters.
+- The stale-`.next`-after-a-pull failure mode is now the second documented trigger for this class of bug (alongside the earlier concurrent-prod-build one) — worth remembering as the first thing to try ("clear `.next`, restart") whenever a pull changes many files and the app then misbehaves, before assuming a real code regression.
