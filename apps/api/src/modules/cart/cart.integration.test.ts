@@ -80,6 +80,7 @@ describe("cart: resolution after a completed checkout (regression)", () => {
 
     const checkoutRes = await agent.post("/api/v1/orders/checkout").send({
       contactEmail: email,
+      confirmEmail: email,
       address: { fullName: "Cart Audit", phone: "9876543210", line1: "1 Test St", city: "Bengaluru", state: "Karnataka", pincode: "560001" },
       paymentMethod: "COD",
     });

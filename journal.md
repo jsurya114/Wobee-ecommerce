@@ -2022,3 +2022,51 @@ Existing assertion on the no-variant list line tightened to `{ variantId: null, 
 
 **Why:**
 - User requested removal of this section (the "Weight × rate", "Easy exchanges", "Secure payments" strip) from above the footer on the home page.
+
+---
+
+## 2026-09-03 — Client-review fix: guest orders can now be attached to an account ("Add a guest order")
+
+**Branch:** `main`. Backend (orders module) + frontend (`apps/web`) + shared `@woobe/validation`. **No schema change, no migration** — `Order.userId`/`contactEmail` and the existing unique `orderNumber` were already everything this needed.
+
+### Problem (client-review question, worked through with the user first)
+
+A guest checkout's `Order.userId` is set once, at checkout, and never revisited — `GetOrderUseCase`'s own doc comment already documents the resulting trust model (a guest order is readable by its unguessable id alone, no path back to an account). So: guest buys a gift (ships to a different name/address than the buyer — `contactEmail`/`contactName` vs. `shippingSnapshot` were already independent columns, so that part was never the issue), later creates an account — that order stayed permanently orphaned. Worse case discussed: guest checks out under one email, registers under a *different* one — no automatic email match is even possible then, and matching on name/phone/anything-but-a-proof would be a privacy leak (attaching a stranger's order to the wrong account).
+
+**Design landed on (the user's own proposal, refined in discussion):** no automatic linking at all. Instead:
+1. A guest re-enters their email at checkout (confirm-email), so the one field that can ever recover the order isn't a silent typo.
+2. The order number already generated for every order (`WOOBE-YYYYMMDD-<12 hex crypto-random chars>`, `OrderNumberGeneratorService` — confirmed real `crypto.randomBytes(6)`, not `Math.random`, 48 bits of entropy) doubles as the "guest ID" — no second identifier invented.
+3. A logged-in customer self-serves: Account → Orders → "Add a guest order" → order number + the email it was placed under → if both match an unowned order, it attaches to their account, permanently, from then on. Works identically whether the registration email matches the checkout email or not — one mechanism covers both cases the user asked about, so the previously-discussed alternative (auto-link by email at registration) was **not** built; it would have been redundant with this and only covers the easier half of the problem.
+
+### Backend
+
+- **`shared/errors/domain-error.ts`**: `+ TooManyRequestsError` (429).
+- **`domain/ensure-guest-checkout-email-confirmed.ts`** (new, pure): `isGuestCheckoutEmailConfirmed({isGuest, contactEmail, confirmEmail})` — `true` unconditionally for a logged-in checkout; for a guest, requires an exact match.
+- **`domain/can-claim-guest-order.ts`** (new, pure): `canClaimGuestOrder(order, contactEmail)` — `order.userId === null && order.contactEmail === contactEmail`.
+- **`checkout.use-case.ts`**: `PlaceOrderInput` gained `confirmEmail?`; the guard above runs first, before the cart is even touched — throws `ValidationError({confirmEmail: [...]})` (400) on a guest mismatch/omission. A logged-in checkout is completely unaffected (confirmed live and by a dedicated integration test).
+- **New `ClaimGuestOrderUseCase`** (`application/use-cases/claim-guest-order.use-case.ts`): rate-limited (`ClaimAttemptLimiterPort`, 10/hour/user), looks up by order number, rejects (uniformly `NotFoundError` — never a distinct message for "wrong order number" vs "wrong email" vs "already claimed," same don't-reveal-more-than-necessary posture `GetOrderUseCase` already documents) unless `canClaimGuestOrder` passes, then `orderRepository.attachToUser` (`UPDATE ... WHERE id=? AND userId IS NULL` — race-safe, a concurrent double-claim loses cleanly).
+- **`OrderRepositoryPort`**: `+ findByOrderNumber`, `+ attachToUser`. Implemented in `OrderRepository` (Prisma `findUnique`/`updateMany`, both already index-backed — `orderNumber` is `@unique`, `attachToUser` filters by primary key).
+- **`RedisClaimAttemptLimiterService`** (new, infra): fixed-window `INCR`+`EXPIRE`, per ADR-017's own "Redis is the reserved home for rate limiting" — deliberately not Postgres-backed like the OTP attempt counters, since losing this on a Redis restart is an acceptable risk (unlike OTP, where surviving a restart is the actual security property), and there's no existing rate limiting elsewhere in the app yet to fold this into.
+- **Routes**: `POST /api/v1/orders/claim-guest-order` (authGuard — attaches to `req.user!.id`, never a body-supplied id).
+- **`@woobe/validation`**: `checkoutSchema` gained `confirmEmail` (optional at the shape level — the schema can't see whether the caller is logged in, so the actual gate is the use-case above); new `orders.schema.ts` → `claimGuestOrderSchema` (`orderNumber` normalized `.toUpperCase()` server-side so a lowercase paste still matches, `contactEmail` lowercase/trim like every other email field).
+- **Tests** (all new except the checkout-call-site updates): `ensure-guest-checkout-email-confirmed.test.ts` (4), `can-claim-guest-order.test.ts` (3), `claim-guest-order.use-case.test.ts` (6, mocked ports — happy path, wrong order number, wrong email, already-claimed, race-lost-at-write, rate-limited). `orders.integration.test.ts` +9 (guest-confirm-email 400/400/logged-in-exempt; claim happy path incl. showing up in `GET /orders`, lowercase-orderNumber normalization, wrong-email 404 with the order left unclaimed, unknown-order 404, "already claimed by someone else" 404 with the first claimant untouched, 401 unauthenticated). **Every other integration test file with a guest checkout call site updated to add a matching `confirmEmail`** (their carts were never touching this feature, just needed the new required field): `payments.integration.test.ts`, `admin.integration.test.ts`, `cart.integration.test.ts` (its one guest-path checkout). `coupons.integration.test.ts`/`returns.integration.test.ts` needed no change — audited and confirmed every one of their checkout calls already runs on an authenticated agent (coupons/returns both require a real account anyway), so the new guard never engages there.
+
+### Frontend
+
+- **`CheckoutForm.tsx`**: "Confirm email" field, rendered only when `!user` (guest) — client-side match check (`react-hook-form` `validate`) for instant feedback, but the server enforces the same rule regardless (a client that skips/bypasses this still gets a 400).
+- **New `ClaimGuestOrderForm.tsx`**: order number + email, posts to the new endpoint, surfaces field errors or the generic "no match" message, resets and calls `onClaimed` on success.
+- **`MyOrdersList.tsx`**: extracted a stable `refetch`, added a `<details>` disclosure ("Have an order from before you had an account?" — same collapsed-by-default pattern as the PDP's "How is this priced?"/"Details") rendered in both the empty and populated states, wired to refresh the list on a successful claim.
+- **`orders.client.ts`**: `+ claimGuestOrder(input, accessToken)`.
+
+### Verification
+
+- `pnpm -r run typecheck` **9/9** · `pnpm -r run lint` **9/9** (`--max-warnings=0`) · `pnpm --filter @woobe/api run boundaries:check` **522 modules / 0 violations**.
+- `pnpm --filter @woobe/api exec vitest run` — **75/75 files, 537/537 tests** (up from 458 the last time the full count was logged — the gap is every unlogged commit between `2026-09-01` and now, not just this session's own +19). Along the way: `woobe_test` was two migrations behind (`add_category_pricing_mode`, `add_banners` — unrelated pre-existing drift, not introduced by this change) and failing ~14 files with "column does not exist" until `prisma migrate deploy` was run against it.
+- **Live browser** (chrome-devtools-mcp, isolated context, real dev servers): built a real guest cart (Silk Scarf ×2 + Denim Jacket + Ribbed Knit Sweater ×2, clearing ADR-021's minimum), checked out with `contactEmail=gifter@example.com` shipped to "Aunt Priya" (a deliberately different name/address — the gift scenario) — confirm-email mismatch correctly blocked submission client-side ("Emails do not match"), matching confirm-email placed the order (`WOOBE-20260903-F80CA55AC853`). Registered a **second, unrelated account** (`gifter-account@example.com` — the harder case, checkout email ≠ registration email) and logged into it through the real UI. Its "My Orders" correctly started empty with the claim disclosure present; submitting the order number with the wrong email correctly 404'd (confirmed via the network panel, order left unclaimed in the DB); submitting it with the real checkout email attached it immediately — it appeared in the list with no page reload. Zero unexpected console errors (the one 404 logged was the deliberate wrong-email test). Test order/account cleaned up from `woobe_dev` afterward.
+- `pnpm run build` — **not run** (dev servers were live on :3000/:4000 throughout; same iCloud `.next` corruption risk as every prior entry that made this call). Typecheck + lint + the full API suite + the live walkthrough above cover this change.
+
+### Follow-ups / known gaps
+
+- The claim rate limit (10/hour/user) is the first rate limiting of any kind in this app — login/register still have none (pre-existing gap, flagged in earlier entries, unchanged).
+- No admin-facing view of claimed-vs-guest orders was requested or added; `Order.userId` being newly non-null after a claim is otherwise indistinguishable from having always been a logged-in checkout, which is the intended effect.
+- Noticed but out of scope: the cart page's "Add Ng more to place your order" weight-threshold banner didn't visibly recompute over a couple of quantity-increase clicks during manual testing (it was in fact still correct — FIXED-priced lines genuinely don't count toward the ADR-021 minimum, which was the real explanation both times) — not touched, just noting it cost some back-and-forth to confirm it wasn't a bug.

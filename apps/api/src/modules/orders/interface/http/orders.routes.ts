@@ -1,4 +1,4 @@
-import { checkoutSchema } from "@woobe/validation";
+import { checkoutSchema, claimGuestOrderSchema } from "@woobe/validation";
 import { Router } from "express";
 import { asyncHandler } from "../../../../middleware/async-handler";
 import { authGuard } from "../../../../middleware/auth-guard";
@@ -25,6 +25,16 @@ export function createOrdersRouter(controller: OrdersController): Router {
     "/",
     authGuard,
     asyncHandler((req, res) => controller.listMyOrders(req, res)),
+  );
+
+  // "Add a guest order" (client-review fix, 2026-09-03) — logged-in only
+  // (attaches to req.user!.id), must come before "/:id" for the same
+  // literal-path-first reason as "/" above.
+  router.post(
+    "/claim-guest-order",
+    authGuard,
+    validate(claimGuestOrderSchema),
+    asyncHandler((req, res) => controller.claimGuestOrder(req, res)),
   );
 
   // Order confirmation page (Day 5) — guest orders are readable by id alone

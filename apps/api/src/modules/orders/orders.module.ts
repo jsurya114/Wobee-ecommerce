@@ -27,6 +27,7 @@ import type { ShipmentCreatorPort } from "./application/ports/shipment-creator.p
 import type { ShippingReaderPort } from "./application/ports/shipping-reader.port";
 import { CancelOrderUseCase } from "./application/use-cases/cancel-order.use-case";
 import { CheckoutUseCase } from "./application/use-cases/checkout.use-case";
+import { ClaimGuestOrderUseCase } from "./application/use-cases/claim-guest-order.use-case";
 import { ConfirmOrderUseCase } from "./application/use-cases/confirm-order.use-case";
 import { DeliverOrderUseCase } from "./application/use-cases/deliver-order.use-case";
 import { GetBestSellingVariantQuantitiesUseCase } from "./application/use-cases/get-best-selling-variant-quantities.use-case";
@@ -44,12 +45,14 @@ import { StartProcessingOrderUseCase } from "./application/use-cases/start-proce
 import { OrderRepository } from "./infrastructure/repositories/order.repository";
 import { PrismaTransactionRunner } from "./infrastructure/repositories/transaction.repository";
 import { OrderNumberGeneratorService } from "./infrastructure/services/order-number-generator.service";
+import { RedisClaimAttemptLimiterService } from "./infrastructure/services/redis-claim-attempt-limiter.service";
 import { OrdersController } from "./interface/http/orders.controller";
 import { createOrdersRouter } from "./interface/http/orders.routes";
 
 const orderRepository = new OrderRepository();
 const transactionRunner = new PrismaTransactionRunner();
 const orderNumberGenerator = new OrderNumberGeneratorService();
+const claimAttemptLimiter = new RedisClaimAttemptLimiterService();
 
 const cartResolver: CartResolverPort = { resolve: (params) => getOrCreateCartUseCase.execute(params) };
 const cartReader: CartReaderPort = {
@@ -98,6 +101,8 @@ export const getOrderUseCase = new GetOrderUseCase(orderRepository);
 /** Exported for `admin`'s own customer-detail composition (Week 2 Day 7, week2 (1).md §19's "Orders" tab) — same use-case, no ownership gate baked in (that lives at the controller layer via the caller's own req.user.id, or here via admin's own RBAC), so it's safe to reuse for "this customer's orders" too. */
 export const listMyOrdersUseCase = new ListMyOrdersUseCase(orderRepository);
 
+const claimGuestOrderUseCase = new ClaimGuestOrderUseCase(orderRepository, claimAttemptLimiter);
+
 /** Exported for cross-module use — payments (Week 1 Day 5) triggers these instead of writing to Order itself. */
 export const confirmOrderUseCase = new ConfirmOrderUseCase(orderRepository);
 export const markOrderPaymentFailedUseCase = new MarkOrderPaymentFailedUseCase(orderRepository);
@@ -133,6 +138,6 @@ export const setOrderHasActiveReturnUseCase = new SetOrderHasActiveReturnUseCase
 /** Exported for `home`'s Best Sellers rail (Week 2 Day 8 Part 2, week2 (1).md §12). */
 export const getBestSellingVariantQuantitiesUseCase = new GetBestSellingVariantQuantitiesUseCase(orderRepository);
 
-const ordersController = new OrdersController(checkoutUseCase, getOrderUseCase, listMyOrdersUseCase);
+const ordersController = new OrdersController(checkoutUseCase, getOrderUseCase, listMyOrdersUseCase, claimGuestOrderUseCase);
 
 export const router = createOrdersRouter(ordersController);

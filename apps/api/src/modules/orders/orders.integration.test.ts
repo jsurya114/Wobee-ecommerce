@@ -19,6 +19,7 @@ let warehouseId: string;
 const createdProductIds: string[] = [];
 const createdVariantIds: string[] = [];
 const createdOrderIds: string[] = [];
+const createdUserEmails: string[] = [];
 
 beforeAll(async () => {
   const category = await prisma.category.findFirstOrThrow({ where: { isActive: true } });
@@ -38,8 +39,21 @@ afterAll(async () => {
   if (createdProductIds.length > 0) {
     await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } });
   }
+  if (createdUserEmails.length > 0) {
+    await prisma.user.deleteMany({ where: { email: { in: createdUserEmails } } });
+  }
   await prisma.$disconnect();
 });
+
+/** Registers a real account and returns an authenticated agent (Authorization set as a default header, same pattern coupons/returns' own integration tests use). */
+async function registerTestUser(): Promise<{ agent: ReturnType<typeof request.agent>; userId: string; email: string }> {
+  const email = `${TEST_PREFIX}-${crypto.randomUUID()}@test.woobe.internal`;
+  createdUserEmails.push(email);
+  const registerRes = await request(app).post("/api/v1/auth/register").send({ name: "Claim Tester", email, password: "Passw0rd1" });
+  if (registerRes.status !== 201) throw new Error(`test setup: register failed: ${JSON.stringify(registerRes.body)}`);
+  const agent = request.agent(app).set("Authorization", `Bearer ${registerRes.body.accessToken as string}`);
+  return { agent, userId: registerRes.body.user.id as string, email };
+}
 
 /** Creates a real, active product/variant/inventory row so checkout's live reads (products, pricing, inventory) resolve for real — not mocked. */
 async function createTestVariant(params: { weightGrams: number; quantityAvailable: number }): Promise<{
@@ -94,6 +108,7 @@ describe("checkout: full price/tax/shipping snapshot", () => {
 
     const checkoutRes = await agent.post("/api/v1/orders/checkout").send({
       contactEmail: "buyer@test.woobe.internal",
+      confirmEmail: "buyer@test.woobe.internal",
       address: checkoutAddress,
       paymentMethod: "COD",
     });
@@ -144,7 +159,12 @@ describe("checkout: full price/tax/shipping snapshot", () => {
 
     const res = await agent
       .post("/api/v1/orders/checkout")
-      .send({ contactEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod: "COD" });
+      .send({
+        contactEmail: "buyer@test.woobe.internal",
+        confirmEmail: "buyer@test.woobe.internal",
+        address: checkoutAddress,
+        paymentMethod: "COD",
+      });
 
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe("UNPROCESSABLE_ENTITY");
@@ -157,7 +177,12 @@ describe("checkout: full price/tax/shipping snapshot", () => {
 
     const res = await agent
       .post("/api/v1/orders/checkout")
-      .send({ contactEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod: "COD" });
+      .send({
+        contactEmail: "buyer@test.woobe.internal",
+        confirmEmail: "buyer@test.woobe.internal",
+        address: checkoutAddress,
+        paymentMethod: "COD",
+      });
 
     expect(res.status).toBe(422);
   });
@@ -172,7 +197,12 @@ describe("checkout: concurrent reservation (ADR-015)", () => {
     await agentA.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
     await agentB.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
 
-    const body = { contactEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod: "COD" as const };
+    const body = {
+      contactEmail: "buyer@test.woobe.internal",
+      confirmEmail: "buyer@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod: "COD" as const,
+    };
     const [resA, resB] = await Promise.all([
       agentA.post("/api/v1/orders/checkout").send(body),
       agentB.post("/api/v1/orders/checkout").send(body),
@@ -194,5 +224,143 @@ describe("checkout: concurrent reservation (ADR-015)", () => {
 
     const orderCount = await prisma.order.count({ where: { items: { some: { variantId } } } });
     expect(orderCount).toBe(1);
+  });
+});
+
+describe("checkout: guest email confirmation (client-review fix, 2026-09-03)", () => {
+  it("rejects a guest checkout with no confirmEmail at all", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const agent = request.agent(app);
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    const res = await agent
+      .post("/api/v1/orders/checkout")
+      .send({ contactEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod: "COD" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.fieldErrors).toHaveProperty("confirmEmail");
+  });
+
+  it("rejects a guest checkout whose confirmEmail doesn't match contactEmail", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const agent = request.agent(app);
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: "buyer@test.woobe.internal",
+      confirmEmail: "typo@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.fieldErrors).toHaveProperty("confirmEmail");
+  });
+
+  it("does NOT require confirmEmail for a logged-in checkout", async () => {
+    const { agent } = await registerTestUser();
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    const res = await agent
+      .post("/api/v1/orders/checkout")
+      .send({ contactEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod: "COD" });
+
+    expect(res.status).toBe(201);
+    createdOrderIds.push(res.body.id);
+  });
+});
+
+describe("guest order claim (client-review fix, 2026-09-03)", () => {
+  /** Guest checkout — deliberately a plain, unauthenticated agent, contactEmail independent of any account. */
+  async function placeGuestOrder(contactEmail: string): Promise<string> {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const agent = request.agent(app);
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail,
+      confirmEmail: contactEmail,
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+    expect(res.status).toBe(201);
+    createdOrderIds.push(res.body.id);
+    return res.body.orderNumber as string;
+  }
+
+  it("attaches a matching guest order to the caller's account — covers checking out under one email, registering under a different one", async () => {
+    const orderNumber = await placeGuestOrder("gifter@test.woobe.internal");
+    const { agent, userId } = await registerTestUser(); // deliberately a DIFFERENT email than the guest order's
+
+    const res = await agent
+      .post("/api/v1/orders/claim-guest-order")
+      .send({ orderNumber, contactEmail: "gifter@test.woobe.internal" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.userId).toBe(userId);
+
+    const persisted = await prisma.order.findFirstOrThrow({ where: { orderNumber } });
+    expect(persisted.userId).toBe(userId);
+
+    // Now shows up in "My Orders".
+    const listRes = await agent.get("/api/v1/orders");
+    expect(listRes.body.orders.some((o: { orderNumber: string }) => o.orderNumber === orderNumber)).toBe(true);
+  });
+
+  it("accepts a lowercase/mistyped-case order number (normalized server-side)", async () => {
+    const orderNumber = await placeGuestOrder("case-test@test.woobe.internal");
+    const { agent, userId } = await registerTestUser();
+
+    const res = await agent
+      .post("/api/v1/orders/claim-guest-order")
+      .send({ orderNumber: orderNumber.toLowerCase(), contactEmail: "case-test@test.woobe.internal" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.userId).toBe(userId);
+  });
+
+  it("404s on a wrong email — does not reveal that the order number itself is valid", async () => {
+    const orderNumber = await placeGuestOrder("real-owner@test.woobe.internal");
+    const { agent } = await registerTestUser();
+
+    const res = await agent.post("/api/v1/orders/claim-guest-order").send({ orderNumber, contactEmail: "wrong@test.woobe.internal" });
+
+    expect(res.status).toBe(404);
+    const persisted = await prisma.order.findFirstOrThrow({ where: { orderNumber } });
+    expect(persisted.userId).toBeNull(); // unclaimed, still guest-owned
+  });
+
+  it("404s on an unknown order number", async () => {
+    const { agent } = await registerTestUser();
+    const res = await agent
+      .post("/api/v1/orders/claim-guest-order")
+      .send({ orderNumber: "WOOBE-20260101-000000000000", contactEmail: "nobody@test.woobe.internal" });
+    expect(res.status).toBe(404);
+  });
+
+  it("404s on an order that already belongs to a different account — cannot re-claim someone else's order", async () => {
+    const orderNumber = await placeGuestOrder("first-claimant@test.woobe.internal");
+    const first = await registerTestUser();
+    const claimRes = await first.agent
+      .post("/api/v1/orders/claim-guest-order")
+      .send({ orderNumber, contactEmail: "first-claimant@test.woobe.internal" });
+    expect(claimRes.status).toBe(200);
+
+    const second = await registerTestUser();
+    const res = await second.agent
+      .post("/api/v1/orders/claim-guest-order")
+      .send({ orderNumber, contactEmail: "first-claimant@test.woobe.internal" });
+
+    expect(res.status).toBe(404);
+    const persisted = await prisma.order.findFirstOrThrow({ where: { orderNumber } });
+    expect(persisted.userId).toBe(first.userId); // still the first claimant, untouched
+  });
+
+  it("401s when not logged in", async () => {
+    const orderNumber = await placeGuestOrder("anon@test.woobe.internal");
+    const res = await request(app)
+      .post("/api/v1/orders/claim-guest-order")
+      .send({ orderNumber, contactEmail: "anon@test.woobe.internal" });
+    expect(res.status).toBe(401);
   });
 });

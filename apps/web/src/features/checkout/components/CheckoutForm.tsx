@@ -25,6 +25,7 @@ export function CheckoutForm() {
     register,
     handleSubmit,
     control,
+    watch,
     setError,
     setValue,
     formState: { errors, isSubmitting },
@@ -129,6 +130,26 @@ export function CheckoutForm() {
             error={errors.contactEmail?.message}
             {...register("contactEmail")}
           />
+          {/* Client-review fix (2026-09-03): guests re-type their email —
+              it's the only thread back to this order if they later create
+              an account or already have a different one (see "Add a guest
+              order" on the Orders page). A logged-in checkout's email
+              comes from the account already, so this doesn't apply —
+              CheckoutUseCase enforces the same rule server-side either way. */}
+          {!user ? (
+            <div className="mt-4">
+              <FormField
+                label="Confirm email"
+                type="email"
+                autoComplete="email"
+                error={errors.confirmEmail?.message}
+                {...register("confirmEmail", {
+                  required: "Please confirm your email",
+                  validate: (value) => value === watch("contactEmail") || "Emails do not match",
+                })}
+              />
+            </div>
+          ) : null}
         </Card>
 
         <Card className="flex flex-col gap-4 p-5">

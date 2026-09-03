@@ -69,6 +69,17 @@ export interface OrderRepositoryPort {
   /** Runs inside the caller-supplied checkout transaction (`tx` — see TransactionPort) so a duplicate orderNumber (astronomically unlikely, but not impossible) rolls back cleanly for the use-case to retry with a fresh one. */
   createWithItems(input: CreateOrderInput, tx: unknown): Promise<OrderEntity>;
   findById(orderId: string): Promise<OrderEntity | null>;
+  /** Client-review fix (2026-09-03) — ClaimGuestOrderUseCase's lookup; order numbers are unique (schema.prisma), so this is a single-row lookup like findById. */
+  findByOrderNumber(orderNumber: string): Promise<OrderEntity | null>;
+  /**
+   * Attaches a still-guest order to an account — `WHERE id = ? AND userId
+   * IS NULL`, so a concurrent claim (or an order claimed a moment earlier)
+   * can't double-assign. Returns false, not an error, when the order was
+   * no longer guest-owned by the time this ran; the caller (ClaimGuestOrderUseCase)
+   * treats that the same as "no matching order" — same don't-reveal-more-than-necessary
+   * posture as GetOrderUseCase's own comment.
+   */
+  attachToUser(orderId: string, userId: string): Promise<boolean>;
   /** Newest first — "My Orders" list (week1_excecution_prompt.md Day 5). */
   findSummariesByUserId(userId: string): Promise<OrderSummaryEntity[]>;
   /**

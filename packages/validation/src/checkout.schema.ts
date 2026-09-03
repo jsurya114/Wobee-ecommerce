@@ -21,8 +21,21 @@ export const checkoutAddressSchema = z.object({
 });
 export type CheckoutAddressInput = z.infer<typeof checkoutAddressSchema>;
 
+const emailField = z.string().trim().toLowerCase().email("Enter a valid email address");
+
 export const checkoutSchema = z.object({
-  contactEmail: z.string().trim().toLowerCase().email("Enter a valid email address"),
+  contactEmail: emailField,
+  /**
+   * Client-review fix (2026-09-03): a guest order's `contactEmail` is the
+   * ONLY thread back to the account they may later create or already have
+   * (see apps/api orders module's ClaimGuestOrderUseCase) — a typo here is
+   * unrecoverable, unlike a typo'd address. Guests re-type it to catch
+   * that; a logged-in checkout's email comes from the account and doesn't
+   * need re-entry. Optional at the shape level (this schema can't see
+   * whether the caller is logged in) — CheckoutUseCase enforces the match
+   * as a business rule, only when there's no userId.
+   */
+  confirmEmail: emailField.optional(),
   address: checkoutAddressSchema,
   // COD's own "move straight to CONFIRMED" behavior lands Week 1 Day 5
   // alongside Razorpay's webhook-verified confirmation — Day 4 only needs

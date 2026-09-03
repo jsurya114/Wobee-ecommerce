@@ -1,7 +1,8 @@
 import type { CheckoutAddressInput } from "@woobe/validation";
-import { ConflictError, UnprocessableEntityError } from "../../../../shared/errors";
+import { ConflictError, UnprocessableEntityError, ValidationError } from "../../../../shared/errors";
 import { allocateCouponDiscount } from "../../domain/allocate-coupon-discount";
 import type { OrderEntity } from "../../domain/entities/order.entity";
+import { isGuestCheckoutEmailConfirmed } from "../../domain/ensure-guest-checkout-email-confirmed";
 import { OrderNumberCollisionError } from "../../domain/errors/order-number-collision.error";
 import type { CartReaderPort, CheckoutCartLine } from "../ports/cart-reader.port";
 import type { CartResolverPort } from "../ports/cart-resolver.port";
@@ -18,6 +19,8 @@ export interface PlaceOrderInput {
   userId?: string;
   guestCartId?: string;
   contactEmail: string;
+  /** Client-review fix (2026-09-03) — required (and checked) only for a guest checkout; see isGuestCheckoutEmailConfirmed. */
+  confirmEmail?: string;
   address: CheckoutAddressInput;
   paymentMethod: OrderEntity["paymentMethod"];
 }
@@ -59,6 +62,20 @@ export class CheckoutUseCase {
   ) {}
 
   async execute(input: PlaceOrderInput): Promise<OrderEntity> {
+    // Client-review fix (2026-09-03) — checked first, before touching the
+    // cart at all: a guest's contactEmail is the only thread back to their
+    // account (see ClaimGuestOrderUseCase), so a typo here is unrecoverable
+    // in a way nothing else about checkout is. Cheap, fail-fast.
+    if (
+      !isGuestCheckoutEmailConfirmed({
+        isGuest: !input.userId,
+        contactEmail: input.contactEmail,
+        confirmEmail: input.confirmEmail,
+      })
+    ) {
+      throw new ValidationError("Please confirm your email address", { confirmEmail: ["Emails do not match"] });
+    }
+
     const { cartId } = await this.cartResolver.resolve({ userId: input.userId, guestCartId: input.guestCartId });
     const cart = await this.cartReader.getCart(cartId, input.userId);
 

@@ -95,7 +95,12 @@ async function checkoutOrder(agent: ReturnType<typeof request.agent>, variantId:
   await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
   const res = await agent
     .post("/api/v1/orders/checkout")
-    .send({ contactEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod });
+    .send({
+      contactEmail: "buyer@test.woobe.internal",
+      confirmEmail: "buyer@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod,
+    });
   expect(res.status).toBe(201);
   createdOrderIds.push(res.body.id);
   return res.body as { id: string; totalPaise: number };

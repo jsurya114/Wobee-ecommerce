@@ -83,6 +83,16 @@ export class OrderRepository implements OrderRepositoryPort {
     return order ? toEntity(order) : null;
   }
 
+  async findByOrderNumber(orderNumber: string): Promise<OrderEntity | null> {
+    const order = await prisma.order.findUnique({ where: { orderNumber }, include: { items: true } });
+    return order ? toEntity(order) : null;
+  }
+
+  async attachToUser(orderId: string, userId: string): Promise<boolean> {
+    const result = await prisma.order.updateMany({ where: { id: orderId, userId: null }, data: { userId } });
+    return result.count > 0;
+  }
+
   async findSummariesByUserId(userId: string): Promise<OrderSummaryEntity[]> {
     const orders = await prisma.order.findMany({
       where: { userId },

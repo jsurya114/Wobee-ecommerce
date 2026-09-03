@@ -51,3 +51,9 @@ export class UnprocessableEntityError extends DomainError {
   readonly code = "UNPROCESSABLE_ENTITY";
   readonly httpStatus = 422;
 }
+
+/** An anti-abuse cap was hit (2026-09-03, guest-order claim attempts) — distinct from ConflictError, which is about state, not request volume. */
+export class TooManyRequestsError extends DomainError {
+  readonly code = "TOO_MANY_REQUESTS";
+  readonly httpStatus = 429;
+}

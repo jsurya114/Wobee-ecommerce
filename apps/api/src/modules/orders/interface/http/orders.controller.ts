@@ -1,8 +1,9 @@
-import type { CheckoutInput } from "@woobe/validation";
+import type { CheckoutInput, ClaimGuestOrderInput } from "@woobe/validation";
 import type { Request, Response } from "express";
 import { ValidationError } from "../../../../shared/errors";
 import { CART_ID_COOKIE, clearCartIdCookie } from "../../../cart/interface/http/cart-cookie";
 import type { CheckoutUseCase } from "../../application/use-cases/checkout.use-case";
+import type { ClaimGuestOrderUseCase } from "../../application/use-cases/claim-guest-order.use-case";
 import type { GetOrderUseCase } from "../../application/use-cases/get-order.use-case";
 import type { ListMyOrdersUseCase } from "../../application/use-cases/list-my-orders.use-case";
 
@@ -12,6 +13,7 @@ export class OrdersController {
     private readonly checkoutUseCase: CheckoutUseCase,
     private readonly getOrderUseCase: GetOrderUseCase,
     private readonly listMyOrdersUseCase: ListMyOrdersUseCase,
+    private readonly claimGuestOrderUseCase: ClaimGuestOrderUseCase,
   ) {}
 
   async checkout(req: Request, res: Response): Promise<void> {
@@ -26,6 +28,7 @@ export class OrdersController {
       userId: req.user?.id,
       guestCartId,
       contactEmail: input.contactEmail,
+      confirmEmail: input.confirmEmail,
       address: input.address,
       paymentMethod: input.paymentMethod,
     });
@@ -53,5 +56,16 @@ export class OrdersController {
     // authGuard (mounted before this handler) guarantees req.user.
     const orders = await this.listMyOrdersUseCase.execute(req.user!.id);
     res.status(200).json({ orders });
+  }
+
+  /** Client-review fix (2026-09-03) — "Add a guest order" (authGuard-only: attaches to the caller's own account, req.user!.id). */
+  async claimGuestOrder(req: Request, res: Response): Promise<void> {
+    const input = req.body as ClaimGuestOrderInput;
+    const order = await this.claimGuestOrderUseCase.execute({
+      userId: req.user!.id,
+      orderNumber: input.orderNumber,
+      contactEmail: input.contactEmail,
+    });
+    res.status(200).json(order);
   }
 }
