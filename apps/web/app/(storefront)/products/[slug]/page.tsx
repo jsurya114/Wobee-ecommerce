@@ -1,12 +1,33 @@
 import { paiseToRupees } from "@woobe/utils";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import type { CSSProperties } from "react";
 import { listReviews } from "@/features/reviews/api/reviews.client";
 import { getProductBySlug, getRelatedProducts, type ProductDetail } from "@/features/catalog/api/products.client";
 import { ProductDetail as ProductDetailView } from "@/features/catalog/components/ProductDetail";
 import { ApiError } from "@/lib/api-client";
+import { FLOATING_STACK_GAP_REM, MOBILE_BOTTOM_NAV_HEIGHT_REM, PDP_PURCHASE_DOCK_HEIGHT_REM } from "@/lib/layout-constants";
 import { absoluteUrl } from "@/lib/site-url";
 import { JsonLd } from "@/lib/JsonLd";
+
+/**
+ * Mobile bottom clearance for the fixed purchase dock (2026-09-04 PDP
+ * refinement) — computed from the same layout constants the dock itself
+ * (`ProductPurchasePanel`) and its `useWhatsAppBottomOffset` collision math
+ * use, not a static guess (per the refinement brief's own "do not solve this
+ * with excessive static padding" instruction). Reserves the TALLER
+ * two-row-dock height always: the server can't know here whether this
+ * visitor's live cart will render the dock's weight row (that's
+ * client-side-only cart state), and a little extra breathing room under a
+ * shorter dock is a far smaller problem than content clipped under a taller
+ * one. `--pdp-bottom-clearance` (not a plain inline `paddingBottom`) is the
+ * same CSS-custom-property trick `WhatsAppButton` already uses so `md:pb-8`
+ * can still win in the cascade at the desktop breakpoint, where there's no
+ * fixed dock at all.
+ */
+const PDP_BOTTOM_CLEARANCE_STYLE = {
+  "--pdp-bottom-clearance": `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + ${FLOATING_STACK_GAP_REM} + ${PDP_PURCHASE_DOCK_HEIGHT_REM} + env(safe-area-inset-bottom) + 1rem)`,
+} as CSSProperties;
 
 async function loadProduct(slug: string): Promise<ProductDetail | null> {
   return getProductBySlug(slug)
@@ -79,7 +100,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   );
 
   return (
-    <main className="mx-auto max-w-5xl px-4 pb-28 pt-8 sm:px-6 md:pb-8">
+    <main className="mx-auto max-w-5xl px-4 pb-[var(--pdp-bottom-clearance)] pt-8 sm:px-6 md:pb-8" style={PDP_BOTTOM_CLEARANCE_STYLE}>
       {lowestPrice !== null ? (
         <JsonLd
           data={{

@@ -10,18 +10,14 @@ export const BOTTOM_NAV_FLOAT_GAP_REM = "0.75rem"; // gap between the capsule an
 /**
  * Total footprint the floating dock claims at the bottom of the viewport
  * (capsule height + its own floating gap, safe-area handled separately by
- * each consumer below). Any other `fixed`, bottom-pinned element that needs
- * to sit flush above the nav (e.g. ProductPurchasePanel's mobile buy bar)
- * must offset itself by this same value — a hardcoded guess (e.g. Tailwind's
- * `bottom-20`) silently drifts from BottomNav's real rendered footprint and
- * leaves a gap of exposed page background between the two bars.
+ * each consumer below). Every other `fixed`, bottom-pinned element (the PDP
+ * purchase dock, the cart checkout dock, the standalone weight pill) floats
+ * its own `FLOATING_STACK_GAP_REM` above this same footprint — a hardcoded
+ * guess (e.g. Tailwind's `bottom-20`) silently drifts from BottomNav's real
+ * rendered footprint and leaves a gap of exposed page background, or worse,
+ * an overlap.
  */
 export const MOBILE_BOTTOM_NAV_HEIGHT_REM = `calc(${BOTTOM_NAV_DOCK_HEIGHT_REM} + ${BOTTOM_NAV_FLOAT_GAP_REM})`;
-
-/** `bottom` offset for a fixed element that should sit directly on top of BottomNav, safe-area included. */
-export const ABOVE_MOBILE_BOTTOM_NAV_STYLE = {
-  bottom: `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom))`,
-} as const;
 
 /**
  * `scroll-margin-bottom` for a NORMAL-FLOW element near the end of a page
@@ -44,17 +40,25 @@ export const SCROLL_MARGIN_ABOVE_BOTTOM_NAV_STYLE = {
 } as const;
 
 /**
- * UI refinement pass (2026-09-01) — the mobile fixed-position stack now has
- * three tiers that can be visible at once: BottomNav (always, mobile), at
- * most one full-width bar directly above it (`ProductPurchasePanel`'s PDP
- * buy bar, `CartPageContent`'s checkout bar, or `FloatingCartWeightIndicator`
- * — mutually exclusive by route, see `useCartWeightBarVisibility`'s route
- * list), and `WhatsAppButton`, a small corner FAB that must clear whichever
- * of those (if any) is currently showing. Heights below are measured
- * against the real rendered elements, not guessed — keep them in sync if
- * any bar's content changes enough to change its height.
+ * UI refinement pass (2026-09-01; unified into floating docks 2026-09-04) —
+ * the mobile fixed-position stack now has three tiers that can be visible
+ * at once: BottomNav (always, mobile), at most one floating action dock
+ * above it (the PDP purchase dock, the cart checkout dock, or the
+ * standalone `FloatingCartWeightIndicator` pill — mutually exclusive by
+ * route, see `useCartWeightBarVisibility`'s route list), and
+ * `WhatsAppButton`, a small corner FAB that must clear whichever of those
+ * (if any) is currently showing. Heights below are measured against the
+ * real rendered elements, not guessed — keep them in sync if any bar's
+ * content changes enough to change its height.
+ *
+ * `STICKY_ACTION_BAR_HEIGHT_REM` is specifically the shared height of the
+ * single-row "price/quantity + CTA" (PDP) / "total + checkout" (cart) action
+ * row on its own — both `PDP_PURCHASE_DOCK_HEIGHT_REM` and
+ * `CART_CHECKOUT_DOCK_HEIGHT_REM` below fall back to this exact value when
+ * their own weight-progress row isn't rendered (no weight-based items in
+ * the cart), rather than a redundant constant per page.
  */
-export const STICKY_ACTION_BAR_HEIGHT_REM = "4.3125rem"; // 69px — PDP buy bar, both measured live
+export const STICKY_ACTION_BAR_HEIGHT_REM = "4.3125rem"; // 69px — the action row alone, measured live
 export const CART_WEIGHT_INDICATOR_HEIGHT_REM = "2.875rem"; // 46px, measured live
 /** Breathing room between a floating element and whatever it's stacked above. */
 export const FLOATING_STACK_GAP_REM = "0.625rem";
@@ -63,15 +67,21 @@ export const FLOATING_STACK_GAP_REM = "0.625rem";
  * The cart page's unified checkout dock (`CheckoutDock.tsx`, 2026-09-04) —
  * a single glass surface combining the weight/free-shipping progress row
  * (when the cart has weight-based items) with the total + checkout action
- * row, replacing the old checkout-only bar (which used to share
- * `STICKY_ACTION_BAR_HEIGHT_REM` with the PDP buy bar "by coincidence").
- * Two heights because that top row is conditional on the cart actually
- * having weight-based items — `useWhatsAppBottomOffset` picks the right one
- * via the same `weightBasedTotalGrams > 0` check `CheckoutDock` itself uses.
- * The action-row-only case reuses `STICKY_ACTION_BAR_HEIGHT_REM` (same row
- * markup, so same real height) rather than a redundant constant.
+ * row. Falls back to `STICKY_ACTION_BAR_HEIGHT_REM` (see above) when that
+ * row isn't rendered — `useWhatsAppBottomOffset` picks the right one via
+ * the same `weightBasedTotalGrams > 0` check `CheckoutDock` itself uses.
  */
 export const CART_CHECKOUT_DOCK_HEIGHT_REM = "7.3125rem"; // 117px, both rows, measured live
+
+/**
+ * The PDP's unified purchase dock (`ProductPurchasePanel.tsx`, 2026-09-04) —
+ * same shape as `CART_CHECKOUT_DOCK_HEIGHT_REM` above: a weight/free-shipping
+ * progress row (using the same live `useCart()` state, when the cart has
+ * weight-based items) over the price/quantity/"Add to bag" row, replacing
+ * the old flush single-row buy bar. Falls back to `STICKY_ACTION_BAR_HEIGHT_REM`
+ * when the weight row isn't rendered, same reasoning as the cart dock.
+ */
+export const PDP_PURCHASE_DOCK_HEIGHT_REM = "7.3125rem"; // measured live — placeholder, verify against CheckoutDock's own measured value
 
 /**
  * `SiteHeader`'s real rendered height (measured live, both mobile and

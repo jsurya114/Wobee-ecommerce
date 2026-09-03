@@ -1,13 +1,14 @@
 "use client";
 
 import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact } from "@woobe/utils";
-import { Button, PriceTag } from "@woobe/ui";
-import { Check, ChevronDown, Minus, Plus } from "lucide-react";
+import { Button, cn, PriceTag } from "@woobe/ui";
+import { ArrowRight, Check, ChevronDown, Minus, PackageCheck, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useCart } from "@/features/cart/hooks/useCart";
+import { deriveWeightStatus, type WeightStatus } from "@/features/cart/lib/derive-weight-status";
 import { getShippingEstimate, type ShippingEstimate } from "@/features/shipping/api/shipping.client";
-import { ABOVE_MOBILE_BOTTOM_NAV_STYLE } from "@/lib/layout-constants";
+import { FLOATING_STACK_GAP_REM, MOBILE_BOTTOM_NAV_HEIGHT_REM } from "@/lib/layout-constants";
 import type { ProductDetail } from "../api/products.client";
 import { useSelectedVariant } from "../hooks/useSelectedVariant";
 
@@ -18,11 +19,21 @@ import { useSelectedVariant } from "../hooks/useSelectedVariant";
  * (gallery, name, description) stays server-rendered.
  *
  * "Add to bag" renders twice on purpose: inline (desktop primary + mobile
- * pre-hydration fallback) and in a `fixed` bar pinned above BottomNav on
- * mobile so the purchase action is always in reach.
+ * pre-hydration fallback) and in a mobile-only floating liquid-glass
+ * purchase dock (2026-09-04 PDP refinement) — see the dock's own comment
+ * below for why it also carries the weight/free-shipping progress row.
  */
 export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
-  const { addItem } = useCart();
+  // `cart` here is the SAME live cart state Home/Shop/Bag's own weight
+  // trackers read (`useCartWeightBarVisibility` already excludes PDP routes
+  // from the standalone floating pill, precisely because this panel folds
+  // that same progress into its own dock instead — see below). No new
+  // calculation: `deriveWeightStatus` is the identical pure function every
+  // other weight tracker in the app uses. It reflects whatever the cart
+  // actually holds right now, so once `handleAddToCart` below resolves and
+  // the cart context updates, this row updates with it automatically.
+  const { addItem, cart } = useCart();
+  const cartWeightStatus = cart ? deriveWeightStatus(cart.weightBasedTotalGrams, cart.shipping) : null;
   // Selection is shared with the wishlist heart in <ProductGallery> via the
   // PDP-scoped SelectedVariantProvider (one source of truth); quantity below
   // stays local to this panel.
@@ -98,7 +109,12 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   ].filter((entry): entry is [string, string] => Boolean(entry[1]));
 
   return (
-    <div className="flex flex-col gap-5 pb-4 md:pb-0">
+    // Tightened outer rhythm (2026-09-04 PDP refinement, gap-5 -> gap-4). Colour and
+    // size are grouped into one "pick your variant" sub-block below (their own tighter
+    // gap-3) instead of both taking the full outer gap independently — related fields
+    // sit close together; the boundaries between price / variant-pick / CTA / details /
+    // delivery stay as real section breaks.
+    <div className="flex flex-col gap-4 pb-4 md:pb-0">
       <div className="flex flex-col gap-2">
         <PriceTag
           pricePaise={selectedVariant.pricePaise}
@@ -121,59 +137,70 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         ) : null}
       </div>
 
-      <div>
-        <p className="mb-2 font-body text-sm font-medium text-text-primary">Colour: {selectedVariant.color}</p>
-        <div className="flex flex-wrap gap-2">
-          {colors.map((color) => {
-            const isSelected = color === selectedColor;
-            return (
+      {/* Colour + size grouped tightly — one "pick your variant" block (2026-09-04). */}
+      <div className="flex flex-col gap-3">
+        <div>
+          {/* Just "Colour" — the selected chip below already shows the name + a checkmark, per the compact chip treatment. */}
+          <p className="mb-2 font-body text-sm font-medium text-text-primary">Colour</p>
+          <div className="flex flex-wrap gap-2">
+            {colors.map((color) => {
+              const isSelected = color === selectedColor;
+              return (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => selectColor(color)}
+                  aria-pressed={isSelected}
+                  className={`flex h-10 items-center gap-1.5 rounded-pill border px-3.5 font-body text-sm transition-colors ${
+                    isSelected ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:bg-primary-tint"
+                  }`}
+                >
+                  {isSelected ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                  {color}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 font-body text-sm font-medium text-text-primary">Size</p>
+          <div className="flex flex-wrap gap-2">
+            {sizesForColor.map((variant) => (
               <button
-                key={color}
+                key={variant.id}
                 type="button"
-                onClick={() => selectColor(color)}
-                aria-pressed={isSelected}
-                className={`flex h-10 items-center gap-1.5 rounded-pill border px-3.5 font-body text-sm transition-colors ${
-                  isSelected ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:bg-primary-tint"
+                disabled={!variant.inStock}
+                aria-pressed={variant.id === selectedVariantId}
+                onClick={() => selectVariant(variant.id)}
+                className={`flex h-10 min-w-10 items-center justify-center rounded-pill border px-3.5 font-body text-sm transition-colors disabled:cursor-not-allowed disabled:line-through disabled:opacity-40 ${
+                  variant.id === selectedVariantId ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:bg-primary-tint"
                 }`}
               >
-                {isSelected ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-                {color}
+                {variant.size}
               </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 font-body text-sm font-medium text-text-primary">Size</p>
-        <div className="flex flex-wrap gap-2">
-          {sizesForColor.map((variant) => (
-            <button
-              key={variant.id}
-              type="button"
-              disabled={!variant.inStock}
-              aria-pressed={variant.id === selectedVariantId}
-              onClick={() => selectVariant(variant.id)}
-              className={`flex h-10 min-w-10 items-center justify-center rounded-pill border px-3.5 font-body text-sm transition-colors disabled:cursor-not-allowed disabled:line-through disabled:opacity-40 ${
-                variant.id === selectedVariantId ? "border-primary bg-primary text-white" : "border-border text-text-primary hover:bg-primary-tint"
-              }`}
-            >
-              {variant.size}
-            </button>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Desktop placement + mobile's no-JS/pre-hydration fallback. */}
       <div className="hidden items-center gap-3 md:flex">
         <QuantityStepper quantity={quantity} max={maxQuantity} disabled={!selectedVariant.inStock} onChange={changeQuantity} />
-        <Button type="button" onClick={() => void handleAddToCart()} isLoading={isAdding} disabled={!selectedVariant.inStock} className="flex-1">
+        <Button
+          type="button"
+          onClick={() => void handleAddToCart()}
+          isLoading={isAdding}
+          disabled={!selectedVariant.inStock}
+          className="flex-1 gap-1.5"
+        >
           {addToBagLabel}
+          {selectedVariant.inStock ? <ArrowRight className="h-4 w-4" aria-hidden="true" /> : null}
         </Button>
       </div>
 
       {details.length > 0 ? (
-        <details className="group border-t border-border pt-4">
+        <details className="group border-t border-border pt-3">
           <summary className="flex cursor-pointer list-none items-center justify-between font-body text-sm font-medium text-text-primary">
             Details
             <ChevronDown className="h-4 w-4 text-text-secondary transition-transform group-open:rotate-180" aria-hidden="true" />
@@ -189,8 +216,9 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         </details>
       ) : null}
 
-      <div className="border-t border-border pt-4">
+      <div className="border-t border-border pt-3">
         <p className="mb-2 font-body text-sm font-medium text-text-primary">Delivery</p>
+        {/* Input now takes the available row width instead of a fixed w-40 (2026-09-04) — the row previously left the Check button stranded in empty space at mobile widths. */}
         <div className="flex gap-2">
           <input
             value={pincode}
@@ -201,9 +229,9 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
             inputMode="numeric"
             placeholder="Delivery pincode"
             aria-label="Delivery pincode"
-            className="h-10 w-40 rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="h-10 w-full min-w-0 flex-1 rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
-          <Button type="button" variant="secondary" size="sm" onClick={() => void checkPincode()} isLoading={checkingPincode}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void checkPincode()} isLoading={checkingPincode} className="shrink-0">
             Check
           </Button>
         </div>
@@ -216,19 +244,71 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         ) : null}
       </div>
 
-      {/* Mobile sticky purchase bar — pinned above BottomNav, always visible. */}
+      {/*
+        Mobile: unified liquid-glass purchase dock (2026-09-04) — the
+        weight/free-shipping progress row (when the cart has weight-based
+        items) sits above the price/quantity/"Add to bag" row in ONE glass
+        surface, mirroring the cart page's own `CheckoutDock`. Floats its own
+        `FLOATING_STACK_GAP_REM` above the nav dock rather than sitting flush
+        — `useWhatsAppBottomOffset` has the matching offset (and picks the
+        right one of the two possible dock heights via the same
+        `weightBasedTotalGrams > 0` condition used here).
+      */}
       <div
-        className="fixed inset-x-0 z-20 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur md:hidden"
-        style={ABOVE_MOBILE_BOTTOM_NAV_STYLE}
+        className="fixed inset-x-3 z-20 overflow-hidden rounded-card border border-white/50 bg-surface/80 shadow-modal backdrop-blur-xl md:hidden"
+        style={{ bottom: `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom) + ${FLOATING_STACK_GAP_REM})` }}
       >
-        <div className="flex items-center gap-3">
+        {cartWeightStatus ? <PurchaseWeightProgressRow status={cartWeightStatus} weightBasedTotalGrams={cart!.weightBasedTotalGrams} /> : null}
+        <div className={cn("flex items-center gap-3 px-4 py-3", cartWeightStatus && "border-t border-border/50")}>
           <PriceTag pricePaise={selectedVariant.pricePaise} className="flex-1" />
           <QuantityStepper quantity={quantity} max={maxQuantity} disabled={!selectedVariant.inStock} onChange={changeQuantity} />
-          <Button type="button" onClick={() => void handleAddToCart()} isLoading={isAdding} disabled={!selectedVariant.inStock} className="shrink-0">
+          <Button
+            type="button"
+            onClick={() => void handleAddToCart()}
+            isLoading={isAdding}
+            disabled={!selectedVariant.inStock}
+            className="shrink-0 gap-1.5 rounded-pill"
+          >
             {addToBagLabel}
+            {selectedVariant.inStock ? <ArrowRight className="h-4 w-4" aria-hidden="true" /> : null}
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Same message/progress-fill logic as `FloatingCartWeightIndicator` (Home/Shop) and
+ * `CheckoutDock` (Bag) — kept as a plain inline row here too rather than its own
+ * bordered/shadowed pill, since the outer purchase dock already supplies the one glass
+ * surface for both rows.
+ */
+function PurchaseWeightProgressRow({ status, weightBasedTotalGrams }: { status: WeightStatus; weightBasedTotalGrams: number }) {
+  const isFreeDelivery = status.kind === "free-delivery";
+  const message = isFreeDelivery
+    ? "Free delivery unlocked"
+    : status.kind === "below-minimum"
+      ? `${formatGrams(status.gramsRemaining)} more to checkout`
+      : `${formatGrams(status.gramsRemaining)} to unlock free shipping`;
+  const fillPercent = isFreeDelivery ? 100 : Math.min(100, Math.max(0, status.percent));
+
+  return (
+    <div role="status" className={cn("relative flex items-center gap-2 overflow-hidden px-3 pb-2 pt-2.5", isFreeDelivery && "bg-success/10")}>
+      <div
+        aria-hidden="true"
+        className={cn("absolute inset-y-0 left-0 transition-[width] duration-500", isFreeDelivery ? "bg-success/10" : "bg-primary/10")}
+        style={{ width: `${fillPercent}%` }}
+      />
+      <span
+        className={cn(
+          "relative flex h-7 shrink-0 items-center justify-center rounded-full px-2 font-body text-[11px] font-bold",
+          isFreeDelivery ? "bg-success/15 text-success" : "bg-primary-tint text-primary",
+        )}
+      >
+        {isFreeDelivery ? <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" /> : formatGrams(weightBasedTotalGrams)}
+      </span>
+      <span className="relative min-w-0 flex-1 truncate font-body text-xs font-medium text-text-primary">{message}</span>
     </div>
   );
 }

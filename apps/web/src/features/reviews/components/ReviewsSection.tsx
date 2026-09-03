@@ -49,7 +49,10 @@ export function ReviewsSection({ productId, initialReviews = null }: { productId
   }, [initialReviews, load]);
 
   return (
-    <section className="mt-12 border-t border-border pt-8">
+    // Tightened (2026-09-04 PDP refinement) — mt-12/pt-8 (80px combined) read as an
+    // enormous dead zone between the purchase info and Reviews; mt-8/pt-6 keeps a clear
+    // section break (still bordered) without the excess whitespace.
+    <section className="mt-8 border-t border-border pt-6">
       <h2 className="mb-4 font-display text-xl text-text-primary">Reviews</h2>
 
       {isLoading || !result ? (
