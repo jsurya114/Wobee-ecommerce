@@ -61,6 +61,38 @@ export interface VariantSaleQuantity {
   quantitySold: number;
 }
 
+/** Admin analytics dashboard (2026-09-03). */
+export interface AnalyticsDateRange {
+  from: Date;
+  to: Date;
+}
+
+export interface DailyRevenuePoint {
+  /** ISO date (YYYY-MM-DD), UTC — one bucket per calendar day in the range, including zero-revenue days. */
+  date: string;
+  revenuePaise: number;
+  orderCount: number;
+}
+
+export interface OrderStatusCount {
+  status: OrderEntity["status"];
+  count: number;
+}
+
+export interface OrderAnalyticsSummary {
+  /** Real sales only (SOLD_STATUSES) — a PENDING_PAYMENT/CANCELLED/PAYMENT_FAILED order never counts as revenue. */
+  totalRevenuePaise: number;
+  orderCount: number;
+  dailyRevenue: DailyRevenuePoint[];
+  /** Every status in the range, not just "sold" ones — operationally useful to see how many orders are stuck PENDING_PAYMENT or were CANCELLED. */
+  statusCounts: OrderStatusCount[];
+}
+
+/** GetOrderAnalyticsUseCase's own return shape — OrderAnalyticsSummary plus the one derived figure (ARCHITECTURE.md §3.1: repositories return raw data, use-cases apply domain logic to it). */
+export interface OrderAnalyticsView extends OrderAnalyticsSummary {
+  averageOrderValuePaise: number;
+}
+
 /**
  * application depends on this interface, not on Prisma directly — the
  * infrastructure layer implements it (ARCHITECTURE.md §3.1).
@@ -121,4 +153,6 @@ export interface OrderRepositoryPort {
    * product_variants for anything beyond its own foreign key).
    */
   findBestSellingVariantQuantities(limit: number): Promise<VariantSaleQuantity[]>;
+  /** Admin analytics dashboard (2026-09-03) — revenue/order-count/status breakdown for one date range. */
+  getOrderAnalytics(range: AnalyticsDateRange): Promise<OrderAnalyticsSummary>;
 }

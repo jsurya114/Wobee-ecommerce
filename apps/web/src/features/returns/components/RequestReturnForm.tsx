@@ -72,6 +72,7 @@ export function RequestReturnForm({ orderId, items, onRequested }: { orderId: st
             <label className="flex shrink-0 items-center gap-2">
               <span className="font-body text-xs text-text-secondary">Return qty</span>
               <select
+                name={`return-quantity-${item.id}`}
                 aria-label={`Return quantity for ${item.productNameSnapshot}`}
                 value={quantities[item.id] ?? 0}
                 onChange={(e) => setQuantities((prev) => ({ ...prev, [item.id]: Number(e.target.value) }))}

@@ -2,6 +2,7 @@ import { Prisma, prisma } from "@woobe/database";
 import type { PaymentEntity } from "../../domain/entities/payment.entity";
 import type {
   CreatePaymentInput,
+  PaymentCollectionSummary,
   PaymentRepositoryPort,
   UpdatePaymentInput,
 } from "../../application/ports/payment-repository.port";
@@ -39,8 +40,8 @@ export class PaymentRepository implements PaymentRepositoryPort {
     return payment ? toEntity(payment) : null;
   }
 
-  async update(id: string, input: UpdatePaymentInput, tx: unknown): Promise<PaymentEntity> {
-    const client = tx as PrismaTx;
+  async update(id: string, input: UpdatePaymentInput, tx?: unknown): Promise<PaymentEntity> {
+    const client = (tx as PrismaTx | undefined) ?? prisma;
     const payment = await client.payment.update({
       where: { id },
       data: {
@@ -55,6 +56,18 @@ export class PaymentRepository implements PaymentRepositoryPort {
   async markRefunded(paymentId: string, tx?: unknown): Promise<void> {
     const client = (tx as PrismaTx | undefined) ?? prisma;
     await client.payment.update({ where: { id: paymentId }, data: { status: "REFUNDED" } });
+  }
+
+  async getCollectionSummary(range: { from: Date; to: Date }): Promise<PaymentCollectionSummary> {
+    const createdAt = { gte: range.from, lte: range.to };
+    const [collected, pendingCod] = await Promise.all([
+      prisma.payment.aggregate({ where: { status: "CAPTURED", createdAt }, _sum: { amountPaise: true } }),
+      prisma.payment.aggregate({ where: { provider: "COD", status: "PENDING", createdAt }, _sum: { amountPaise: true } }),
+    ]);
+    return {
+      collectedPaise: collected._sum.amountPaise ?? 0,
+      pendingCodPaise: pendingCod._sum.amountPaise ?? 0,
+    };
   }
 }
 

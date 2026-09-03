@@ -31,6 +31,7 @@ import { ClaimGuestOrderUseCase } from "./application/use-cases/claim-guest-orde
 import { ConfirmOrderUseCase } from "./application/use-cases/confirm-order.use-case";
 import { DeliverOrderUseCase } from "./application/use-cases/deliver-order.use-case";
 import { GetBestSellingVariantQuantitiesUseCase } from "./application/use-cases/get-best-selling-variant-quantities.use-case";
+import { GetOrderAnalyticsUseCase } from "./application/use-cases/get-order-analytics.use-case";
 import { GetOrderForAdminUseCase } from "./application/use-cases/get-order-for-admin.use-case";
 import { GetOrderForPaymentUseCase } from "./application/use-cases/get-order-for-payment.use-case";
 import { GetOrderUseCase } from "./application/use-cases/get-order.use-case";
@@ -137,6 +138,8 @@ export const hasPurchasedProductUseCase = new HasPurchasedProductUseCase(orderRe
 export const setOrderHasActiveReturnUseCase = new SetOrderHasActiveReturnUseCase(orderRepository);
 /** Exported for `home`'s Best Sellers rail (Week 2 Day 8 Part 2, week2 (1).md §12). */
 export const getBestSellingVariantQuantitiesUseCase = new GetBestSellingVariantQuantitiesUseCase(orderRepository);
+/** Exported for `admin`'s GetAdminDashboardUseCase (2026-09-03). */
+export const getOrderAnalyticsUseCase = new GetOrderAnalyticsUseCase(orderRepository);
 
 const ordersController = new OrdersController(checkoutUseCase, getOrderUseCase, listMyOrdersUseCase, claimGuestOrderUseCase);
 

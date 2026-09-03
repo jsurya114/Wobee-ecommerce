@@ -18,6 +18,8 @@ export const PERMISSIONS = {
   MANAGE_STAFF: "MANAGE_STAFF",
   /** Week 2 Day 7 (week2 (1).md §19) — customer list/detail/account-status. super_admin only: neither staff role's own quotation description (plan.md §3) mentions customer-account access, and this is exactly the kind of PII-adjacent surface not worth quietly widening an existing staff grant for. */
   MANAGE_CUSTOMERS: "MANAGE_CUSTOMERS",
+  /** Admin analytics dashboard (2026-09-03) — revenue, order/customer counts, best sellers. super_admin only, same reasoning as MANAGE_CUSTOMERS: revenue figures are more sensitive than either staff role's own day-to-day scope (order processing, catalog/inventory), and neither role's quotation description mentions business reporting. */
+  VIEW_ANALYTICS: "VIEW_ANALYTICS",
 } as const;
 
 /**
@@ -35,6 +37,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     PERMISSIONS.MANAGE_ORDERS,
     PERMISSIONS.MANAGE_STAFF,
     PERMISSIONS.MANAGE_CUSTOMERS,
+    PERMISSIONS.VIEW_ANALYTICS,
   ]),
   // Explicitly no catalog/pricing/settings access (ADR-024).
   ORDER_PROCESSING_STAFF: new Set([PERMISSIONS.MANAGE_ORDERS]),

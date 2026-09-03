@@ -1,5 +1,6 @@
 import { Prisma, prisma, type OrderStatus } from "@woobe/database";
 import type { OrderEntity, OrderAddressSnapshot, OrderSummaryEntity } from "../../domain/entities/order.entity";
+import { bucketDailyRevenue } from "../../domain/bucket-daily-revenue";
 import { OrderNumberCollisionError } from "../../domain/errors/order-number-collision.error";
 import type {
   CreateOrderInput,
@@ -8,6 +9,8 @@ import type {
   ListOrdersFilter,
   ListOrdersResult,
   VariantSaleQuantity,
+  AnalyticsDateRange,
+  OrderAnalyticsSummary,
 } from "../../application/ports/order-repository.port";
 
 /** Same "counts as a real sale" status set hasUserPurchasedProduct already uses below — kept as one named constant so both stay in sync by construction. Not `as const`: Prisma's own `OrderStatus[]` filter type wants a plain mutable array, not a readonly tuple. */
@@ -213,6 +216,35 @@ export class OrderRepository implements OrderRepositoryPort {
       take: limit,
     });
     return rows.map((row) => ({ variantId: row.variantId, quantitySold: row._sum?.quantity ?? 0 }));
+  }
+
+  async getOrderAnalytics(range: AnalyticsDateRange): Promise<OrderAnalyticsSummary> {
+    const dateFilter = { gte: range.from, lte: range.to };
+
+    const [revenue, statusRows, soldOrders] = await Promise.all([
+      prisma.order.aggregate({
+        where: { status: { in: SOLD_STATUSES }, placedAt: dateFilter },
+        _sum: { totalPaise: true },
+        _count: true,
+      }),
+      // Every status in range, not just SOLD_STATUSES — see OrderStatusCount's own doc comment.
+      prisma.order.groupBy({ by: ["status"], where: { placedAt: dateFilter }, _count: true }),
+      // Daily buckets, computed here rather than via a raw SQL date-trunc:
+      // dashboard-scale row counts (weeks of orders, not millions) make an
+      // in-memory group-by both simpler and safer than a dialect-specific
+      // query. bucketDailyRevenue (domain) owns the actual bucketing/filling logic.
+      prisma.order.findMany({
+        where: { status: { in: SOLD_STATUSES }, placedAt: dateFilter },
+        select: { placedAt: true, totalPaise: true },
+      }),
+    ]);
+
+    return {
+      totalRevenuePaise: revenue._sum.totalPaise ?? 0,
+      orderCount: revenue._count,
+      dailyRevenue: bucketDailyRevenue(range, soldOrders),
+      statusCounts: statusRows.map((row) => ({ status: row.status, count: row._count })),
+    };
   }
 }
 

@@ -16,6 +16,7 @@ export interface AdminNavEntry {
  * touch this file's structure or Sidebar/TopBar at all.
  */
 export const ADMIN_NAV: AdminNavEntry[] = [
+  { label: "Dashboard", href: "/", status: "live", permission: "VIEW_ANALYTICS" },
   { label: "Customers", href: "/customers", status: "live", permission: "MANAGE_CUSTOMERS" },
   { label: "Products", href: "/products", status: "live", permission: "MANAGE_CATALOG" },
   { label: "Categories", href: "/categories", status: "live", permission: "MANAGE_CATALOG" },
@@ -31,7 +32,7 @@ export const ADMIN_NAV: AdminNavEntry[] = [
 /** Mirrors apps/api/src/config/permissions.ts's ROLE_PERMISSIONS map — duplicated here (client-side convenience only, never the actual enforcement) rather than imported, since apps/admin can't reach into apps/api's internals (ADR-019). The server route guard is what actually enforces access; this only decides what to show. */
 export const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
   CUSTOMER: new Set(),
-  SUPER_ADMIN: new Set(["MANAGE_SETTINGS", "MANAGE_CATALOG", "MANAGE_INVENTORY", "MANAGE_ORDERS", "MANAGE_STAFF", "MANAGE_CUSTOMERS"]),
+  SUPER_ADMIN: new Set(["MANAGE_SETTINGS", "MANAGE_CATALOG", "MANAGE_INVENTORY", "MANAGE_ORDERS", "MANAGE_STAFF", "MANAGE_CUSTOMERS", "VIEW_ANALYTICS"]),
   ORDER_PROCESSING_STAFF: new Set(["MANAGE_ORDERS"]),
   PRODUCT_MANAGEMENT_STAFF: new Set(["MANAGE_CATALOG", "MANAGE_INVENTORY"]),
 };

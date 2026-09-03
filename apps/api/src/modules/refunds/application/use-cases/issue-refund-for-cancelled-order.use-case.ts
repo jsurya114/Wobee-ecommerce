@@ -14,10 +14,16 @@ export interface IssueRefundResult {
  * Admin-cancellation refund path only (ADR-025) — the full customer-
  * initiated return/exchange request flow stays Week 4 scope. Decides
  * purely from the order's actual Payment record, never from the caller's
- * belief about payment method: a COD order's Payment.status is CAPTURED
- * at confirm time (see ConfirmCodOrderUseCase) even though no real money
- * has moved yet, so checking status alone is not enough — provider must
- * also be RAZORPAY.
+ * belief about payment method: `provider` must be RAZORPAY, full stop — a
+ * COD order is never refunded through this gateway path (there is no
+ * gateway to reverse; cancellation always happens before delivery anyway —
+ * see CancelOrderUseCase — so a cancelled COD order's Payment is still
+ * PENDING, no cash was ever collected to refund). Checking `provider`
+ * rather than deriving this from `status` keeps this correct even now that
+ * a delivered COD order's Payment does legitimately reach CAPTURED (see
+ * ConfirmCodOrderUseCase / DeliverOrderAndCapturePaymentUseCase) —
+ * `status === "CAPTURED"` alone was never a safe proxy for "refundable via
+ * Razorpay," and still isn't.
  *
  * Never throws on a gateway failure — records a FAILED Refund row for
  * manual follow-up instead, so a broken/unconfigured Razorpay integration

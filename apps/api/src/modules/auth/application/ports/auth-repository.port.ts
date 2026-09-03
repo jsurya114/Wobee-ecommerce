@@ -91,6 +91,9 @@ export interface ListCustomersFilter {
   /** Matches name or email. */
   search?: string;
   isActive?: boolean;
+  /** Admin analytics dashboard (2026-09-03) — "new customers in range" reuses this same filter/count rather than a separate method; the admin customer list itself never sets these. */
+  createdAfter?: Date;
+  createdBefore?: Date;
   page: number;
   pageSize: number;
 }

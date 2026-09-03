@@ -101,9 +101,13 @@ describe("payments: COD confirms immediately", () => {
     const persisted = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     expect(persisted.status).toBe("CONFIRMED");
 
+    // Client-review fix (2026-09-03) — PENDING, not CAPTURED: no real cash
+    // has moved yet at order-confirm time for cash-on-delivery. It only
+    // becomes CAPTURED at actual delivery (see admin.integration.test.ts's
+    // "order lifecycle" test for that transition).
     const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
     expect(payment.provider).toBe("COD");
-    expect(payment.status).toBe("CAPTURED");
+    expect(payment.status).toBe("PENDING");
     expect(payment.amountPaise).toBe(order.totalPaise);
 
     // Reservation finalized into a real deduction, not left as a phantom hold.

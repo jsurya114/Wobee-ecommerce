@@ -43,3 +43,9 @@ export type ListCustomersQuery = z.infer<typeof listCustomersQuerySchema>;
 
 export const setCustomerActiveSchema = z.object({ isActive: z.boolean() });
 export type SetCustomerActiveInput = z.infer<typeof setCustomerActiveSchema>;
+
+/** Admin analytics dashboard (2026-09-03) — `days` picks the trailing window ending today; no custom from/to range in v1. */
+export const adminDashboardQuerySchema = z.object({
+  days: z.coerce.number().int().positive().max(90).default(30),
+});
+export type AdminDashboardQuery = z.infer<typeof adminDashboardQuerySchema>;

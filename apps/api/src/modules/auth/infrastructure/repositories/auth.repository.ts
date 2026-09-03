@@ -224,6 +224,9 @@ export class AuthRepository implements AuthRepositoryPort {
     const where: Prisma.UserWhereInput = {
       role: Role.CUSTOMER,
       ...(filter.isActive !== undefined ? { isActive: filter.isActive } : {}),
+      ...(filter.createdAfter || filter.createdBefore
+        ? { createdAt: { ...(filter.createdAfter ? { gte: filter.createdAfter } : {}), ...(filter.createdBefore ? { lte: filter.createdBefore } : {}) } }
+        : {}),
       ...(filter.search
         ? {
             OR: [

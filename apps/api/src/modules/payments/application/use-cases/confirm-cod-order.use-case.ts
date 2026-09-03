@@ -10,6 +10,17 @@ import type { TransactionPort } from "../ports/transaction.port";
  * order CONFIRMED, a COD Payment row recorded (for consistent accounting
  * alongside Razorpay payments), and the reservation finalized into a real
  * stock deduction (ADR-015) — all three commit together.
+ *
+ * Client-review fix (2026-09-03): the Payment row is recorded PENDING, not
+ * CAPTURED — "confirmed" here means the ORDER is confirmed for processing,
+ * not that any money has actually changed hands. For cash-on-delivery, real
+ * cash only moves when the courier hands over the goods at delivery, which
+ * is exactly what was misleading about marking it CAPTURED at this,
+ * earlier, moment (the storefront's own "Order confirmed!" page was
+ * factually correct about the order; nothing distinguished "captured" from
+ * "still owed" for a COD Payment underneath it). See
+ * DeliverOrderAndCapturePaymentUseCase (admin module) for where this
+ * Payment row actually advances to CAPTURED.
  */
 export class ConfirmCodOrderUseCase {
   constructor(
@@ -44,7 +55,7 @@ export class ConfirmCodOrderUseCase {
       }
 
       await this.paymentRepository.create(
-        { orderId: order.id, provider: "COD", status: "CAPTURED", amountPaise: order.totalPaise },
+        { orderId: order.id, provider: "COD", status: "PENDING", amountPaise: order.totalPaise },
         tx,
       );
       await this.inventoryFinalization.finalize(order.items, tx);

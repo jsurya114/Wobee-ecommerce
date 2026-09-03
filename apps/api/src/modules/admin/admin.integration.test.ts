@@ -222,13 +222,40 @@ describe("order lifecycle + audit log", () => {
     expect(shipped.body.status).toBe("SHIPPED");
     expect(shipped.body.trackingNumber).toBe("TRK123");
 
+    // Client-review fix (2026-09-03) — a COD order's Payment is PENDING
+    // right up until delivery, not CAPTURED at confirm time.
+    const paymentBeforeDelivery = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(paymentBeforeDelivery.status).toBe("PENDING");
+
     const delivered = await request(app).post(`/api/v1/admin/orders/${order.id}/deliver`).set(auth);
     expect(delivered.status).toBe(200);
     expect(delivered.body.status).toBe("DELIVERED");
     expect(delivered.body.deliveredAt).not.toBeNull();
 
+    // Delivery is the actual "cash changes hands" moment for COD — the
+    // Payment row now catches up to CAPTURED (DeliverOrderAndCapturePaymentUseCase).
+    const paymentAfterDelivery = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(paymentAfterDelivery.status).toBe("CAPTURED");
+    expect(paymentAfterDelivery.id).toBe(paymentBeforeDelivery.id); // same row, not a second Payment created
+
     const auditLogs = await prisma.adminAuditLog.findMany({ where: { entityId: order.id }, orderBy: { createdAt: "asc" } });
     expect(auditLogs.map((log) => log.action)).toEqual(["ORDER_PROCESSING_STARTED", "ORDER_SHIPPED", "ORDER_DELIVERED"]);
+  });
+
+  it("delivering a RAZORPAY order leaves its already-CAPTURED payment untouched (no-op for a non-COD payment)", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedRazorpayOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "TRK1", carrier: "BlueDart" });
+    const delivered = await request(app).post(`/api/v1/admin/orders/${order.id}/deliver`).set(auth);
+    expect(delivered.status).toBe(200);
+
+    const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(payment.provider).toBe("RAZORPAY");
+    expect(payment.status).toBe("CAPTURED"); // was already CAPTURED via the webhook path; untouched by delivery
   });
 });
 

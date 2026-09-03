@@ -2,7 +2,7 @@ import type { CancelOrderInput, ListOrdersQuery, ShipOrderInput } from "@woobe/v
 import type { Request, Response } from "express";
 import { ValidationError } from "../../../../shared/errors";
 import type { CancelOrderWithRefundUseCase } from "../../application/use-cases/cancel-order-with-refund.use-case";
-import type { DeliverOrderUseCase } from "../../../orders/application/use-cases/deliver-order.use-case";
+import type { DeliverOrderAndCapturePaymentUseCase } from "../../application/use-cases/deliver-order-and-capture-payment.use-case";
 import type { GetOrderForAdminUseCase } from "../../../orders/application/use-cases/get-order-for-admin.use-case";
 import type { ListOrdersUseCase } from "../../../orders/application/use-cases/list-orders.use-case";
 import type { ShipOrderUseCase } from "../../../orders/application/use-cases/ship-order.use-case";
@@ -14,7 +14,7 @@ export class AdminOrdersController {
     private readonly getOrderForAdminUseCase: GetOrderForAdminUseCase,
     private readonly startProcessingOrderUseCase: StartProcessingOrderUseCase,
     private readonly shipOrderUseCase: ShipOrderUseCase,
-    private readonly deliverOrderUseCase: DeliverOrderUseCase,
+    private readonly deliverOrderUseCase: DeliverOrderAndCapturePaymentUseCase,
     private readonly cancelOrderUseCase: CancelOrderWithRefundUseCase,
   ) {}
 
