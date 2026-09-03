@@ -1,6 +1,22 @@
 packages:
   - "apps/*"
   - "packages/*"
+overrides:
+  # Security audit fix (2026-09-04): express 4.22.2's own `qs` dep (~6.15.1,
+  # resolving to 6.15.3) is inside the DoS/array-limit-bypass advisory range
+  # (GHSA fixed in 6.16.0) — qs parses every request's query string on this
+  # public-facing API, so this is a real, exploitable perf/DoS surface, not
+  # just a dev-tooling one. Pure-JS bump, no native bindings, safe to force.
+  qs: ">=6.16.0"
+  # Security audit fix (2026-09-04): sharp <0.35.0 inherits several libvips
+  # CVEs; next/image runs it server-side on every optimized image request
+  # (including admin-uploaded product/banner/category photos), so a crafted
+  # image is a real attack surface, not just a dev-tooling one. Bumped next
+  # itself to 15.5.25 first (was 15.1.4-range/15.5.23) — the first release to
+  # officially widen its own sharp peer range to include 0.35.x — before
+  # forcing this, so the pinned version stays inside Next's own supported
+  # range instead of drifting outside it.
+  sharp: ">=0.35.0"
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true

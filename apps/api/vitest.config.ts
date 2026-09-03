@@ -14,6 +14,10 @@ export default defineConfig({
     // Full determinism would need a per-file database — out of scope here.
     // Tests within a file still run concurrently.
     fileParallelism: false,
+    // Clears leftover rate-limit counters from a prior run before this one
+    // starts (see vitest.global-setup.ts) — added alongside the new
+    // Redis-backed auth rate limiting (2026-09-04, security audit).
+    globalSetup: ["./vitest.global-setup.ts"],
     env: {
       // Vitest's `test.env` is injected into `process.env` for the run. Force
       // NODE_ENV, but let an already-supplied value win for everything that
