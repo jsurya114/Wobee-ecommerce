@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
+import { resolveImageUrl } from "@/lib/resolve-image-url";
 import type { AdminBanner } from "../api/admin-banners.client";
 
 export function BannersTable({
@@ -50,7 +51,7 @@ export function BannersTable({
       {items.map((banner, index) => (
         <div key={banner.id} className="flex items-center gap-3 rounded-control border border-border p-3">
           {/* Plain <img>, not next/image — same reasoning as ProductsTable's own thumbnail. */}
-          <img src={banner.imageUrl} alt="" className="h-12 w-20 shrink-0 rounded-control object-cover" />
+          <img src={resolveImageUrl(banner.imageUrl)!} alt="" className="h-12 w-20 shrink-0 rounded-control object-cover" />
 
           <div className="min-w-0 flex-1">
             <Link href={`/banners/${banner.id}`} className="truncate font-body text-sm font-medium text-primary hover:underline">

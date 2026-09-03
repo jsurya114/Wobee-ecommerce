@@ -16,6 +16,8 @@ export interface AdminOrderItemView {
   quantity: number;
   lineTotalPaise: number;
   taxAmountPaise: number;
+  /** The product's CURRENT image (live, not a checkout-time snapshot — 2026-09-03) — null if the variant/product was since deleted or never had one. */
+  imageUrl: string | null;
 }
 
 export interface AdminOrderView {

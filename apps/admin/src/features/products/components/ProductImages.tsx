@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
+import { resolveImageUrl } from "@/lib/resolve-image-url";
 import { uploadMedia } from "../api/admin-media.client";
 import type { AdminProductImage } from "../api/admin-products.client";
 
@@ -75,7 +76,7 @@ export function ProductImages({
         {images.map((image, index) => (
           <div key={image.id} className="relative flex flex-col gap-1">
             {/* Plain <img>, not next/image — same reasoning as ProductsTable's own thumbnail. */}
-            <img src={image.url} alt={image.altText} className="h-24 w-24 rounded-control object-cover" />
+            <img src={resolveImageUrl(image.url)!} alt={image.altText} className="h-24 w-24 rounded-control object-cover" />
             <div className="flex items-center justify-center gap-1">
               <button
                 type="button"

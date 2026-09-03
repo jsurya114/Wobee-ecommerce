@@ -80,7 +80,7 @@ export const ProductSearchForm = forwardRef<
           id={fieldId}
           type="search"
           name="q"
-          placeholder="Search products…"
+          placeholder="Search tops, dresses, accessories…"
           value={value}
           onChange={(event) => {
             setValue(event.target.value);

@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveImageUrl } from "@/lib/resolve-image-url";
 import { Badge, EmptyState } from "@woobe/ui";
 import { FolderTree } from "lucide-react";
 import Link from "next/link";
@@ -41,7 +42,7 @@ export function CategoriesTable({ items }: { items: AdminCategory[] }) {
               <td className="py-2.5 pl-4 pr-4">
                 <Link href={`/categories/${category.id}`} className="flex items-center gap-3">
                   {category.imageUrl ? (
-                    <img src={category.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-control object-cover" />
+                    <img src={resolveImageUrl(category.imageUrl)!} alt="" className="h-9 w-9 shrink-0 rounded-control object-cover" />
                   ) : (
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-primary-tint text-xs text-primary">
                       {category.name.slice(0, 1).toUpperCase()}

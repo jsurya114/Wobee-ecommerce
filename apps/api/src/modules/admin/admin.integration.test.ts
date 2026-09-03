@@ -259,6 +259,38 @@ describe("order lifecycle + audit log", () => {
   });
 });
 
+describe("admin order detail — item images (client-review request, 2026-09-03)", () => {
+  it("resolves each item's current product image, live — not a checkout-time snapshot", async () => {
+    const { variantId } = await createTestVariant(3);
+    const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: variantId }, select: { productId: true } });
+    const image = await prisma.productImage.create({ data: { productId, url: "https://example.com/live-image.jpg", altText: "Test product" } });
+
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+
+    const res = await request(app).get(`/api/v1/admin/orders/${order.id}`).set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].imageUrl).toBe(image.url);
+
+    // The image is read live from the product, not frozen at checkout — a
+    // later change to the product's image shows up on the same order.
+    await prisma.productImage.update({ where: { id: image.id }, data: { url: "https://example.com/updated-image.jpg" } });
+    const secondRes = await request(app).get(`/api/v1/admin/orders/${order.id}`).set("Authorization", `Bearer ${accessToken}`);
+    expect(secondRes.body.items[0].imageUrl).toBe("https://example.com/updated-image.jpg");
+  });
+
+  it("returns imageUrl: null for a product with no image, rather than erroring", async () => {
+    const { variantId } = await createTestVariant(3); // no ProductImage row created for this one
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+
+    const res = await request(app).get(`/api/v1/admin/orders/${order.id}`).set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.items[0].imageUrl).toBeNull();
+  });
+});
+
 describe("cancellation + refund", () => {
   it("cancelling a CONFIRMED COD order restocks inventory and triggers no refund", async () => {
     const { variantId } = await createTestVariant(3);

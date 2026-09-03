@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { uploadMedia } from "@/features/products/api/admin-media.client";
 import { ApiError } from "@/lib/api-client";
+import { resolveImageUrl } from "@/lib/resolve-image-url";
 import type { CategoryPayload } from "../api/admin-categories.client";
 
 export interface CategoryFormValues {
@@ -101,7 +102,7 @@ export function CategoryForm({
         <span className="font-body text-sm font-medium text-text-primary">Image</span>
         {values.imageUrl ? (
           // Plain <img>, not next/image — same reasoning as ProductImages'/BannerForm's own thumbnail.
-          <img src={values.imageUrl} alt="" className="h-24 w-24 rounded-control object-cover" />
+          <img src={resolveImageUrl(values.imageUrl)!} alt="" className="h-24 w-24 rounded-control object-cover" />
         ) : (
           <div className="flex h-24 w-24 items-center justify-center rounded-control border border-dashed border-border text-xs text-text-secondary">
             No image

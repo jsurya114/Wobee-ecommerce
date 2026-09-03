@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { uploadMedia } from "@/features/products/api/admin-media.client";
 import { ApiError } from "@/lib/api-client";
+import { resolveImageUrl } from "@/lib/resolve-image-url";
 import type { BannerPayload } from "../api/admin-banners.client";
 
 /** `datetime-local` has no timezone in its value — treat it as the browser's local time, same as any other admin date-time input in this app. */
@@ -89,7 +90,7 @@ export function BannerForm({
         <SectionHeader as="h3">Media</SectionHeader>
         {imageUrl ? (
           // Plain <img>, not next/image — same reasoning as ProductImages' own thumbnail (arbitrary admin-entered URL).
-          <img src={imageUrl} alt="" className="aspect-[21/9] w-full max-w-md rounded-control object-cover" />
+          <img src={resolveImageUrl(imageUrl)!} alt="" className="aspect-[21/9] w-full max-w-md rounded-control object-cover" />
         ) : (
           <div className="flex aspect-[21/9] w-full max-w-md items-center justify-center rounded-control border border-dashed border-border text-xs text-text-secondary">
             No image yet

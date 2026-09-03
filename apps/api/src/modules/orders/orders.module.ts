@@ -13,6 +13,7 @@ import { redeemCouponUseCase } from "../coupons/coupons.module";
 import { reserveInventoryForCheckoutUseCase, restockFinalizedSaleUseCase } from "../inventory/inventory.module";
 import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { calculateGstUseCase } from "../pricing/pricing.module";
+import { getProductsByIdsUseCase, resolveProductIdsForVariantsUseCase } from "../products/products.module";
 import { createShipmentUseCase, evaluateShippingUseCase } from "../shipping/shipping.module";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
 import type { CartReaderPort } from "./application/ports/cart-reader.port";
@@ -131,7 +132,7 @@ export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, audi
  */
 export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transactionRunner);
 export const listOrdersUseCase = new ListOrdersUseCase(orderRepository);
-export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository);
+export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository, resolveProductIdsForVariantsUseCase, getProductsByIdsUseCase);
 /** Exported for `reviews`' verified-purchase check (Week 2 Day 4). */
 export const hasPurchasedProductUseCase = new HasPurchasedProductUseCase(orderRepository);
 /** Exported for `returns`' own OrderReturnFlagWriterPort adapter (Week 2 Day 6). */

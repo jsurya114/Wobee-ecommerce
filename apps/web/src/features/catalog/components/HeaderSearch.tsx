@@ -68,7 +68,7 @@ export function HeaderSearch() {
         <SearchField
           ref={inputRef}
           hideIcon
-          inputClassName="h-10 focus-visible:ring-0"
+          inputClassName="h-10 rounded-full border-transparent bg-surface-2 focus-visible:ring-0"
           suggestionsEnabled={open}
           onSubmit={(query) => {
             router.push(buildProductsHref({ q: query || undefined }));

@@ -39,7 +39,12 @@ export function WhatsAppButton() {
       // which is exactly what happened here before this fix (confirmed live:
       // the mobile calc leaked through at 1024px, landing the button ~147px
       // above the corner instead of the intended 24px).
-      className="fixed right-3 bottom-[var(--wa-offset)] z-20 flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-modal transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 md:bottom-6 md:right-6"
+      // Themed to Woobe's own brand color (client-review request, 2026-09-03)
+      // — the WhatsApp glyph itself is what signals "this opens WhatsApp";
+      // the fill no longer needs to be WhatsApp's own #25D366 green, which
+      // read as a bolted-on third-party widget against this site's warm
+      // rose/clay palette everywhere else.
+      className="fixed right-3 bottom-[var(--wa-offset)] z-20 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-modal transition-transform hover:scale-105 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 md:bottom-6 md:right-6"
       style={{ "--wa-offset": bottomOffset } as CSSProperties}
     >
       <WhatsAppIcon className="h-6 w-6" />

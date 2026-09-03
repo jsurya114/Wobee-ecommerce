@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveImageUrl } from "@/lib/resolve-image-url";
 import { formatPaiseAsInr } from "@woobe/utils";
 import { Badge, EmptyState } from "@woobe/ui";
 import { Shirt } from "lucide-react";
@@ -43,7 +44,7 @@ export function ProductsTable({ items }: { items: AdminProductSummary[] }) {
                     // an arbitrary remote URL (uploaded media); configuring
                     // next/image's domain allowlist isn't worth it for an
                     // internal tool's small thumbnails.
-                    <img src={product.primaryImageUrl} alt="" className="h-10 w-10 shrink-0 rounded-control object-cover" />
+                    <img src={resolveImageUrl(product.primaryImageUrl)!} alt="" className="h-10 w-10 shrink-0 rounded-control object-cover" />
                   ) : (
                     <span className="h-10 w-10 shrink-0 rounded-control bg-primary-tint/40" aria-hidden="true" />
                   )}

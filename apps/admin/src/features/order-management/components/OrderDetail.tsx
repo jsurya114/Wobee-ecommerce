@@ -1,7 +1,8 @@
 "use client";
 
 import { LoadingState } from "@/features/shell/components/LoadingState";
-import { formatPaiseAsInr } from "@woobe/utils";
+import { resolveImageUrl } from "@/lib/resolve-image-url";
+import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact } from "@woobe/utils";
 import { Badge, Card } from "@woobe/ui";
 import Link from "next/link";
 import { useAdminOrder } from "../hooks/useAdminOrder";
@@ -38,24 +39,36 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
         <Card className="p-4">
           <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Items</h2>
-          <div className="flex flex-col gap-2">
+          <ul className="flex flex-col gap-3">
             {order.items.map((item) => (
-              <div key={item.id} className="flex justify-between font-body text-sm">
-                <span className="text-text-primary">
-                  {item.productNameSnapshot} · {item.color} · {item.size} × {item.quantity}
-                </span>
-                <span className="text-text-primary">{formatPaiseAsInr(item.lineTotalPaise)}</span>
-              </div>
+              <li key={item.id} className="flex items-center gap-3">
+                {item.imageUrl ? (
+                  // Plain <img>, not next/image — same reasoning as every other admin thumbnail (CategoriesTable, BannersTable).
+                  <img src={resolveImageUrl(item.imageUrl)!} alt="" className="h-14 w-14 shrink-0 rounded-control border border-border object-cover" />
+                ) : (
+                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-control border border-border bg-surface-2 font-body text-sm text-text-secondary">
+                    {item.productNameSnapshot.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-body text-sm font-medium text-text-primary">{item.productNameSnapshot}</p>
+                  <p className="truncate font-body text-xs text-text-secondary">
+                    {item.color} · {item.size}
+                    {/* Null unitRatePerKgPaise (2026-08-31) = a FIXED-category line — weight didn't determine this price. */}
+                    {item.unitRatePerKgPaise !== null
+                      ? ` · ${formatGrams(item.weightGrams)} · ${formatPaiseAsInrCompact(item.unitRatePerKgPaise)}/kg`
+                      : ""}
+                    {` · ×${item.quantity}`}
+                  </p>
+                </div>
+                <span className="shrink-0 font-body text-sm font-semibold text-text-primary">{formatPaiseAsInr(item.lineTotalPaise)}</span>
+              </li>
             ))}
-          </div>
-          <div className="mt-3 flex flex-col gap-1 border-t border-border pt-3 font-body text-sm">
+          </ul>
+          <div className="mt-4 flex flex-col gap-1.5 border-t border-border pt-3 font-body text-sm">
             <div className="flex justify-between text-text-secondary">
               <span>Subtotal</span>
-              <span>{formatPaiseAsInr(order.subtotalPaise)}</span>
-            </div>
-            <div className="flex justify-between text-text-secondary">
-              <span>Shipping</span>
-              <span>{formatPaiseAsInr(order.shippingFeePaise)}</span>
+              <span className="text-text-primary">{formatPaiseAsInr(order.subtotalPaise)}</span>
             </div>
             {order.discountPaise > 0 ? (
               <div className="flex justify-between text-text-secondary">
@@ -64,13 +77,21 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               </div>
             ) : null}
             <div className="flex justify-between text-text-secondary">
+              <span>Shipping</span>
+              <span className="text-text-primary">{order.shippingFeePaise === 0 ? "Free" : formatPaiseAsInr(order.shippingFeePaise)}</span>
+            </div>
+            <div className="flex justify-between text-text-secondary">
               <span>Tax</span>
-              <span>{formatPaiseAsInr(order.taxPaise)}</span>
+              <span className="text-text-primary">{formatPaiseAsInr(order.taxPaise)}</span>
             </div>
-            <div className="flex justify-between font-medium text-text-primary">
-              <span>Total</span>
-              <span>{formatPaiseAsInr(order.totalPaise)}</span>
+            <div className="flex justify-between text-text-secondary">
+              <span>Total weight</span>
+              <span className="text-text-primary">{formatGrams(order.totalWeightGrams)}</span>
             </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between border-t border-border pt-3">
+            <span className="font-body text-sm font-medium text-text-primary">Total</span>
+            <span className="font-display text-xl font-semibold text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
           </div>
         </Card>
 

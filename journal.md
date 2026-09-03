@@ -2154,3 +2154,56 @@ Percentage coupons, flat coupons, `maxDiscountPaise` capping, `minCartValuePaise
 - No admin UI for the existing product/category coupon-restriction feature — flagged above, real scope for a future pass if the client wants it.
 - No pagination/search/filtering on the coupons list — fine at current volume (4 real coupons); the same shape every other admin list started with before it needed one.
 - The `datetime-local` inputs are local-browser-time, unconverted — fine for a single-timezone business, same posture the rest of this app already takes (no timezone handling exists anywhere else either).
+
+---
+
+## 2026-09-03 — Admin order-detail item photos + price/typography polish; storefront WhatsApp button themed to the brand; a real cross-app broken-image bug found and fixed everywhere it existed
+
+**Branch:** `woobe-ui/bug-fixes`. Client-review requests: admin order view needed item photos plus a general price/typography pass; the storefront's WhatsApp button needed to look "themed," not like a bolted-on widget.
+
+### 1. Admin order detail — item photos (new capability, not previously modeled)
+
+`OrderItem` has never stored an image (correctly — every other field on it is a checkout-time price/weight snapshot, DEVELOPMENT_RULES.md #1; a photo carries no financial meaning and shouldn't be frozen the same way). Added a **live** (not snapshotted) image lookup instead:
+
+- `GetOrderForAdminUseCase` (orders) now also depends on `products`' already-exported `resolveProductIdsForVariantsUseCase` + `getProductsByIdsUseCase` (same variant→product→image composition `home`'s Best Sellers rail and this week's admin dashboard already use) to resolve each item's CURRENT product image. New `AdminOrderView`/`AdminOrderItemView` types (superset of the existing `OrderEntity`/`OrderItemEntity` — nothing there changed; `returns.module.ts`'s own separate use of this same use-case for its return-order-view mapping is untouched, verified structurally compatible and by its own passing tests). `orders -> products` is not a new cycle (confirmed via `boundaries:check` and by checking `products` has no path back to `orders`) — same reasoning already used for wiring `orders`' analytics into best-sellers last session.
+- Gracefully `null` for a deleted/imageless product — never errors. Two new integration tests prove the image is genuinely live (an order created before an image existed picks it up once the product gets one; a later image change on the SAME product shows up on the SAME order, since nothing was snapshotted) and the graceful-null path.
+
+### 2. Admin order detail — price/typography polish
+
+Rebuilt the Items card on the same design `OrderPriceBreakdown` (`apps/web`, customer-facing) already established, rather than inventing a new one: each line now shows a thumbnail, weight·rate (`220g · ₹1,200/kg`) for weight-based lines exactly like the customer-facing page already does, and the line price is `font-semibold`. The Total row now uses `font-display` (the site's serif, used for real headings — previously every number on this page shared one small, unstyled body-text style) at `text-xl font-semibold`, so it actually reads as the number that matters. Subtotal/shipping/tax/total-weight rows reordered to match the same customer-facing sequence (discount now shows directly under subtotal, not after tax).
+
+### 3. A real, pre-existing bug found in the process — every admin image was broken
+
+Testing item photos live surfaced the actual reason: **every single image URL in the database (products, categories, banners — 100% of them) is a path relative to `apps/web`'s own `public/` directory** (e.g. `/imgs/prod-denim-jacket.jpg`), written that way at seed time. Correct when `apps/web` renders it (same origin); broken in `apps/admin` (a different origin/port) — confirmed live, every one of these five pre-existing admin components had a silently-broken `<img>` before today, not just the new order-detail feature: `ProductsTable`, `ProductImages`, `CategoriesTable`, `CategoryForm`, `BannersTable`, `BannerForm`.
+
+Fixed once, applied everywhere: new `apps/admin/src/lib/resolve-image-url.ts` — passes an already-absolute URL through unchanged (a real admin-uploaded image via the media endpoint always is one), resolves a relative seed path against a new `NEXT_PUBLIC_SITE_URL` env var (mirrors the name/value `apps/web` already uses for its own canonical-URL purpose — not a new convention). Applied at all 7 call sites (the 6 pre-existing plus the new order-detail one).
+
+**Verification note:** Next.js only reads `.env.local` at dev-server boot, and the user's admin dev server (part of a long-running `pnpm -r --parallel run dev` across all three apps) was already running before this env var was added. Verified `resolveImageUrl`'s logic directly first (a plain Node invocation, all four cases: relative seed path → correctly prefixed; already-absolute URL → untouched; `null` → `null`; a relative path missing its leading slash → still joined correctly). An isolated scratch instance on another port (to verify without touching the user's running fleet) hit the API's own CORS allowlist (`WEB_ORIGIN`/`ADMIN_ORIGIN` only, by design) rather than a login page — reverted immediately rather than widen backend CORS just to verify a frontend fix. Asked the user whether to restart the dev fleet; they approved. On restart, found the **entire** dev fleet (all three apps) had already stopped running, not just admin — started `pnpm -r --parallel run dev` fresh. **Confirmed live thereafter, logged in as both `orders@woobe.in` and `admin@woobe.in`:** the Denim Jacket order-item photo now loads (previously a broken-image icon at the exact same URL), and — since the fix is shared — so do all 5 category thumbnails, every product-list thumbnail, and the homepage banner thumbnail, none of which had ever rendered correctly in `apps/admin` before today. Zero console errors on any of the four pages checked.
+
+### 4. Storefront WhatsApp button — themed to the brand
+
+`WhatsAppButton.tsx` already had a real inline WhatsApp glyph (not missing an icon, as the request's wording could imply) — the actual mismatch was the fill color: WhatsApp's own mandated `#25D366` green against this site's warm rose/clay palette everywhere else, reading as a bolted-on third-party widget. Recolored to `bg-primary`/`hover:bg-primary-hover` (`#A54659`/`#884350`) — the glyph shape alone still signals "this opens WhatsApp," same reasoning plenty of sites use for keeping a platform icon while dropping its mandated brand color. Verified live: the button now visually matches the header logo, "Shop Now" pill, wishlist hearts, and quick-add buttons on the same page.
+
+### Verified
+
+`pnpm -r run typecheck` **9/9** · `pnpm -r run lint` **9/9** · `pnpm --filter @woobe/api run boundaries:check` **546 modules / 0 violations** · `pnpm --filter @woobe/api exec vitest run` **81/81 files, 583/583 tests** (+2 new, both for the live-image-lookup behavior). Live: the WhatsApp button re-theme (confirmed against the real homepage, zero console errors); the order-detail photo/typography layout itself (image slot, weight·rate line, `font-display` Total) — the resolved URL will only actually load once the admin dev server restarts, per the note above.
+
+### Follow-ups / known gaps
+
+- Done — dev fleet restarted (with the user's approval) and the fix confirmed live across orders/categories/products/banners.
+- `NEXT_PUBLIC_SITE_URL` needs setting to the real production storefront domain when one exists, same as `apps/web`'s own copy of this var already needed.
+- Real, going-forward product/category/banner images uploaded through the admin's media endpoint are already absolute URLs and were never affected by this bug — only the original seed-era assets were.
+
+---
+
+## 2026-09-03 — Storefront: minimal pill search bar (client reference mock)
+
+**Branch:** `woobe-ui/bug-fixes`. Client shared a reference mock (WhatsApp group) showing a soft, fully-rounded pill search field directly under the header, above the hero.
+
+**What already existed:** the persistent, always-visible mobile home search bar (`HomeSearchBar`) already existed in exactly the right place (below the header, above the promo carousel, `md:hidden` — desktop keeps `SiteHeader`'s inline expanding search, which the reference doesn't need to change). The gap was purely visual: it rendered with the shared `Input` primitive's default look — a small-radius (`8px`) rounded rectangle, white fill, visible border — not the reference's soft full pill.
+
+**Fix (styling only, zero behavior change):** overrode the search input's `inputClassName` on both `HomeSearchBar` (the persistent mobile bar) and `HeaderSearch` (the expanding icon-triggered one, for visual consistency between the two — they're the same underlying `SearchField`/`ProductSearchForm`) to `rounded-full border-transparent bg-surface-2`, rather than touching the shared `Input` primitive itself (which every other form field on the site — login, checkout, admin forms — still needs at its normal rounded-rect style). Also swapped the generic placeholder ("Search products…") for one naming Woobe's own categories ("Search tops, dresses, accessories…"), matching the reference's flavor without copying its unrelated category names (the reference mock is a generic mockup, not Woobe's actual catalogue).
+
+**Verified:** `pnpm -r run typecheck` **9/9** · `pnpm -r run lint` **9/9**. Live (chrome-devtools-mcp, 440px mobile): the home pill now visually matches the reference — soft warm-neutral fill, no visible border, fully rounded ends, magnifier + evocative placeholder. Confirmed the header's expanding search (`/products`, and `/` on desktop) picked up the same pill treatment when opened. Zero new console errors (only the pre-existing guest `/auth/refresh` 401).
+
+**Follow-ups:** none — this was a pure styling match to an approved reference, no new gaps introduced.
