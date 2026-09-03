@@ -4,6 +4,7 @@ import { Badge, Button } from "@woobe/ui";
 import {
   FolderTree,
   Image as ImageIcon,
+  LayoutDashboard,
   LayoutGrid,
   LogOut,
   Package,
@@ -11,6 +12,7 @@ import {
   Settings,
   Shirt,
   ShoppingBag,
+  Tag,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -22,11 +24,13 @@ import { navEntriesForRole } from "../nav-config";
 import { BrandMark } from "./BrandMark";
 
 const NAV_ICONS: Record<string, LucideIcon> = {
+  "/": LayoutDashboard,
   "/customers": Users,
   "/products": Shirt,
   "/categories": FolderTree,
   "/collections": LayoutGrid,
   "/banners": ImageIcon,
+  "/coupons": Tag,
   "/orders": ShoppingBag,
   "/inventory": Package,
   "/staff": Users,

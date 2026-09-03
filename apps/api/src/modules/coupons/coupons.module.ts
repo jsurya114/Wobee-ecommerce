@@ -8,16 +8,23 @@
 // own checkout transaction. Both exported for cross-module use, same
 // pattern every other module's composition root uses.
 //
-// Deliberate scope call, flagged prominently: no admin coupon-management
-// endpoints this week — unlike every other Week 2 module (reviews,
-// collections, media), week2 (1).md §9 has no "Admin:" subsection at all,
-// the one structural signal in the plan that this is intentional, not an
-// oversight. Coupons are created via `packages/database`'s seed script for
-// now; the full customer-facing validate -> apply -> checkout-redeem
-// pipeline below is real, tested, and fully wired regardless.
+// 2026-09-03 (client-review): admin coupon management added — the
+// module-level comment above used to note this was deliberately deferred
+// (coupons were only ever creatable via the seed script); that gap is
+// closed below the same way categories/banners/collections expose their
+// own admin use-cases for `admin`'s thin HTTP gateway to wire up
+// (ADR-025) — no HTTP surface added here, just more exports. The
+// customer-facing validate -> apply -> checkout-redeem pipeline is
+// completely untouched.
 import { Router } from "express";
 import { PreviewCouponUseCase } from "./application/use-cases/preview-coupon.use-case";
 import { RedeemCouponUseCase } from "./application/use-cases/redeem-coupon.use-case";
+import { CreateCouponUseCase } from "./application/use-cases/admin/create-coupon.use-case";
+import { DeleteCouponUseCase } from "./application/use-cases/admin/delete-coupon.use-case";
+import { GetCouponAdminUseCase } from "./application/use-cases/admin/get-coupon-admin.use-case";
+import { ListCouponsAdminUseCase } from "./application/use-cases/admin/list-coupons-admin.use-case";
+import { SetCouponActiveUseCase } from "./application/use-cases/admin/set-coupon-active.use-case";
+import { UpdateCouponUseCase } from "./application/use-cases/admin/update-coupon.use-case";
 import { CouponRepository } from "./infrastructure/repositories/coupon.repository";
 
 const couponRepository = new CouponRepository();
@@ -26,5 +33,13 @@ const couponRepository = new CouponRepository();
 export const previewCouponUseCase = new PreviewCouponUseCase(couponRepository);
 /** Exported for `orders`' CheckoutUseCase — called inside its own Unit-of-Work transaction. */
 export const redeemCouponUseCase = new RedeemCouponUseCase(couponRepository);
+
+// Exported for the admin module's thin HTTP gateway (ADR-025).
+export const listCouponsAdminUseCase = new ListCouponsAdminUseCase(couponRepository);
+export const getCouponAdminUseCase = new GetCouponAdminUseCase(couponRepository);
+export const createCouponUseCase = new CreateCouponUseCase(couponRepository);
+export const updateCouponUseCase = new UpdateCouponUseCase(couponRepository);
+export const setCouponActiveUseCase = new SetCouponActiveUseCase(couponRepository);
+export const deleteCouponUseCase = new DeleteCouponUseCase(couponRepository);
 
 export const router = Router();

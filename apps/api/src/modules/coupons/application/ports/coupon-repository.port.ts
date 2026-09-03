@@ -1,4 +1,23 @@
-import type { CouponEntity } from "../../domain/entities/coupon.entity";
+import type { CouponEntity, CouponType } from "../../domain/entities/coupon.entity";
+
+/** Admin coupon management (2026-09-03) — CouponEntity plus how many times it's actually been redeemed, for the admin list/detail views. */
+export interface AdminCouponEntity extends CouponEntity {
+  redemptionCount: number;
+}
+
+export interface CreateCouponData {
+  code: string;
+  type: CouponType;
+  value: number;
+  minCartValuePaise: number | null;
+  maxDiscountPaise: number | null;
+  usageLimit: number | null;
+  perUserLimit: number | null;
+  validFrom: Date;
+  validTo: Date;
+}
+
+export type UpdateCouponData = Partial<CreateCouponData>;
 
 /**
  * application depends on this interface, not on Prisma directly
@@ -23,4 +42,13 @@ export interface CouponRepositoryPort {
   countGlobalRedemptionsInTx(couponId: string, tx: unknown): Promise<number>;
   countUserRedemptionsInTx(couponId: string, userId: string, tx: unknown): Promise<number>;
   createRedemption(couponId: string, userId: string, orderId: string, tx: unknown): Promise<void>;
+
+  // ── Admin coupon management (2026-09-03) ──
+  findAllForAdmin(): Promise<AdminCouponEntity[]>;
+  findByIdForAdmin(id: string): Promise<AdminCouponEntity | null>;
+  createCoupon(data: CreateCouponData): Promise<AdminCouponEntity>;
+  updateCoupon(id: string, data: UpdateCouponData): Promise<AdminCouponEntity>;
+  setActive(id: string, isActive: boolean): Promise<AdminCouponEntity>;
+  /** Caller (DeleteCouponUseCase) checks countGlobalRedemptions is 0 first — a coupon with real redemption history is never hard-deleted, only deactivated. */
+  deleteCoupon(id: string): Promise<void>;
 }

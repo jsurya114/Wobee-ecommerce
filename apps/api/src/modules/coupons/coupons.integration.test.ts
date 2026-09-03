@@ -6,9 +6,11 @@ import { createApp } from "../../app";
 /**
  * Integration tests against the REAL test database (see auth's own
  * integration test file for the setup this mirrors — DATABASE_URL points at
- * woobe_test). Coupons have no admin CRUD this week (coupons.module.ts's own
- * doc comment) so every fixture coupon here is created directly via Prisma,
- * standing in for the seed-script path a real coupon would come from.
+ * woobe_test). Every fixture coupon in the customer-facing describe blocks
+ * below is still created directly via Prisma (that pipeline never needed
+ * to go through the admin API to be tested) — but admin CRUD now exists
+ * (client-review, 2026-09-03) and has its own describe block at the bottom
+ * of this file, exercising the real `/api/v1/admin/coupons` endpoints.
  *
  * Covers week2 (1).md §9's full validate -> apply -> checkout-redeem
  * pipeline, including its explicitly mandatory "concurrent redemption" test.
@@ -398,5 +400,204 @@ describe("coupons: checkout redemption", () => {
     for (const item of persisted.items) {
       expect(item.taxAmountPaise).toBeLessThan(item.lineTotalPaise); // sanity: GST slabs here are well under 100%
     }
+  });
+});
+
+async function loginAdmin(email: string, password: string): Promise<string> {
+  const res = await request(app).post("/api/v1/admin/auth/login").send({ email, password });
+  expect(res.status).toBe(200);
+  return res.body.accessToken as string;
+}
+
+function futureCode(suffix: string): string {
+  return `${TEST_PREFIX.toUpperCase().replace(/-/g, "")}${suffix}`;
+}
+
+describe("admin coupon management (client-review, 2026-09-03)", () => {
+  it("403s a role without MANAGE_CATALOG (order_processing_staff)", async () => {
+    const token = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const res = await request(app).get("/api/v1/admin/coupons").set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("allows product_management_staff (has MANAGE_CATALOG)", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const res = await request(app).get("/api/v1/admin/coupons").set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.coupons)).toBe(true);
+  });
+
+  it("creates a PERCENTAGE coupon, capped by maxDiscountPaise, and it appears in the list with redemptionCount 0", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const code = futureCode("PCT1");
+
+    const createRes = await request(app)
+      .post("/api/v1/admin/coupons")
+      .set(auth)
+      .send({
+        code,
+        type: "PERCENTAGE",
+        value: 15,
+        maxDiscountPaise: 50000,
+        usageLimit: 100,
+        perUserLimit: 1,
+        validFrom: "2020-01-01T00:00:00.000Z",
+        validTo: "2999-01-01T00:00:00.000Z",
+      });
+    expect(createRes.status).toBe(201);
+    createdCouponIds.push(createRes.body.coupon.id);
+    expect(createRes.body.coupon).toMatchObject({ code, type: "PERCENTAGE", value: 15, maxDiscountPaise: 50000, isActive: true, redemptionCount: 0 });
+
+    const getRes = await request(app).get(`/api/v1/admin/coupons/${createRes.body.coupon.id}`).set(auth);
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.coupon.code).toBe(code);
+
+    const listRes = await request(app).get("/api/v1/admin/coupons").set(auth);
+    expect(listRes.body.coupons.some((c: { code: string }) => c.code === code)).toBe(true);
+  });
+
+  it("creates a FLAT coupon", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const code = futureCode("FLAT1");
+
+    const res = await request(app)
+      .post("/api/v1/admin/coupons")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ code, type: "FLAT", value: 10000, validFrom: "2020-01-01T00:00:00.000Z", validTo: "2999-01-01T00:00:00.000Z" });
+    expect(res.status).toBe(201);
+    createdCouponIds.push(res.body.coupon.id);
+    expect(res.body.coupon).toMatchObject({ code, type: "FLAT", value: 10000, maxDiscountPaise: null });
+  });
+
+  it("rejects a duplicate code with 409, not a raw 500", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const code = await createCoupon();
+
+    const res = await request(app)
+      .post("/api/v1/admin/coupons")
+      .set(auth)
+      .send({ code, type: "FLAT", value: 500, validFrom: "2020-01-01T00:00:00.000Z", validTo: "2999-01-01T00:00:00.000Z" });
+    expect(res.status).toBe(409);
+  });
+
+  it.each([
+    ["a PERCENTAGE value over 100", { type: "PERCENTAGE", value: 150 }],
+    ["a PERCENTAGE value under 1", { type: "PERCENTAGE", value: 0 }],
+    ["a non-positive FLAT value", { type: "FLAT", value: 0 }],
+    ["an expiry before the start date", { type: "FLAT", value: 100, validFrom: "2026-06-01T00:00:00.000Z", validTo: "2020-01-01T00:00:00.000Z" }],
+    ["a per-user limit above the overall usage limit", { type: "FLAT", value: 100, usageLimit: 5, perUserLimit: 6 }],
+    ["a maxDiscountPaise on a FLAT coupon", { type: "FLAT", value: 100, maxDiscountPaise: 500 }],
+  ])("rejects creating a coupon with %s (400, not a raw 500)", async (_label, overrides) => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const res = await request(app)
+      .post("/api/v1/admin/coupons")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        code: futureCode(`BAD${crypto.randomUUID().slice(0, 6)}`),
+        validFrom: "2020-01-01T00:00:00.000Z",
+        validTo: "2999-01-01T00:00:00.000Z",
+        ...overrides,
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("validates an update against the MERGED shape, not just the fields resent (perUserLimit alone, checked against the coupon's existing usageLimit)", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const createRes = await request(app)
+      .post("/api/v1/admin/coupons")
+      .set(auth)
+      .send({
+        code: futureCode("MERGE1"),
+        type: "FLAT",
+        value: 100,
+        usageLimit: 5,
+        validFrom: "2020-01-01T00:00:00.000Z",
+        validTo: "2999-01-01T00:00:00.000Z",
+      });
+    expect(createRes.status).toBe(201);
+    createdCouponIds.push(createRes.body.coupon.id);
+
+    // perUserLimit alone in this request — usageLimit (5) comes from the existing row.
+    const badUpdate = await request(app).patch(`/api/v1/admin/coupons/${createRes.body.coupon.id}`).set(auth).send({ perUserLimit: 6 });
+    expect(badUpdate.status).toBe(400);
+
+    const goodUpdate = await request(app).patch(`/api/v1/admin/coupons/${createRes.body.coupon.id}`).set(auth).send({ perUserLimit: 5, value: 200 });
+    expect(goodUpdate.status).toBe(200);
+    expect(goodUpdate.body.coupon).toMatchObject({ perUserLimit: 5, value: 200, usageLimit: 5 });
+  });
+
+  it("deactivating a coupon makes it immediately unusable at cart-apply, and reactivating restores it", async () => {
+    const adminToken = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const code = await createCoupon();
+    const { agent } = await createTestUser();
+    const { variantId } = await createTestVariant();
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    const beforeRes = await agent.post("/api/v1/cart/coupon").send({ code });
+    expect(beforeRes.status).toBe(200);
+    await agent.delete("/api/v1/cart/coupon"); // clean slate before re-applying below
+
+    const couponId = (await prisma.coupon.findUniqueOrThrow({ where: { code } })).id;
+    const deactivateRes = await request(app)
+      .post(`/api/v1/admin/coupons/${couponId}/active`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ isActive: false });
+    expect(deactivateRes.status).toBe(200);
+    expect(deactivateRes.body.coupon.isActive).toBe(false);
+
+    const afterDeactivateRes = await agent.post("/api/v1/cart/coupon").send({ code });
+    expect(afterDeactivateRes.status).toBe(422); // ineligible — same "invalid coupon" path a customer sees for any other ineligibility reason
+
+    const reactivateRes = await request(app)
+      .post(`/api/v1/admin/coupons/${couponId}/active`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ isActive: true });
+    expect(reactivateRes.status).toBe(200);
+    const afterReactivateRes = await agent.post("/api/v1/cart/coupon").send({ code });
+    expect(afterReactivateRes.status).toBe(200);
+  });
+
+  it("deletes a never-redeemed coupon", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const createRes = await request(app)
+      .post("/api/v1/admin/coupons")
+      .set(auth)
+      .send({ code: futureCode("DEL1"), type: "FLAT", value: 100, validFrom: "2020-01-01T00:00:00.000Z", validTo: "2999-01-01T00:00:00.000Z" });
+    expect(createRes.status).toBe(201);
+
+    const deleteRes = await request(app).delete(`/api/v1/admin/coupons/${createRes.body.coupon.id}`).set(auth);
+    expect(deleteRes.status).toBe(204);
+
+    const getRes = await request(app).get(`/api/v1/admin/coupons/${createRes.body.coupon.id}`).set(auth);
+    expect(getRes.status).toBe(404);
+  });
+
+  it("refuses to delete a coupon that has real redemption history — 409, prefer deactivate", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const code = await createCoupon({ type: "FLAT", value: 1000 });
+    const couponId = (await prisma.coupon.findUniqueOrThrow({ where: { code } })).id;
+
+    const { agent } = await createTestUser();
+    const { variantId } = await createTestVariant();
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    await agent.post("/api/v1/cart/coupon").send({ code });
+    const checkoutRes = await agent
+      .post("/api/v1/orders/checkout")
+      .send({ contactEmail: "buyer@test.woobe.internal", confirmEmail: "buyer@test.woobe.internal", address: checkoutAddress, paymentMethod: "COD" });
+    expect(checkoutRes.status).toBe(201);
+    createdOrderIds.push(checkoutRes.body.id);
+
+    const deleteRes = await request(app).delete(`/api/v1/admin/coupons/${couponId}`).set(auth);
+    expect(deleteRes.status).toBe(409);
+
+    // Still there, untouched — deactivate remains available as the real action.
+    const stillThereRes = await request(app).get(`/api/v1/admin/coupons/${couponId}`).set(auth);
+    expect(stillThereRes.status).toBe(200);
+    expect(stillThereRes.body.coupon.redemptionCount).toBe(1);
   });
 });

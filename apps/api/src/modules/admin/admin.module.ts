@@ -46,6 +46,14 @@ import {
   setCategoryActiveUseCase,
   updateCategoryUseCase,
 } from "../categories/categories.module";
+import {
+  createCouponUseCase,
+  deleteCouponUseCase,
+  getCouponAdminUseCase,
+  listCouponsAdminUseCase,
+  setCouponActiveUseCase,
+  updateCouponUseCase,
+} from "../coupons/coupons.module";
 import { adjustInventoryUseCase, listInventoryAdminUseCase } from "../inventory/inventory.module";
 import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import {
@@ -100,6 +108,8 @@ import { createAdminBannersRouter } from "./interface/http/admin-banners.routes"
 import { AdminCategoriesController } from "./interface/http/admin-categories.controller";
 import { createAdminCategoriesRouter } from "./interface/http/admin-categories.routes";
 import { AdminCollectionsController } from "./interface/http/admin-collections.controller";
+import { AdminCouponsController } from "./interface/http/admin-coupons.controller";
+import { createAdminCouponsRouter } from "./interface/http/admin-coupons.routes";
 import { createAdminCollectionsRouter } from "./interface/http/admin-collections.routes";
 import { AdminCustomersController } from "./interface/http/admin-customers.controller";
 import { createAdminCustomersRouter } from "./interface/http/admin-customers.routes";
@@ -179,6 +189,14 @@ const adminCategoriesController = new AdminCategoriesController(
   setCategoryActiveUseCase,
   reorderCategoriesUseCase,
 );
+const adminCouponsController = new AdminCouponsController(
+  listCouponsAdminUseCase,
+  getCouponAdminUseCase,
+  createCouponUseCase,
+  updateCouponUseCase,
+  setCouponActiveUseCase,
+  deleteCouponUseCase,
+);
 
 const adminReviewsController = new AdminReviewsController(listReviewsAdminUseCase, moderateReviewUseCase);
 const adminReturnsController = new AdminReturnsController(
@@ -223,6 +241,7 @@ router.use("/orders", createAdminOrdersRouter(adminOrdersController));
 router.use("/collections", createAdminCollectionsRouter(adminCollectionsController));
 router.use("/banners", createAdminBannersRouter(adminBannersController));
 router.use("/categories", createAdminCategoriesRouter(adminCategoriesController));
+router.use("/coupons", createAdminCouponsRouter(adminCouponsController));
 router.use("/reviews", createAdminReviewsRouter(adminReviewsController));
 router.use("/returns", createAdminReturnsRouter(adminReturnsController));
 router.use("/products", createAdminProductsRouter(adminProductsController));

@@ -1,5 +1,11 @@
 import { Prisma, prisma } from "@woobe/database";
-import type { CouponRepositoryPort } from "../../application/ports/coupon-repository.port";
+import { ConflictError, NotFoundError } from "../../../../shared/errors";
+import type {
+  AdminCouponEntity,
+  CouponRepositoryPort,
+  CreateCouponData,
+  UpdateCouponData,
+} from "../../application/ports/coupon-repository.port";
 import type { CouponEntity, CouponType } from "../../domain/entities/coupon.entity";
 
 type PrismaTx = Prisma.TransactionClient;
@@ -21,6 +27,9 @@ const COUPON_SELECT = {
 } as const;
 
 type CouponRow = Prisma.CouponGetPayload<{ select: typeof COUPON_SELECT }>;
+
+const ADMIN_COUPON_SELECT = { ...COUPON_SELECT, _count: { select: { redemptions: true } } } as const;
+type AdminCouponRow = Prisma.CouponGetPayload<{ select: typeof ADMIN_COUPON_SELECT }>;
 
 /**
  * ADR-010: the ONLY file in the coupons module allowed to import
@@ -72,6 +81,85 @@ export class CouponRepository implements CouponRepositoryPort {
   async createRedemption(couponId: string, userId: string, orderId: string, tx: unknown): Promise<void> {
     await (tx as PrismaTx).couponRedemption.create({ data: { couponId, userId, orderId } });
   }
+
+  async findAllForAdmin(): Promise<AdminCouponEntity[]> {
+    const rows = await prisma.coupon.findMany({ orderBy: { createdAt: "desc" }, select: ADMIN_COUPON_SELECT });
+    return rows.map(toAdminEntity);
+  }
+
+  async findByIdForAdmin(id: string): Promise<AdminCouponEntity | null> {
+    const row = await prisma.coupon.findUnique({ where: { id }, select: ADMIN_COUPON_SELECT });
+    return row ? toAdminEntity(row) : null;
+  }
+
+  async createCoupon(data: CreateCouponData): Promise<AdminCouponEntity> {
+    try {
+      const created = await prisma.coupon.create({
+        data: {
+          code: data.code,
+          type: data.type,
+          value: data.value,
+          minCartValuePaise: data.minCartValuePaise,
+          maxDiscountPaise: data.maxDiscountPaise,
+          usageLimit: data.usageLimit,
+          perUserLimit: data.perUserLimit,
+          validFrom: data.validFrom,
+          validTo: data.validTo,
+        },
+        select: ADMIN_COUPON_SELECT,
+      });
+      return toAdminEntity(created);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictError(`A coupon with code "${data.code}" already exists`);
+      }
+      throw error;
+    }
+  }
+
+  async updateCoupon(id: string, data: UpdateCouponData): Promise<AdminCouponEntity> {
+    try {
+      const updated = await prisma.coupon.update({ where: { id }, data, select: ADMIN_COUPON_SELECT });
+      return toAdminEntity(updated);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === "P2002") {
+          throw new ConflictError(`A coupon with code "${data.code}" already exists`);
+        }
+        if (error.code === "P2025") {
+          throw new NotFoundError("Coupon not found");
+        }
+      }
+      throw error;
+    }
+  }
+
+  async setActive(id: string, isActive: boolean): Promise<AdminCouponEntity> {
+    try {
+      const updated = await prisma.coupon.update({ where: { id }, data: { isActive }, select: ADMIN_COUPON_SELECT });
+      return toAdminEntity(updated);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+        throw new NotFoundError("Coupon not found");
+      }
+      throw error;
+    }
+  }
+
+  async deleteCoupon(id: string): Promise<void> {
+    try {
+      await prisma.coupon.delete({ where: { id } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+        throw new NotFoundError("Coupon not found");
+      }
+      throw error;
+    }
+  }
+}
+
+function toAdminEntity(row: AdminCouponRow): AdminCouponEntity {
+  return { ...toEntity(row), redemptionCount: row._count.redemptions };
 }
 
 function toEntity(row: CouponRow): CouponEntity {
