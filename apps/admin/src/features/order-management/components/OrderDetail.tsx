@@ -2,7 +2,7 @@
 
 import { LoadingState } from "@/features/shell/components/LoadingState";
 import { resolveImageUrl } from "@/lib/resolve-image-url";
-import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact } from "@woobe/utils";
+import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact, sumWeightBasedGrams } from "@woobe/utils";
 import { Badge, Card } from "@woobe/ui";
 import Link from "next/link";
 import { useAdminOrder } from "../hooks/useAdminOrder";
@@ -84,9 +84,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               <span>Tax</span>
               <span className="text-text-primary">{formatPaiseAsInr(order.taxPaise)}</span>
             </div>
+            {/* Weight-based items only (ADR-021) — a FIXED-priced accessory's weight never moves this figure, client-review fix 2026-09-04. */}
             <div className="flex justify-between text-text-secondary">
               <span>Total weight</span>
-              <span className="text-text-primary">{formatGrams(order.totalWeightGrams)}</span>
+              <span className="text-text-primary">{formatGrams(sumWeightBasedGrams(order.items))}</span>
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between border-t border-border pt-3">

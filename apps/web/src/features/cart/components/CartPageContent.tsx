@@ -69,8 +69,9 @@ export function CartPageContent() {
               <dd className="text-text-primary">{formatPaiseAsInr(cart.totalPaise)}</dd>
             </div>
             <div className="flex justify-between">
+              {/* Weight-based items only (ADR-021) — a FIXED-priced accessory's weight never moves this figure, client-review fix 2026-09-04. */}
               <dt className="text-text-secondary">Total weight</dt>
-              <dd className="text-text-primary">{formatGrams(cart.totalWeightGrams)}</dd>
+              <dd className="text-text-primary">{formatGrams(cart.weightBasedTotalGrams)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-secondary">Shipping</dt>

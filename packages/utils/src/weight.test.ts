@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateWeightBasedPricePaise, formatGrams, gramsToKg, kgToGrams } from "./weight";
+import { calculateWeightBasedPricePaise, formatGrams, gramsToKg, kgToGrams, sumWeightBasedGrams } from "./weight";
 
 describe("gramsToKg / kgToGrams", () => {
   it("round-trips", () => {
@@ -32,5 +32,39 @@ describe("calculateWeightBasedPricePaise — the core Woobe pricing formula", ()
   it("rejects negative weight or rate", () => {
     expect(() => calculateWeightBasedPricePaise(-1, 100)).toThrow();
     expect(() => calculateWeightBasedPricePaise(100, -1)).toThrow();
+  });
+});
+
+describe("sumWeightBasedGrams — client-review fix 2026-09-04 (cart/order 'Total weight' display)", () => {
+  it("excludes FIXED-priced lines (unitRatePerKgPaise: null) entirely", () => {
+    const items = [
+      { weightGrams: 300, quantity: 1, unitRatePerKgPaise: 120000 }, // weight-based garment
+      { weightGrams: 15, quantity: 1, unitRatePerKgPaise: null }, // FIXED accessory
+    ];
+    expect(sumWeightBasedGrams(items)).toBe(300);
+  });
+
+  it("does not move when a FIXED line's quantity increases", () => {
+    const before = sumWeightBasedGrams([
+      { weightGrams: 300, quantity: 1, unitRatePerKgPaise: 120000 },
+      { weightGrams: 15, quantity: 1, unitRatePerKgPaise: null },
+    ]);
+    const after = sumWeightBasedGrams([
+      { weightGrams: 300, quantity: 1, unitRatePerKgPaise: 120000 },
+      { weightGrams: 15, quantity: 2, unitRatePerKgPaise: null },
+    ]);
+    expect(after).toBe(before);
+  });
+
+  it("sums multiple weight-based lines by quantity", () => {
+    const items = [
+      { weightGrams: 380, quantity: 3, unitRatePerKgPaise: 90000 },
+      { weightGrams: 120, quantity: 1, unitRatePerKgPaise: null },
+    ];
+    expect(sumWeightBasedGrams(items)).toBe(1140);
+  });
+
+  it("returns 0 for an all-FIXED cart", () => {
+    expect(sumWeightBasedGrams([{ weightGrams: 120, quantity: 2, unitRatePerKgPaise: null }])).toBe(0);
   });
 });

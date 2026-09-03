@@ -1,4 +1,4 @@
-import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact } from "@woobe/utils";
+import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact, sumWeightBasedGrams } from "@woobe/utils";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
 
 /**
@@ -6,9 +6,14 @@ import type { OrderView } from "@/features/checkout/api/checkout.client";
  * the order-confirmation and order-detail pages, which previously showed
  * only the grand total. Every value comes straight from `OrderView` (the
  * API already returns subtotal / discount / shipping / tax / weight and
- * per-item weight·rate) — nothing is computed here.
+ * per-item weight·rate); the one exception is "Total weight", which
+ * re-aggregates `order.items` down to weight-priced lines only (`sumWeightBasedGrams`)
+ * rather than showing the order's combined `totalWeightGrams` snapshot — a
+ * FIXED-priced accessory's weight shouldn't move that figure, matching the
+ * cart page (client-review fix, 2026-09-04).
  */
 export function OrderPriceBreakdown({ order }: { order: OrderView }) {
+  const weightBasedTotalGrams = sumWeightBasedGrams(order.items);
   return (
     <div className="flex flex-col gap-4">
       <ul className="flex flex-col gap-3">
@@ -51,7 +56,7 @@ export function OrderPriceBreakdown({ order }: { order: OrderView }) {
         </div>
         <div className="flex justify-between">
           <dt className="text-text-secondary">Total weight</dt>
-          <dd className="text-text-primary">{formatGrams(order.totalWeightGrams)}</dd>
+          <dd className="text-text-primary">{formatGrams(weightBasedTotalGrams)}</dd>
         </div>
       </dl>
 

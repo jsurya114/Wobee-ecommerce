@@ -42,6 +42,22 @@ export function calculateWeightBasedPricePaise(weightGrams: number, ratePerKgPai
   return Math.round((weightGrams * ratePerKgPaise) / 1000);
 }
 
+/**
+ * Sums the physical weight of weight-priced (WEIGHT_BASED) line items only,
+ * mirroring the api's `computeCartTotals`' `weightBasedTotalGrams` split
+ * (apps/api cart domain, ADR-021) for order-level views that only ever
+ * received the single combined `totalWeightGrams` snapshot. A FIXED-category
+ * line (Accessories, priced by `fixedPricePaise` not weight) is identified
+ * the same way the rest of the codebase already does — `unitRatePerKgPaise
+ * === null` — so a customer adding earrings or a bangle never sees the
+ * "Total weight" figure move (client-review fix, 2026-09-04). Pure
+ * re-aggregation of numbers the server already sent for each line; no new
+ * pricing/weight rule is introduced here.
+ */
+export function sumWeightBasedGrams(items: Array<{ weightGrams: number; quantity: number; unitRatePerKgPaise: number | null }>): number {
+  return items.reduce((sum, item) => (item.unitRatePerKgPaise !== null ? sum + item.weightGrams * item.quantity : sum), 0);
+}
+
 function assertInt(value: number, label: string): void {
   if (!Number.isInteger(value)) {
     throw new Error(`${label} must be an integer, got: ${value}`);
