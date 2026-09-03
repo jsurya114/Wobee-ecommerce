@@ -56,11 +56,18 @@ module.exports = {
       },
       spacing: {
         4.5: "1.125rem",
-        // Redesign (tightened 2026-08-31): the storefront's compact section
-        // rhythm — replaces the hand-written `py-10` (80px) that made the
-        // homepage feel like a slideshow. Tightened again from 1.75rem for
-        // mobile discovery density (UI refinement pass).
-        section: "1.125rem",
+        // Redesign (tightened 2026-08-31, 2026-09-03 final refinement pass):
+        // the storefront's compact section rhythm — replaces the
+        // hand-written `py-10` (80px) that made the homepage feel like a
+        // slideshow. Only ever consumed by the homepage's own section
+        // components (ProductRail, HomeGridSection, ShopByBudget,
+        // FeaturedCollections, CustomerReviewsSection, loading.tsx) — every
+        // adjacent pair each contributes this value once (their own bottom +
+        // the next section's own top), so this is really *two* section-rhythm
+        // gaps stacked at every boundary; tightened again from 1.125rem
+        // after an audit found that compounding read as dead whitespace
+        // between sections.
+        section: "0.875rem",
       },
       borderRadius: {
         control: "8px",

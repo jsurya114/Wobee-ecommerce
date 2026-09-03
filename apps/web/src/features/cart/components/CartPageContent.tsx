@@ -2,11 +2,11 @@
 
 import { formatGrams, formatPaiseAsInr } from "@woobe/utils";
 import { buttonVariants, Card, cn, EmptyState, Skeleton } from "@woobe/ui";
-import { ShoppingBag } from "lucide-react";
+import { ArrowRight, ShoppingBag } from "lucide-react";
 import Link from "next/link";
-import { ABOVE_MOBILE_BOTTOM_NAV_STYLE } from "@/lib/layout-constants";
 import { useCart } from "../hooks/useCart";
 import { CartLineItem } from "./CartLineItem";
+import { CheckoutDock } from "./CheckoutDock";
 import { CouponForm } from "./CouponForm";
 import { WeightThresholdBanner } from "./WeightThresholdBanner";
 
@@ -53,7 +53,7 @@ export function CartPageContent() {
 
   return (
     <>
-      <div className="grid gap-6 pb-24 md:grid-cols-[1fr_320px] md:pb-0">
+      <div className="grid gap-5 pb-32 md:grid-cols-[1fr_320px] md:pb-0">
         <Card className="p-4">
           {cart.items.map((line) => (
             <CartLineItem key={line.itemId} line={line} />
@@ -94,34 +94,28 @@ export function CartPageContent() {
             <CouponForm appliedCoupon={cart.appliedCoupon} />
           </div>
 
-          <div className="mt-3">
+          {/* Desktop only — mobile shows this same progress inside the unified `CheckoutDock` below instead, never both (2026-09-04). */}
+          <div className="mt-3 hidden md:block">
             <WeightThresholdBanner shipping={cart.shipping} weightBasedTotalGrams={cart.weightBasedTotalGrams} />
           </div>
 
           <Link
             href="/checkout"
             aria-disabled={!cart.shipping.meetsMinimum}
-            className={cn(buttonVariants(), "mt-4 hidden w-full md:flex", !cart.shipping.meetsMinimum && "pointer-events-none opacity-50")}
+            className={cn(
+              buttonVariants(),
+              "mt-4 hidden w-full gap-1.5 md:flex",
+              !cart.shipping.meetsMinimum && "pointer-events-none opacity-50",
+            )}
           >
             Checkout
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Card>
       </div>
 
-      {/* Mobile: a slim sticky checkout bar so the CTA is always in reach on a long bag — rounded top + upward shadow reads as a polished action surface rather than a plain cut-off strip. */}
-      <div
-        className="fixed inset-x-0 z-20 flex items-center gap-3 rounded-t-card border-t border-border bg-surface/90 px-4 py-3 shadow-sheet backdrop-blur-xl md:hidden"
-        style={ABOVE_MOBILE_BOTTOM_NAV_STYLE}
-      >
-        <span className="font-body text-lg font-bold text-text-primary">{formatPaiseAsInr(payableTotal)}</span>
-        <Link
-          href="/checkout"
-          aria-disabled={!cart.shipping.meetsMinimum}
-          className={cn(buttonVariants(), "ml-auto flex-1", !cart.shipping.meetsMinimum && "pointer-events-none opacity-50")}
-        >
-          Checkout
-        </Link>
-      </div>
+      {/* Mobile: the unified weight-progress + checkout dock (2026-09-04) — see CheckoutDock's own doc comment. */}
+      <CheckoutDock cart={cart} payableTotal={payableTotal} />
     </>
   );
 }

@@ -54,7 +54,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-3 z-30 flex items-center rounded-pill border border-white/60 bg-surface/75 shadow-modal backdrop-blur-xl md:hidden"
+      className="fixed inset-x-3 z-30 flex items-center rounded-pill border border-white/40 bg-surface/50 shadow-card backdrop-blur-xl md:hidden"
       style={{
         // The dock's own two real numbers (layout-constants.ts) — every other
         // fixed bottom-pinned element derives its offset from their sum

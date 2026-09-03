@@ -17,11 +17,16 @@ import { SearchField } from "@/features/catalog/components/SearchField";
  * that real field mounts.
  *
  * Renders as an inert, input-styled trigger button until tapped (a
- * `~44px`-tall, moderate-radius, warm-tinted "fake" field — deliberately
+ * `~44px`-tall, moderate-radius, liquid-glass "fake" field — deliberately
  * lighter than a functional input so it doesn't compete with the banner or
  * grab keyboard focus on page load) — tapping it swaps in the real,
- * focused `SearchField` in the same slot.
+ * focused `SearchField` in the same slot. Glass surface (2026-09-03 refinement
+ * pass 2): translucent warm-white, backdrop blur, a hairline border and a
+ * soft shadow so it reads as floating slightly above the page, matching the
+ * bottom nav / weight tracker's glass language — never a heavy opaque fill.
  */
+const GLASS_FIELD_CLASS = "rounded-control border border-white/50 bg-surface/60 shadow-card backdrop-blur-xl";
+
 export function CompactSearchBar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -37,7 +42,7 @@ export function CompactSearchBar() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex h-11 w-full items-center gap-2 rounded-control border border-transparent bg-surface-2 px-3.5 text-left font-body text-sm text-text-secondary transition-colors hover:bg-surface-2/70"
+          className={`flex h-11 w-full items-center gap-2 px-3.5 text-left font-body text-sm text-text-secondary transition-colors hover:bg-surface/80 ${GLASS_FIELD_CLASS}`}
         >
           <Search className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
           <span className="truncate">Search tops, dresses, accessories…</span>
@@ -50,7 +55,7 @@ export function CompactSearchBar() {
     <div className="px-4 pb-2 pt-3 md:hidden">
       <SearchField
         ref={inputRef}
-        inputClassName="rounded-control border-transparent bg-surface-2"
+        inputClassName={GLASS_FIELD_CLASS}
         onSubmit={(query) => {
           router.push(buildProductsHref({ q: query || undefined }));
           setOpen(false);

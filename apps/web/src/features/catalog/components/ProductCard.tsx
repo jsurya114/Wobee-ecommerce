@@ -1,4 +1,5 @@
 import { PriceTag } from "@woobe/ui";
+import { ImageOff } from "lucide-react";
 import Link from "next/link";
 import { QuickAddToBagButton } from "@/features/cart/components/QuickAddToBagButton";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
@@ -33,7 +34,14 @@ export function ProductCard({ product, showQuickAdd = false }: { product: Produc
             decoding="async"
             className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105 motion-reduce:transition-none"
           />
-        ) : null}
+        ) : (
+          // No real image: an inert icon on the same bg-surface-2 fill,
+          // not just a blank tinted rectangle (2026-09-03 final refinement
+          // pass) — same card dimensions either way, no mock imagery.
+          <div className="flex h-full w-full items-center justify-center">
+            <ImageOff className="h-6 w-6 text-text-secondary/40" strokeWidth={1.5} aria-hidden="true" />
+          </div>
+        )}
         <WishlistButton productId={product.id} size="sm" className="absolute right-2 top-2" />
         {showQuickAdd ? (
           <QuickAddToBagButton slug={product.slug} productName={product.name} className="absolute bottom-2 right-2" />

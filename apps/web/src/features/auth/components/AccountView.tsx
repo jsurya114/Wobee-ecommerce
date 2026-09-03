@@ -48,14 +48,17 @@ export function AccountView() {
   }
 
   return (
-    <main className="mx-auto flex max-w-md flex-col gap-5 px-6 py-8">
-      <div className="flex items-center gap-3.5">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-tint font-display text-lg text-primary">
-          {user.name.slice(0, 1).toUpperCase()}
-        </span>
-        <div className="min-w-0">
-          <h1 className="truncate font-display text-lg text-text-primary">{user.name}</h1>
-          <p className="truncate font-body text-xs text-text-secondary">{user.email}</p>
+    <main className="mx-auto flex max-w-md flex-col gap-4 px-6 py-6">
+      <div>
+        <p className="mb-1.5 px-1 font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-text-secondary">Profile</p>
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary-tint font-display text-base text-primary">
+            {user.name.slice(0, 1).toUpperCase()}
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate font-display text-lg text-text-primary">{user.name}</h1>
+            <p className="truncate font-body text-xs text-text-secondary">{user.email}</p>
+          </div>
         </div>
       </div>
 
@@ -63,7 +66,7 @@ export function AccountView() {
         <p className="mb-1.5 px-1 font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-text-secondary">Account</p>
         <Card className="divide-y divide-border overflow-hidden p-0">
           {ACCOUNT_LINKS.map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
+            <Link key={href} href={href} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-2">
               <Icon className="h-[18px] w-[18px] shrink-0 text-primary" aria-hidden="true" />
               <span className="flex-1 font-body text-sm font-medium text-text-primary">{label}</span>
               <ChevronRight className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" />

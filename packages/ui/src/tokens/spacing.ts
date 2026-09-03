@@ -24,5 +24,5 @@ export const shadow = {
   sheet: "0 -8px 32px rgba(38,34,32,0.14)",
 } as const;
 
-/** Redesign: the storefront's compact section rhythm (px), replacing hand-written `py-10`. Mirrors the Tailwind preset's `spacing.section` — verified in sync 2026-09-01 (was stale at the pre-tightening 28px value; preset has since tightened to 18px). */
-export const sectionRhythm = "18px";
+/** Redesign: the storefront's compact section rhythm (px), replacing hand-written `py-10`. Mirrors the Tailwind preset's `spacing.section` — verified in sync 2026-09-03 (preset tightened 18px -> 14px, homepage vertical-rhythm audit). */
+export const sectionRhythm = "14px";

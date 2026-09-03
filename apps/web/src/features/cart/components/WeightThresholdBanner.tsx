@@ -38,10 +38,13 @@ export function WeightThresholdBanner({
     );
   }
 
+  // Benefit-oriented wording (2026-09-03 refinement pass 2) — kept in sync
+  // with FloatingCartWeightIndicator's own message; see its comment for why
+  // the below-minimum case keeps its own phrasing instead of "free shipping".
   const message =
     status.kind === "below-minimum"
-      ? `Add ${formatGrams(status.gramsRemaining)} more to place your order`
-      : `Add ${formatGrams(status.gramsRemaining)} more for free delivery`;
+      ? `Add ${formatGrams(status.gramsRemaining)} more to checkout`
+      : `Add ${formatGrams(status.gramsRemaining)} to unlock free shipping`;
 
   return (
     <div className="rounded-control bg-primary-tint/40 p-3">

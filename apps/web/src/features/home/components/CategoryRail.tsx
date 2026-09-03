@@ -11,6 +11,27 @@ import type { HomeCategoryTile } from "../api/home.client";
  * category with no imaged product falls back to a tinted circle with its
  * initial (no invented imagery).
  *
+ * Label typography (2026-09-03 refinement pass 2): normal title case, not
+ * uppercase-with-tracking — the category names already arrive title-cased
+ * from the API ("Ethnic Wear"), so dropping `uppercase` is enough to show
+ * them naturally; no data change.
+ *
+ * Each item's own column width is intrinsic to its content (the `<Link>`
+ * has no fixed width), not pinned to the circle's fixed size — the circle
+ * (`h-14 w-14`/`sm:h-16 sm:w-16`) is what's fixed, and `whitespace-nowrap`
+ * keeps every label on a single line, so a wide two-word name like "Ethnic
+ * Wear" simply gets a wider column (with the circle still centered above
+ * it) instead of wrapping to two stacked lines — confirmed live,
+ * 2026-09-04, that word-wrapping the label was itself the actual
+ * complaint, not just how it wrapped (an earlier attempt on the same
+ * report fixed a real char-level-wrap bug but kept the two-line result,
+ * which was never what was wanted). No `min-h` trick needed for row
+ * alignment now that every label is uniformly one line tall. Circle size
+ * bumped back up (final refinement pass, 2026-09-03) — a prior pass
+ * over-tightened these into a size too small to read as a real navigation
+ * item. No bottom divider (removed, same pass): the transition into "New
+ * arrivals" is carried by whitespace/typography, not a rule.
+ *
  * Responsive: desktop/tablet render the whole group centered on one row
  * (`justify-center`, spacing widens with the viewport); on mobile the row
  * becomes a touch-scrollable carousel — `min-w-max` keeps each item at its
@@ -28,7 +49,7 @@ export function CategoryRail({ categories }: { categories: HomeCategoryTile[] })
   if (categories.length === 0) return null;
 
   return (
-    <section aria-label="Shop by category" className="border-b border-border px-4 py-section sm:px-6">
+    <section aria-label="Shop by category" className="px-4 pb-3 pt-3 sm:px-6">
       <div className="mx-auto max-w-6xl">
         <SectionHeader
           action={
@@ -41,14 +62,14 @@ export function CategoryRail({ categories }: { categories: HomeCategoryTile[] })
         </SectionHeader>
       </div>
       <nav className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <ul className="mx-auto flex min-w-max items-start justify-center gap-5 sm:gap-8 md:min-w-0 md:max-w-6xl md:gap-10 lg:gap-12">
+        <ul className="mx-auto flex min-w-max items-start justify-center gap-4 sm:gap-7 md:min-w-0 md:max-w-6xl md:gap-9 lg:gap-11">
           {categories.map((category) => (
             <li key={category.id} className="shrink-0">
               <Link
                 href={`/products?category=${encodeURIComponent(category.slug)}`}
-                className="group flex w-11 flex-col items-center gap-1 text-center sm:w-12 lg:w-[3.25rem]"
+                className="group flex flex-col items-center gap-1.5 text-center transition-transform active:scale-95 motion-reduce:transition-none"
               >
-                <span className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-full bg-surface-2 ring-1 ring-border transition group-hover:ring-2 group-hover:ring-primary motion-reduce:transition-none">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-surface-2 transition group-hover:border-primary motion-reduce:transition-none sm:h-16 sm:w-16">
                   {category.imageUrl ? (
                     <img
                       src={category.imageUrl}
@@ -61,7 +82,7 @@ export function CategoryRail({ categories }: { categories: HomeCategoryTile[] })
                     <span className="font-display text-sm text-primary">{category.name.slice(0, 1)}</span>
                   )}
                 </span>
-                <span className="flex min-h-[2em] items-start justify-center font-body text-[10px] font-medium uppercase leading-tight tracking-[0.03em] text-text-secondary transition-colors group-hover:text-text-primary">
+                <span className="whitespace-nowrap font-body text-[11px] font-medium leading-tight text-text-secondary transition-colors group-hover:text-text-primary">
                   {category.name}
                 </span>
               </Link>

@@ -22,12 +22,14 @@ function isSafeHref(url: string): boolean {
 }
 
 /**
- * Compact homepage promo carousel (UI refinement pass, 2026-08-31) — admin-
- * managed slides (banners module), rendered here purely from what
- * `GET /api/v1/home` already returned (no extra request). Deliberately a
- * thin strip (`aspect-[16/9]`), not a hero: the homepage stays
- * shopping-first, this is one scannable band between the category rail and
- * the product rails.
+ * Homepage promo carousel (UI refinement pass, 2026-08-31; taller mobile
+ * hero, 2026-09-03 refinement pass 2) — admin-managed slides (banners
+ * module), rendered here purely from what `GET /api/v1/home` already
+ * returned (no extra request). `aspect-[8/5]` on mobile (~11% taller than
+ * the prior `16/9`) gives the model/product image room to breathe as the
+ * page's primary focal point after the brand/search area, while staying
+ * capped well short of a full-height hero — the homepage is still
+ * shopping-first. `sm:` and up keeps its own wider ratio + height cap.
  *
  * Autoplay is a plain `setInterval` (no animation library) and is skipped
  * entirely under `prefers-reduced-motion: reduce`; any manual interaction
@@ -139,7 +141,7 @@ export function PromoCarousel({ banners }: { banners: HomeBanner[] }) {
 
 function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boolean }) {
   const content = (
-    <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-2 sm:aspect-[21/9] sm:max-h-[280px]">
+    <div className="relative aspect-[8/5] w-full overflow-hidden bg-surface-2 sm:aspect-[21/9] sm:max-h-[280px]">
       <img
         src={banner.imageUrl}
         alt={banner.title ?? ""}

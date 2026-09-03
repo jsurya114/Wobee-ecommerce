@@ -38,11 +38,16 @@ export function FloatingCartWeightIndicator() {
   if (!status) return null;
 
   const isFreeDelivery = status.kind === "free-delivery";
+  // Benefit-oriented wording (2026-09-03 refinement pass 2) — "to unlock
+  // free shipping" for the real free-delivery threshold; the below-minimum
+  // case isn't about shipping cost at all (ADR-021's checkout-blocking
+  // minimum), so it keeps its own accurate phrasing rather than borrowing
+  // that line.
   const message = isFreeDelivery
     ? "Free delivery unlocked"
     : status.kind === "below-minimum"
-      ? `${formatGrams(status.gramsRemaining)} more to place order`
-      : `${formatGrams(status.gramsRemaining)} more for free delivery`;
+      ? `${formatGrams(status.gramsRemaining)} more to checkout`
+      : `${formatGrams(status.gramsRemaining)} to unlock free shipping`;
   const fillPercent = isFreeDelivery ? 100 : Math.min(100, Math.max(0, status.percent));
 
   return (
