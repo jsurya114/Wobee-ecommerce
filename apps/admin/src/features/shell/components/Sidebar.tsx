@@ -93,10 +93,31 @@ export function Sidebar() {
 
       <nav
         id="admin-nav"
-        className={`${open ? "flex" : "hidden"} shrink-0 flex-col gap-1 p-3 md:flex md:w-56 md:border-r md:border-border md:p-4`}
+        // Week 4 Day 1 fix (2026-09-04): this sits in normal document flow
+        // beside <main> (see (dashboard)/layout.tsx), so without its own
+        // sticky/scroll behavior it isn't actually "persistent" — it just
+        // scrolls away with the page. Reproduced live: at a 1440x700 viewport
+        // (a realistic laptop height once browser chrome is subtracted), the
+        // nav's own 12-entry list is taller than the viewport, so "Log out"
+        // renders below the fold with no way to reach it except scrolling the
+        // whole page — which also scrolls the topbar out of view. `md:sticky
+        // md:top-0 md:h-dvh md:overflow-y-auto` pins the column to the
+        // viewport while <main> scrolls independently, and gives the nav list
+        // itself an internal scrollbar if it's ever taller than the viewport,
+        // so `md:mt-auto`'s bottom-pinned logout button stays reachable
+        // either way.
+        className={`${open ? "flex" : "hidden"} shrink-0 flex-col gap-1 p-3 md:flex md:sticky md:top-0 md:h-dvh md:w-56 md:overflow-y-auto md:border-r md:border-border md:p-4`}
       >
         {entries.map((entry) => {
-          const isActive = pathname.startsWith(entry.href);
+          // Week 4 Day 1 fix (2026-09-04): plain `pathname.startsWith(entry.href)`
+          // made Dashboard ("/") match every route — every path starts with "/" —
+          // so it stayed highlighted alongside whatever page was actually open
+          // (caught live: Products showed active with Dashboard still pink beside
+          // it). "/" is the only entry this ambiguity applies to, so it alone
+          // needs an exact match; every other entry's href is already a distinct
+          // segment (e.g. "/products") where `startsWith` correctly also covers
+          // its own nested routes (e.g. "/products/[id]").
+          const isActive = entry.href === "/" ? pathname === "/" : pathname.startsWith(entry.href);
           const Icon = NAV_ICONS[entry.href];
           if (entry.status === "coming-soon") {
             return (

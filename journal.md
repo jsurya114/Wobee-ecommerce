@@ -2514,3 +2514,186 @@ Also confirmed already-correct along the way (no changes needed): unknown-paymen
 **Follow-ups / known gaps carried forward (nothing new today):**
 - Everything already listed in Days 1-9's own entries stands as documented there — Day 10 didn't find anything new needing a fix.
 - Not yet pushed — awaiting the user's explicit instruction, and the consolidated Final Week 3 Report is presented separately in this session's own response, per the plan's required format.
+
+---
+
+## 2026-09-04 — Week 3: pushed `week3` branch, merged to `main`, final report published
+
+**Branch:** `week3` → `main`. Per the user's explicit instructions ("first create a branch called week3 and push these changes to week3 branch", then later "push to git and merge with main"). Created `week3` off `woobe-ui/bug-fixes`'s Week 3 work, pushed two commits (`b524351` Days 1-8, `0b0e349` Days 9-10; 63 files total) to `origin/week3`, confirmed the push via `git log`/GitHub's own API. Checked out `main`, ran `git merge --ff-only week3` — clean fast-forward, `bc79faa..0b0e349`, no merge commit needed. Re-ran the full gate on `main` itself before pushing (not just trusting the branch's own prior green runs): `pnpm install`, full workspace lint/typecheck/`boundaries:check`, full test suite — all clean. Pushed `main` (`bc79faa..0b0e349`).
+
+**Verified the push landed for real, not just locally:** queried GitHub Actions' public API directly (`api.github.com/repos/.../actions/runs?branch=main`) and confirmed CI actually ran against the new `main` HEAD and passed — not just that the push succeeded.
+
+**Final Week 3 report:** built and published as a designed HTML artifact (`artifact-design` skill, "garment QC inspection tag" concept matching Woobe's actual brand rose `#a54659`) rather than a plain chat summary, per the user's "give me final week3 report" request — `https://claude.ai/code/artifact/10d45ac3-348b-42a3-a429-5e3c7be63d6a`.
+
+**Follow-ups / known gaps:** none new — this entry is a process/delivery record, not new engineering work.
+
+---
+
+## 2026-09-04 — Week 4 kickoff: audited `week4.md` against the actual codebase before touching any code
+
+**Branch:** `week4` (new, off `main`). The user's own instruction ("if any features implemented already verify it make sure everything is proper") from Week 3 carried forward explicitly to Week 4: asked to review `project_planning/week4.md` and update it if needed, *before* building anything from it. Read all 10 days and checked each one's premise against the real, current code — not assumption.
+
+**Found 6 of 10 days already substantially or fully built**, from earlier work this project (much of it from an explicit client redesign pass mid-session, separate from any week-numbered plan): admin sidebar (Day 1, ~95%), category rail redesign (Day 3), related products (Day 4), wishlist variant UX (Day 5), coupon admin UI (Day 6), forgot-password/OTP (Day 7) — each confirmed by reading the actual component/use-case code, not by title alone.
+
+**Found one genuine conflict, not a status to just record:** Day 2 asks to remove the standalone homepage search bar (`CompactSearchBar.tsx`), but that component exists *because* the client explicitly asked for it earlier this session (a shared reference photo). Flagged this as a business decision in the plan rather than resolving it unilaterally either way.
+
+**Updated `project_planning/week4.md` in place** — added a "STATUS CHECK" section up top plus an inline status line under each of the 6 already-built days, preserving the plan's original text/structure as the base rather than deleting or rewriting it. Explicitly did not invent new scope to "fill" the days that turned out to already be done — left that as an open question for the user/client, not a decision to make alone.
+
+**Verified:** no code changed this pass — audit and planning-doc update only.
+
+**Follow-ups / known gaps:**
+- Day 2's search-bar-removal conflict needed the user's decision before Day 2 could be marked resolved either way (resolved the same day — see the Day 2 entry below).
+- `week4.md` was untracked/new to git at this point — not yet committed.
+
+---
+
+## 2026-09-04 — Week 4 Day 1: Admin UI Layout & Navigation — found and fixed two real, live bugs in the "already built" sidebar
+
+**Branch:** `week4`. Day 1's own premise ("verify, don't rebuild") held for the shell/layout structure, but verifying it live — not just reading the component — surfaced two real bugs the earlier code-only pass had missed.
+
+**Found — the sidebar wasn't actually persistent.** `Sidebar.tsx`'s `<nav>` is a plain flex sibling of `<main>` in `(dashboard)/layout.tsx`, with no sticky/scroll behavior of its own. Reproduced live at a 1440×700 viewport (a realistic laptop height once browser chrome is subtracted): the nav's own 12-entry link list is taller than the viewport, so "Log out" rendered below the fold with no way to reach it except scrolling the *entire page* — which also scrolled the topbar out of view. Confirmed via `getBoundingClientRect()`/`getComputedStyle()` that the nav's box (797px) genuinely exceeded the viewport (700px) and had `overflow-y: visible`, not an independent scroll region. Also reproduced the same effective loss of the sidebar on any viewport once a long table (e.g. Products) is scrolled past ~800px, since the nav has no sticky positioning at all.
+
+**Fix:** added `md:sticky md:top-0 md:h-dvh md:overflow-y-auto` to the nav's className — pins the sidebar to the viewport while `<main>` scrolls independently, and gives the nav list its own internal scrollbar if it's ever taller than the viewport, so the bottom-pinned "Log out" button stays reachable either way. Verified: scrolled 400px into a real Products table — sidebar stayed pinned in place, Log out stayed visible even at the short 700px-height viewport. Mobile hamburger/drawer classes were untouched (all new classes are `md:`-prefixed) — confirmed no regression there separately.
+
+**Found — Dashboard showed as "active" on every single page, not just its own.** `isActive = pathname.startsWith(entry.href)` with Dashboard's `href` of `"/"` matches literally every path, since every path starts with `"/"`. Confirmed via the DOM (`aria-current`/className), not just a screenshot: on `/products`, both "Dashboard" and "Products" carried the active styling simultaneously.
+
+**Fix:** special-cased the root path — `entry.href === "/" ? pathname === "/" : pathname.startsWith(entry.href)`. Re-verified across Products, Customers, Categories, Orders, Inventory, Coupons, Settings via the DOM — only the real current page is active now on every one of them.
+
+**Also swept and confirmed clean, no regressions:** mobile hamburger/drawer at 375px, tablet at 768px (Log out correctly bottom-pinned when the viewport has room), desktop at 1440px, and the full Login → navigate-every-page → Logout round trip (redirects cleanly to `/login`).
+
+**Verified:** `pnpm --filter @woobe/admin run lint` clean · `pnpm --filter @woobe/admin run typecheck` clean · live browser verification as detailed above (all via chrome-devtools MCP against the real local admin app, not assumed from reading code).
+
+**Follow-ups / known gaps:**
+- Only file changed: `apps/admin/src/features/shell/components/Sidebar.tsx`. Not yet committed at the time of this entry.
+- A distinct "tablet-compact" third sidebar state (beyond the existing desktop/mobile split) was flagged in the plan review as possibly unnecessary, since the full sidebar already renders cleanly at 768px — left as-is, not built, pending the user actually wanting it.
+
+---
+
+## 2026-09-04 — Week 4 Day 2: Storefront Header & Search UX — conflict resolved by the user, backend re-confirmed correct, two stale comments fixed
+
+**Branch:** `week4`. Day 2's real open question — carried over from the plan audit — was whether to remove the homepage's standalone mobile search bar (`CompactSearchBar.tsx`), which conflicts with an earlier explicit client request for exactly that bar. Put it to the user directly rather than picking a side; the user said to leave current UI/functionality unchanged, so `CompactSearchBar` stays exactly as it is — no removal.
+
+**Found the "Shop page" half of Day 2's premise was already moot:** grepped for `CompactSearchBar`/`SearchField` usage — there is no standalone search bar on `/products` (PLP) at all, only the global header search (`HeaderSearch` via `SiteHeader`, present on every page). Also found `CompactSearchBar` is `md:hidden` — desktop already has no standalone bar either, matching Day 2 as written; only mobile keeps one, by deliberate design.
+
+**Re-verified the backend/debounce side in both code and a live browser test, not just by re-reading the earlier audit:** `useSearchSuggestions` — 300ms debounce, `AbortController` cancels stale requests, min-length gate mirrored client- and server-side. `SearchProductSuggestionsUseCase`/its repository — re-validates length independently, caps results at 6, does a real scoped indexed Prisma query (`contains` + `take`), never fetches the full catalogue. Route-level `productSuggestionQuerySchema` defaults `q` to `""` and caps it at 100 chars, so empty/oversized input is handled safely before the controller ever sees it. Live: typed "sw" into the mobile search bar, watched the network panel — exactly one `GET /api/v1/products/suggestions?q=sw` request fired (not one per keystroke), returned "Ribbed Knit Sweater," rendered correctly in the dropdown with a "Search for 'sw'" fallback action, no overlap with the bottom nav bar.
+
+**Found and fixed two stale doc comments that actively contradicted the code** (no behavior change): `page.tsx`'s comment claimed "no in-page search bar... search lives in the header" while `<CompactSearchBar />` rendered two lines below it; `CompactSearchBar.tsx`'s own comment claimed it was "shared by the home page and the shop listing," but it's only ever mounted on the homepage. Left uncorrected, either comment would mislead the next person into "fixing" something that isn't actually broken — corrected both to state the real, current wiring and why it's deliberate.
+
+**Verified:** `pnpm --filter @woobe/web run lint` clean · `pnpm --filter @woobe/web run typecheck` clean · live network-panel verification of the debounced request as above.
+
+**Follow-ups / known gaps:**
+- Files changed (comments only, no behavior change): `apps/web/app/(storefront)/page.tsx`, `apps/web/src/features/catalog/components/CompactSearchBar.tsx`. Not yet committed at the time of this entry.
+
+---
+
+## 2026-09-04 — Week 4 Day 3: Category Section Redesign — verified live at all 4 required widths, no change needed
+
+**Branch:** `week4`. `CategoryRail.tsx` already carried its own dedicated redesign history (4 prior commits, including one titled exactly "redesign CategoryRail as full-width centered navigation strip") — this day's job was to confirm that live at the plan's own required viewport matrix, not to take the commit history's word for it.
+
+**Verified live via real screenshots at 375px, 768px, 1024px and 1440px:** centered within the same `max-w-6xl` container as the rest of the homepage's sections at every width, the responsive gap scale (`gap-4 sm:gap-7 md:gap-9 lg:gap-11`) visibly widening across breakpoints, no clipping or overflow anywhere. All 5 real categories fit on one row even at 375px, so the `overflow-x-auto` mobile-scroll fallback path itself wasn't exercised live by real content — the row markup (`min-w-max` + a hidden-scrollbar wrapper) is unchanged from the prior redesign passes and has no reason to have regressed.
+
+**Verified:** live browser screenshots at all 4 required widths as above. No code changed this pass.
+
+**Follow-ups / known gaps:**
+- The mobile horizontal-scroll fallback (for a category count that doesn't fit on one row) remains unexercised by real data — worth a manual check if/when a 6th+ top-level category is ever added.
+
+---
+
+## 2026-09-04 — Week 4 Day 4: Related Products — re-confirmed live against the real API, no change needed
+
+**Branch:** `week4`. Already confirmed correct via code reading earlier this session (`GetRelatedProductsUseCase` — same category, active-only, current product excluded, capped at `RELATED_PRODUCTS_LIMIT = 8`); this pass re-confirmed it against real, live data rather than resting on the code read alone.
+
+**Verified:** called `GET /products/ribbed-knit-sweater/related` directly against the running API — all 3 returned products (Embroidered Top, Linen Co-ord Set, Denim Jacket) share the exact same `categoryId` as the sweater itself, and the sweater itself is correctly excluded from its own related list. Confirmed the PDP renders this section correctly in the browser using the existing product-card component.
+
+**No code changed this pass.**
+
+**Follow-ups / known gaps:** none — this day needed no changes going in and none were found necessary.
+
+---
+
+## 2026-09-04 — Week 4 Day 5: Wishlist Variant UX — ran the real end-to-end flow with a live account, no change needed
+
+**Branch:** `week4`. Already confirmed correct via code reading earlier this session (`WishlistButton`'s optional `variantId`, `ProductCard` vs. `ProductGallery` usage, `WishlistLineItem`'s conditional rendering); this pass actually ran the flow live with a real customer account rather than trusting the code read alone.
+
+**Set up a throwaway test account** via the API's direct (non-OTP) `/auth/register` endpoint — built for exactly this kind of internal tooling/verification use, per its own route comment — logged into the storefront UI with it, and deleted the account from the database afterward once done.
+
+**Verified the full flow live:** saved a product to the wishlist from a Related-Products card (`ProductCard`, no variant picker) → wishlist correctly showed "No size selected" + a "Choose a size" link. Saved the same PDP with a specific variant selected (Oatmeal/S) via `ProductGallery`'s wishlist button → wishlist correctly showed "Oatmeal · S" + a "Move to bag" button. Clicked "Move to bag" → the item left the wishlist (count dropped from 2 to 1) and appeared as a real line item in the actual cart with the correct variant, weight (360g) and price (₹432) — the full PDP → variant → wishlist → cart chain confirmed working, not just its individual pieces.
+
+**Verified:** live end-to-end browser flow as above, cross-checked against the wishlist count, the cart page, and the underlying variant/price/weight data. No code changed this pass.
+
+**Follow-ups / known gaps:**
+- The throwaway `day5-verify@example.com` test account and its data were deleted from `woobe_dev` after verification — not left behind as test-account debris.
+
+---
+
+## 2026-09-04 — Week 4 Day 6: Coupon & Offers Admin UI — ran the real create/edit/toggle/list flow, no change needed
+
+**Branch:** `week4`. Already confirmed field-complete via code reading earlier this session (`CouponForm.tsx`/`CouponDetail.tsx` cover every field this day lists); this pass actually drove the live admin UI end to end rather than trusting the code read alone.
+
+**Created a real coupon through the UI** (`DAY6TEST`, since deleted) with every listed field — code, percentage type, 25% value, ₹300 max discount, ₹500 minimum cart value, 50 overall usage limit, 1 per-customer limit, start/expiry dates. One tooling note, not an app bug: the browser automation's `fill()` couldn't reliably drive the native `datetime-local` widget's segmented keyboard entry (a well-known browser quirk with that input type, not React or app code) — worked around it by setting the input's value the way a real date-picker click would, then confirmed the dates rendered and round-tripped correctly afterward.
+
+**Verified edit persistence for real, not just in local state:** changed the percentage 25 → 30, saved, then did a cold page reload and re-read the DOM — the server had actually persisted 30, not just the in-memory form state.
+
+**Verified activate/deactivate:** clicked "Deactivate" — badge flipped to "inactive," button flipped to "Activate." Navigated to the coupons list page and confirmed it showed the same coupon with the same discount (30%, up to ₹300), usage (0/50), expiry date, and "inactive" status — the detail page and list page agree.
+
+**Verified:** live create → edit → reload → deactivate → list-view round trip as above, via the real running admin app against `woobe_dev`. No code changed this pass.
+
+**Follow-ups / known gaps:**
+- The throwaway `DAY6TEST` coupon was deleted from `woobe_dev` after verification.
+
+---
+
+## 2026-09-04 — Week 4 Day 7: Forgot Password / OTP Flow — ran the real end-to-end flow, confirmed the anti-enumeration design is sound, no change needed
+
+**Branch:** `week4`. Already confirmed correct via code reading earlier this session; this pass actually drove the real flow through the browser with a live, receivable OTP rather than trusting the code read alone.
+
+**Housekeeping needed first — found the same class of duplicate-worker issue Week 3 Day 9 already caught once:** the running API dev fleet had accumulated 2 orphaned `worker.ts` processes alongside the current `server.ts`/`worker.ts` pair (`tsx watch`'s hot-restart leaving old children behind across however many restarts this session's own dev-server work triggered). Not a correctness bug (claim-before-send still prevents double-send with N workers on one queue), but needed clearing before restarting cleanly — killed all 4 stale processes and started one fresh `pnpm --filter @woobe/api run dev` under this session's own tracked process, specifically so its console output (where the dev OTP is logged) was actually readable.
+
+**Ran the complete real flow with a throwaway account** (`day7-verify@example.com`, since deleted): requested a reset code, read the actual OTP the API logged to its console (`[otp] password-reset code for day7-verify@example.com: 0422`), entered it in the UI's 4-digit input (auto-advanced on completion), set a new password, got redirected to `/login`. Logged in with the NEW password — succeeded. Directly called `/auth/login` with the OLD password afterward — correctly rejected (`UNAUTHORIZED`).
+
+**Specifically checked the anti-enumeration design, not just the happy path:** called `/auth/forgot-password` for the real test email and for a nonexistent one back to back — identical response shape and status (200, `pending: true`) in both cases. The one difference (`devCode` present only for the real account) is deliberate, documented dev-only camouflage (`ForgotPasswordUseCase`'s own doc comment names this exact scenario) — `devCode` is never returned in production for either case, so the channel a determined tester could use in dev to distinguish real from fake emails doesn't exist once deployed. Confirmed by reading `exposeDevCode`'s env gate, not just assuming the comment is accurate.
+
+**Verified:** live end-to-end flow via the real browser + real API console output as above; direct `/auth/login` and `/auth/forgot-password` API calls to confirm the old-password rejection and the enumeration-safety claim. No code changed this pass.
+
+**Follow-ups / known gaps:**
+- The throwaway `day7-verify@example.com` account was deleted from `woobe_dev` after verification.
+- The API dev fleet (server + worker) is now running as a single clean pair under this session's own tracked background process, replacing the 4 stale/duplicate processes found at the start of this day's work.
+
+---
+
+## 2026-09-04 — Week 4 Day 8: Storefront Responsive UI Pass — found and fixed a real WhatsApp-button/CTA collision on Register
+
+**Branch:** `week4`. Swept Home, PLP, PDP, Related Products, Wishlist, Cart, Checkout, Login, Register, Registration OTP, Forgot Password, and Reset Password at 375/768/1024/1440, per the plan's own required matrix — live screenshots and DOM checks, not assumption from Day 1-7's partial coverage.
+
+**Found — a real, reproducible overlap, not a false alarm:** at 375px, `/register`'s fixed WhatsApp support button rendered directly on top of the right ~37px of the "Create account" button, on first paint, with zero scrolling. Confirmed with `getBoundingClientRect()` on both elements (not just eyeballing a screenshot) — genuine rectangle overlap. Root-caused it: `useWhatsAppBottomOffset` already carefully reserves exact clearance above the PDP/cart's own fixed docks (their heights are static and known ahead of time), but the auth pages' primary submit button sits in normal document flow — its on-screen position depends on that specific form's field count, which isn't something the hook can pre-compute the way a fixed-height dock's height is. Checked every other auth surface for the same class of bug before concluding scope: Login and each of the three Forgot-Password steps (email, OTP, new-password) do NOT collide — their forms are short enough to clear the button's band — so this was genuinely isolated to Register's longer 4-field form, not a systemic auth-page problem.
+
+**Fix:** rather than hardcode a pixel reservation tied to today's specific form heights (which would silently break again the next time a field is added or removed), stopped rendering `WhatsAppButton` on `/login`, `/register`, and `/forgot-password` entirely — a pre-sales chat prompt isn't particularly relevant mid-authentication anyway, which is why hiding support widgets on auth/checkout screens is common practice elsewhere. This removes the whole collision class for these routes instead of papering over one instance of it.
+
+**Verified the fix and checked for regressions:** re-checked `/register` at 375px — WhatsApp button now absent, "Create account" fully clickable and unobscured. Confirmed the button still renders correctly on ordinary pages (home) — the hide is scoped to exactly the three auth paths, not a global regression. Re-checked the full Registration OTP step (a 4th, previously-unchecked auth surface) at 375px — clean, no collision, matches the fixed pages' now-correct behavior.
+
+**Also swept, all clean, nothing else found:** Home/PLP grids at 1024/1440 (4-column desktop grid, no overlap); PDP purchase dock and variant/size selectors at 375 (WhatsApp button correctly floats above the sticky purchase bar with clear spacing); Cart empty state and populated state at 375, with the weight-progress pill correctly showing "20g more to checkout"; Checkout's two-column form/order-summary layout at both 375 (stacked) and 768 (side-by-side) — payment method radios, "Place order" button, and order summary all render cleanly with no overlap against the bottom nav or WhatsApp button; Register/Login split-panel desktop layout at 1440.
+
+**Verified:** `pnpm --filter @woobe/web run lint` clean · `pnpm --filter @woobe/web run typecheck` clean · live browser verification (screenshots + `getBoundingClientRect()` overlap checks) across all four required widths as detailed above.
+
+**Follow-ups / known gaps:**
+- Only file changed: `apps/web/src/features/support/components/WhatsAppButton.tsx`. Not yet committed at the time of this entry.
+- The throwaway `day8-otp-check@example.com` registration attempt was never completed (OTP not verified), so no user row was ever created — nothing needed cleaning up in Postgres. The admin account's own leftover pending password-reset row (from checking the Forgot-Password OTP step's layout with a real, receivable code) was deleted from `password_reset_tokens` — admin's actual password itself was never touched, since only requesting a code doesn't change it.
+
+---
+
+## 2026-09-04/05 — Week 4 Day 9: Integration & Regression Hardening — full workspace gate re-run clean after Days 1-8
+
+**Branch:** `week4`. Day 9 is the plan's own "run everything, all together" consolidation gate — re-verifying the whole workspace after Days 1-8's cumulative changes (Sidebar.tsx, WhatsAppButton.tsx, two doc-comment fixes, week4.md itself), not re-litigating each day's own already-recorded findings.
+
+**Full workspace static checks:** `pnpm -r run lint` clean across all 9 packages/apps · `pnpm -r run typecheck` clean across all 9 · `boundaries:check` (dependency-cruiser on `apps/api`) clean — 553 modules, 0 violations, unchanged from Week 3's own last count (no new cross-module imports introduced this week).
+
+**Full test suite:** `pnpm -r run test` — **88 files, 641 tests**, all clean (`packages/utils` 3/23, `packages/validation` 1/13, `apps/api` 84/605) — the exact same tally Week 3 Day 10 closed on, confirming Week 4's changes (all frontend-only except the two doc-comment edits) introduced zero regressions to the backend suite. The handful of `prisma:error` unique-constraint log lines mid-run are expected noise from tests that intentionally trigger a duplicate/conflict path to verify the app returns a clean 409 rather than a raw 500 — not real failures.
+
+**Production builds, done the safe way (the Week 3 Day 2 lesson still holds):** stopped both `web` and `admin` dev servers first, built `apps/api` (plain `tsc`, no shared-cache risk to begin with), then clean-built `apps/web` and `apps/admin` (`.next` removed first) — both compiled successfully with the identical route/dynamic-static shape as every prior build this project. Cleared `.next` again and restarted the full dev fleet (web, admin, api server+worker) afterward — confirmed all three healthy via direct HTTP checks, and confirmed the API's worker pair stayed a clean single set (one `concurrently`, one server watcher, one worker watcher, no orphans re-accumulating after Day 7's cleanup).
+
+**Auth/commerce/admin flow verification — not re-run from scratch, credited from Days 1-8's own live work:** login, register, forgot-password/OTP, wishlist, cart, checkout, admin sidebar/nav, and admin coupon CRUD were each already driven live through the real browser earlier this week with their own dedicated verification (see each day's own entry) — re-doing them here would just re-prove what already has evidence. This pass's own added checks were the post-rebuild smoke tests: `GET /products` (200), `GET /home` (200), admin `POST /auth/login` (200) — confirming the rebuilt/restarted fleet actually serves real requests correctly, not just that it starts.
+
+**Verified:** everything above. No code changed this pass — Day 9 is a verification/consolidation gate, same as Week 3's own Day 9/10 split.
+
+**Follow-ups / known gaps:**
+- None new — everything already listed in Days 1-8's own entries (Sidebar.tsx and WhatsAppButton.tsx changes) stands as documented there, still uncommitted at the time of this entry.

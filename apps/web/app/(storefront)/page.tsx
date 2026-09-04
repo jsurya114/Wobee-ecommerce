@@ -22,10 +22,14 @@ function railItem(product: ProductSummary) {
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
  * every section: the category rail, a New Arrivals rail, a real "Fresh
  * picks" product grid, Shop by Budget, Best Sellers, Featured Collections,
- * Customer Reviews, and a thin trust line above the footer. No hero, no big
- * serif headings, no scroll-fade — the customer meets shoppable products
- * immediately. Search lives in the header (`HeaderSearch`), not an in-page
- * bar.
+ * Customer Reviews, and a thin trust line above the footer.
+ *
+ * Search: `HeaderSearch` (in `SiteHeader`, every page) is the one search
+ * entry point on desktop. `CompactSearchBar` below is additional and
+ * mobile-only (`md:hidden`) — an explicit client request (reference photo,
+ * 2026-09-03) for a persistent minimal search row under the header on small
+ * screens, where the header's own expandable search is easy to miss. Keep
+ * both — this is a deliberate product decision, not leftover scope.
  *
  * `dynamic = "force-dynamic"` (ADR-026): render live, per-request — product
  * and price data must never be frozen at build time.

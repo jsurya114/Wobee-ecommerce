@@ -1,8 +1,26 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import type { CSSProperties, ComponentProps } from "react";
 import { useWhatsAppBottomOffset } from "../hooks/useWhatsAppBottomOffset";
 import { buildWhatsAppHref } from "../lib/whatsapp";
+
+// Week 4 Day 8 fix (2026-09-04): the auth pages (all three share `AuthShell`)
+// have a normal-flow primary submit button, not a fixed dock the way
+// PDP/cart do — `useWhatsAppBottomOffset` has no way to reserve space above
+// a button whose position depends on that specific form's field count and
+// isn't knowable ahead of time the way a dock's fixed height is. Confirmed
+// live at 375px: `/register`'s 4-field form puts "Create account" exactly
+// inside this button's reserved band on first paint (no scroll needed) —
+// `/login` and each `/forgot-password` step happen to have short enough
+// forms to clear it, but that's incidental to their current field count, not
+// a guarantee. Rather than hardcode a reservation tied to today's specific
+// form heights (fragile — breaks silently again the next time a field is
+// added), hide the widget on auth pages entirely: a pre-sales chat prompt
+// isn't relevant mid-authentication anyway (common practice on checkout/auth
+// screens elsewhere), and it removes this whole collision class instead of
+// papering over one instance of it.
+const HIDDEN_ON_PATHS = ["/login", "/register", "/forgot-password"];
 
 const ENQUIRY_MESSAGE = "Hi Woobe, I have an enquiry.";
 
@@ -23,9 +41,10 @@ function WhatsAppIcon(props: ComponentProps<"svg">) {
  * number lives in this component.
  */
 export function WhatsAppButton() {
+  const pathname = usePathname();
   const bottomOffset = useWhatsAppBottomOffset();
   const href = buildWhatsAppHref(ENQUIRY_MESSAGE);
-  if (!href) return null;
+  if (!href || HIDDEN_ON_PATHS.includes(pathname)) return null;
 
   return (
     <a

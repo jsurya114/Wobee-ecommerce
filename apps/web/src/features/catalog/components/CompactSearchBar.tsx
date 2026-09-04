@@ -8,10 +8,12 @@ import { SearchField } from "@/features/catalog/components/SearchField";
 
 /**
  * Compact, lightweight search entry point (UI/UX refinement pass,
- * 2026-09-03) shared by the home page and the shop listing — sits in its
- * own row directly BELOW the sticky header (never inside it), so it can
- * never expand over/hide the centered Woobe logo the way the old
- * header-inline `HeaderSearch` risked on mobile. Reuses the exact same
+ * 2026-09-03), currently mounted on the home page only (`md:hidden` — mobile
+ * viewports get this row in addition to the header's own search; desktop
+ * relies on `HeaderSearch` alone). Sits in its own row directly BELOW the
+ * sticky header (never inside it), so it can never expand over/hide the
+ * centered Woobe logo the way the old header-inline `HeaderSearch` risked on
+ * mobile. Reuses the exact same
  * `SearchField` (typeahead, submit-to-`/products?q=`, select-a-suggestion)
  * every other search entry point on the site uses — this only changes when
  * that real field mounts.
