@@ -551,6 +551,29 @@ Logout
 
 Day 10 — Final QA & CI Verification
 
+STATUS: DONE 2026-09-05. Migrations: verified against a genuinely fresh
+throwaway database (`woobe_day10_week4_check`), not just diffed — all 17
+migrations applied cleanly via `migrate deploy`, in order, including Week
+3's Day 4 addition. Schema: `migrate:diff:check` reports "No difference
+detected" — zero drift between `schema.prisma` and the migration history
+(expected: Week 4 made no schema changes). Seed: ran clean against that
+same fresh database (15 products, demo coupons, admin/staff accounts, no
+errors). Then started a real scratch API instance against it and confirmed
+actual HTTP requests succeed (`GET /products` → 200, 15 products; admin
+login → 200) before dropping the database. Tests: full workspace suite run
+twice more today specifically for this gate — 88 files/641 tests clean
+both times, no flakes. Production builds: all three (api/web/admin)
+re-confirmed clean (see Day 9). Environment variables: no new ones
+introduced this week (WhatsAppButton reuses the existing
+`NEXT_PUBLIC_WHATSAPP_NUMBER`); `.env.example` files untouched. Secrets:
+scanned the full `week4` diff — no credentials, tokens, or keys, only
+documentation prose discussing the forgot-password/OTP feature by name.
+Git status/diff: working tree clean, everything committed (`a0c13f3`) and
+pushed to `origin/week4`. CI: `.github/workflows/ci.yml` only triggers on
+`pull_request` or `push` to `main` — it correctly never ran on the `week4`
+branch itself (same as Week 3's own pattern); the local gate above is the
+equivalent verification until this merges to `main` or a PR is opened.
+
 Treat Week 4 as a release candidate.
 
 Verify:

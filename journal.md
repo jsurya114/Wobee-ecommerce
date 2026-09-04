@@ -2697,3 +2697,45 @@ Also confirmed already-correct along the way (no changes needed): unknown-paymen
 
 **Follow-ups / known gaps:**
 - None new — everything already listed in Days 1-8's own entries (Sidebar.tsx and WhatsAppButton.tsx changes) stands as documented there, still uncommitted at the time of this entry.
+
+---
+
+## 2026-09-04 — Pushed Week 4 Days 1-9 to `origin/week4`
+
+**Branch:** `week4`. Per the user's explicit "first push to git with conventional commit" instruction. Cross-checked every changed file against this journal before committing (per the user's own standing "always update journal.md" instruction) — `Sidebar.tsx`, `page.tsx`, `CompactSearchBar.tsx`, and `WhatsAppButton.tsx` each already had dedicated day entries; `week4.md` itself was referenced throughout. Nothing found undocumented.
+
+**Commit:** one conventional commit, `fix(admin,web): Week 4 Days 1-9 — sidebar persistence/active-state, WhatsApp/CTA collision, plan audit` (`a0c13f3`), body summarizing each of the three functional fixes (admin sidebar sticky+active-state, search doc-comment corrections, WhatsApp/Register collision) plus the new `week4.md` plan file, closing with the same verification summary already in Day 9's own entry. Pushed clean, `0b0e349..a0c13f3 week4 -> week4`.
+
+**Verified:** working tree clean after push; `git log` on `origin/week4` confirms the commit landed.
+
+**Follow-ups / known gaps:** none.
+
+---
+
+## 2026-09-05 — Week 4 Day 10: Final QA & CI Verification — the closing gate, no code changes
+
+**Branch:** `week4`. Day 10 is pure verification, not new work — same role as Week 3's own Day 10.
+
+**Migrations + schema, verified against a genuinely fresh database, not just diffed:** created a real throwaway Postgres database (`woobe_day10_week4_check`), ran `prisma migrate deploy` — all 17 migrations (including Week 3 Day 4's `payment_order_id_unique` addition) applied cleanly in order. `migrate:diff:check` (schema vs. migration history) reports "No difference detected" — zero drift, as expected since Week 4 made no schema changes at all.
+
+**Seed, verified for real:** ran the actual seed script against that same fresh database — 15 products with variants/inventory, demo coupons, admin/staff accounts, no errors. Then started a real scratch API instance against it (a distinct port, `API_PORT=4099`, to avoid touching the live dev fleet) and confirmed genuine HTTP requests succeeded: `GET /products` returned 200 with all 15 seeded products, admin login returned 200. Dropped the throwaway database afterward.
+
+**One real mistake made and fixed during this verification:** used `pkill -f "tsx src/server.ts"` to stop the scratch API instance, not realizing the pattern also matched the *real* dev API fleet's own `server.ts` process — killed it by accident. Caught immediately via a direct health check (`curl` returned connection-refused), restarted the real fleet cleanly with `pnpm run dev`, and explicitly re-verified afterward that it was talking to the real `woobe_dev` database and not left pointed at anything else — checked the admin customers endpoint by email address (`desktop-qa-tester@example.com`, `jayasuryabrocamp@gmail.com`, `jayasooryaegurukulam@gmail.com`) against a direct `psql` query of the same table, confirming an exact match. Also reconfirmed the worker pair came back as one clean set (no orphans re-accumulating).
+
+**Full test suite, run twice more today specifically for this gate** (on top of Day 9's own run yesterday): **88 files, 641 tests**, clean both times — no flakes.
+
+**Production builds:** already re-verified clean on Day 9; not rebuilt again today since nothing changed since then.
+
+**Environment variables:** no new ones introduced this week — `WhatsAppButton`'s auth-page fix reuses the existing `NEXT_PUBLIC_WHATSAPP_NUMBER`; every `.env.example` file is untouched in this week's diff.
+
+**Secrets scan:** grepped the full committed `week4` diff for password/secret/token/key-shaped strings — every hit was documentation prose about the forgot-password/OTP *feature* (journal and plan-doc text), not an actual credential. No new secret ever entered the diff.
+
+**Git status/diff:** working tree clean, everything already committed and pushed (`a0c13f3` on `origin/week4`, previous entry).
+
+**CI:** checked `.github/workflows/ci.yml`'s own trigger config — it only runs on `pull_request` or `push` to `main`, so it correctly never fired on the `week4` branch push itself. This mirrors Week 3's own pattern exactly (real CI confirmation happened only after that merge to `main`) — not a gap, just how this repo's CI is scoped. The local gate above (lint/typecheck/boundaries/tests/builds, all clean) is the equivalent verification available pre-merge.
+
+**Verified:** everything above. No code changes this pass — Day 10 is verification-only.
+
+**Follow-ups / known gaps:**
+- Real CI (GitHub Actions) can only be confirmed once `week4` is merged to `main` or a PR is opened against it — same as Week 3.
+- Not yet merged to `main` — awaiting the user's explicit instruction, per this session's own established pattern.
