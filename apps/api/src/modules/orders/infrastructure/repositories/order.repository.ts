@@ -100,6 +100,12 @@ export class OrderRepository implements OrderRepositoryPort {
     const orders = await prisma.order.findMany({
       where: { userId },
       orderBy: { placedAt: "desc" },
+      // Week 3 Day 9 perf review — this had no cap at all (flagged, not yet
+      // fixed, on Day 6): a customer's whole order history in one
+      // unbounded query on every "My Orders" load. 100 is generous headroom
+      // over any real customer's history today; a genuine "load more" UI is
+      // a bigger, separate change this narrow fix doesn't attempt.
+      take: 100,
       select: {
         id: true,
         orderNumber: true,

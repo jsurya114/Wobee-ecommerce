@@ -400,6 +400,21 @@ describe("coupons: checkout redemption", () => {
     for (const item of persisted.items) {
       expect(item.taxAmountPaise).toBeLessThan(item.lineTotalPaise); // sanity: GST slabs here are well under 100%
     }
+
+    // Week 3 Day 9 — "Coupon + shipping + tax" combined, and the full
+    // financial-reconciliation formula, not just the pieces this test
+    // already checked individually. Both fixture lines are FIXED-priced —
+    // zero weight-based grams, so shipping never meets the free-delivery
+    // threshold (ADR-021) and lands on the live rule's flat standard fee,
+    // fetched live rather than hardcoded (same "recompute from live
+    // settings" discipline Day 1's own reconciliation test uses).
+    const shippingRule = await prisma.shippingRule.findFirstOrThrow({ orderBy: { effectiveFrom: "desc" } });
+    expect(checkoutRes.body.shippingFeePaise).toBe(shippingRule.standardFeePaise);
+    expect(persisted.shippingFeePaise).toBe(shippingRule.standardFeePaise);
+    expect(checkoutRes.body.totalPaise).toBe(
+      checkoutRes.body.subtotalPaise + checkoutRes.body.shippingFeePaise + checkoutRes.body.taxPaise - checkoutRes.body.discountPaise,
+    );
+    expect(persisted.totalPaise).toBe(checkoutRes.body.totalPaise);
   });
 });
 
