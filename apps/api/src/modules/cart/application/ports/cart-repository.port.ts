@@ -32,6 +32,21 @@ export interface CartRepositoryPort {
    * so "order created" and "cart converted" commit or roll back together.
    */
   markCartConverted(cartId: string, tx: unknown): Promise<void>;
+  /**
+   * Week 3 Day 1 hardening — `SELECT ... FOR UPDATE` on the cart row itself,
+   * same row-locking pattern ADR-015 already uses for inventory. Must be the
+   * FIRST thing CheckoutUseCase does inside its transaction: two checkout
+   * requests racing for the same cart (a double-click, a client retry) both
+   * pass the pre-transaction `getCart`/availability checks — nothing there
+   * is locked — so without this lock both could reserve inventory and
+   * create a separate order from the identical cart. Whichever transaction
+   * gets the lock first serializes the second behind it; the second then
+   * re-reads `status` under the lock and (via CheckoutUseCase) rejects
+   * cleanly once it sees CONVERTED rather than silently double-booking.
+   * Returns null only if the cart row itself is gone (shouldn't happen —
+   * carts are never deleted, only status-transitioned).
+   */
+  lockCartForCheckout(cartId: string, tx: unknown): Promise<CartRecord | null>;
 
   findItems(cartId: string): Promise<CartItemRecord[]>;
   findItem(cartId: string, itemId: string): Promise<CartItemRecord | null>;

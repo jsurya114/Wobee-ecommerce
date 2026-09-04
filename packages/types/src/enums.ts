@@ -31,6 +31,10 @@ export type ReturnStatus = (typeof RETURN_STATUS)[number];
 export const PAYMENT_METHOD = ["RAZORPAY", "COD"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHOD)[number];
 
+/** Week 3 Day 6 — admin "payment visibility": distinct from PaymentMethod (COD/RAZORPAY says HOW; this says whether money actually moved). */
+export const PAYMENT_STATUS = ["CREATED", "PENDING", "CAPTURED", "FAILED", "REFUNDED"] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUS)[number];
+
 export const REFUND_STATUS = ["INITIATED", "COMPLETED", "FAILED"] as const;
 export type RefundStatus = (typeof REFUND_STATUS)[number];
 

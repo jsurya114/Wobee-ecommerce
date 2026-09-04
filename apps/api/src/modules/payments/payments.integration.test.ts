@@ -257,4 +257,120 @@ describe("payments: Razorpay webhook (ADR-014)", () => {
     expect(inventory.quantityAvailable).toBe(3);
     expect(inventory.quantityReserved).toBe(0);
   });
+
+  it("Week 3 Day 5: a late/out-of-order payment.captured arriving AFTER payment.failed already resolved the order is acked 200, not left to 500/409 — and does not resurrect the order", async () => {
+    const { variantId } = await createTestVariant(3);
+    const agent = request.agent(app);
+    const order = await checkoutOrder(agent, variantId, "RAZORPAY");
+
+    const razorpayOrderId = `order_test_${randomUUID().slice(0, 12)}`;
+    await prisma.payment.create({
+      data: { orderId: order.id, provider: "RAZORPAY", status: "CREATED", amountPaise: order.totalPaise, razorpayOrderId },
+    });
+
+    const failedPayload = {
+      event: "payment.failed",
+      payload: { payment: { entity: { id: `pay_test_${randomUUID().slice(0, 12)}`, order_id: razorpayOrderId, amount: order.totalPaise, status: "failed" } } },
+    };
+    const failedBody = JSON.stringify(failedPayload);
+    const failedRes = await request(app)
+      .post("/api/v1/payments/razorpay/webhook")
+      .set("X-Razorpay-Signature", signPayload(failedBody))
+      .set("X-Razorpay-Event-Id", randomUUID())
+      .set("Content-Type", "application/json")
+      .send(failedBody);
+    expect(failedRes.status).toBe(200);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("PAYMENT_FAILED");
+
+    // A DIFFERENT event (its own eventId — not a redelivery of the one
+    // above) for the SAME razorpayOrderId, arriving late — Razorpay's own
+    // docs don't guarantee delivery order. The order has already moved on.
+    const capturedPayload = {
+      event: "payment.captured",
+      payload: { payment: { entity: { id: `pay_test_${randomUUID().slice(0, 12)}`, order_id: razorpayOrderId, amount: order.totalPaise, status: "captured" } } },
+    };
+    const capturedBody = JSON.stringify(capturedPayload);
+    const capturedRes = await request(app)
+      .post("/api/v1/payments/razorpay/webhook")
+      .set("X-Razorpay-Signature", signPayload(capturedBody))
+      .set("X-Razorpay-Event-Id", randomUUID())
+      .set("Content-Type", "application/json")
+      .send(capturedBody);
+
+    // Razorpay must get a 2xx here regardless — a non-2xx means Razorpay
+    // retries this delivery forever (the controller's own doc comment
+    // already promises this; this test holds it to that promise for the
+    // one case that wasn't covered).
+    expect(capturedRes.status).toBe(200);
+
+    // The order must NOT flip back to CONFIRMED from a stale late event —
+    // that would silently un-fail an order fulfillment already gave up on.
+    const finalOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(finalOrder.status).toBe("PAYMENT_FAILED");
+    // Inventory stays released, not finalized into a deduction.
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(inventory.quantityAvailable).toBe(3);
+    expect(inventory.quantityReserved).toBe(0);
+  });
+
+  it("Week 3 Day 5: a late/out-of-order payment.failed arriving AFTER payment.captured already confirmed the order is acked 200 — and does not un-confirm it", async () => {
+    const { variantId } = await createTestVariant(3);
+    const agent = request.agent(app);
+    const order = await checkoutOrder(agent, variantId, "RAZORPAY");
+
+    const razorpayOrderId = `order_test_${randomUUID().slice(0, 12)}`;
+    await prisma.payment.create({
+      data: { orderId: order.id, provider: "RAZORPAY", status: "CREATED", amountPaise: order.totalPaise, razorpayOrderId },
+    });
+
+    const capturedPayload = {
+      event: "payment.captured",
+      payload: { payment: { entity: { id: `pay_test_${randomUUID().slice(0, 12)}`, order_id: razorpayOrderId, amount: order.totalPaise, status: "captured" } } },
+    };
+    const capturedBody = JSON.stringify(capturedPayload);
+    const capturedRes = await request(app)
+      .post("/api/v1/payments/razorpay/webhook")
+      .set("X-Razorpay-Signature", signPayload(capturedBody))
+      .set("X-Razorpay-Event-Id", randomUUID())
+      .set("Content-Type", "application/json")
+      .send(capturedBody);
+    expect(capturedRes.status).toBe(200);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("CONFIRMED");
+
+    const failedPayload = {
+      event: "payment.failed",
+      payload: { payment: { entity: { id: `pay_test_${randomUUID().slice(0, 12)}`, order_id: razorpayOrderId, amount: order.totalPaise, status: "failed" } } },
+    };
+    const failedBody = JSON.stringify(failedPayload);
+    const failedRes = await request(app)
+      .post("/api/v1/payments/razorpay/webhook")
+      .set("X-Razorpay-Signature", signPayload(failedBody))
+      .set("X-Razorpay-Event-Id", randomUUID())
+      .set("Content-Type", "application/json")
+      .send(failedBody);
+
+    expect(failedRes.status).toBe(200);
+
+    const finalOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(finalOrder.status).toBe("CONFIRMED"); // not un-confirmed by a stale late failure
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(inventory.quantityAvailable).toBe(2); // still sold, not restored
+  });
+
+  it("Week 3 Day 5: a webhook for a razorpayOrderId with no local Payment record is acked 200 and ignored, not a crash", async () => {
+    const payload = {
+      event: "payment.captured",
+      payload: { payment: { entity: { id: `pay_test_${randomUUID().slice(0, 12)}`, order_id: `order_unknown_${randomUUID().slice(0, 12)}`, amount: 10000, status: "captured" } } },
+    };
+    const body = JSON.stringify(payload);
+    const res = await request(app)
+      .post("/api/v1/payments/razorpay/webhook")
+      .set("X-Razorpay-Signature", signPayload(body))
+      .set("X-Razorpay-Event-Id", randomUUID())
+      .set("Content-Type", "application/json")
+      .send(body);
+
+    expect(res.status).toBe(200);
+    expect(res.body.result).toBe("ignored");
+  });
 });

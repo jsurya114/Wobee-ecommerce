@@ -1,8 +1,8 @@
 "use client";
 
 import { formatPaiseAsInr } from "@woobe/utils";
-import { Badge, Card, Skeleton } from "@woobe/ui";
-import { ChevronDown, ChevronRight, PackageSearch } from "lucide-react";
+import { Badge, Button, Card, Skeleton } from "@woobe/ui";
+import { AlertTriangle, ChevronDown, ChevronRight, PackageSearch } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -20,6 +20,10 @@ export function MyOrdersList() {
   const router = useRouter();
   const { accessToken, status } = useAuth();
   const [orders, setOrders] = useState<OrderSummary[] | null>(null);
+  // Week 3 Day 6 — this fetch had no error state at all: a failed request
+  // left `orders` at null forever, so a network/server error rendered as
+  // an infinite loading skeleton instead of anything actionable.
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -29,21 +33,30 @@ export function MyOrdersList() {
 
   const refetch = useCallback(() => {
     if (!accessToken) return;
-    void ordersApi.listMyOrders(accessToken).then((result) => setOrders(result.orders));
+    setLoadError(false);
+    ordersApi
+      .listMyOrders(accessToken)
+      .then((result) => setOrders(result.orders))
+      .catch(() => setLoadError(true));
   }, [accessToken]);
 
   useEffect(() => {
     if (status !== "authenticated" || !accessToken) return;
     let cancelled = false;
-    void ordersApi.listMyOrders(accessToken).then((result) => {
-      if (!cancelled) setOrders(result.orders);
-    });
+    ordersApi
+      .listMyOrders(accessToken)
+      .then((result) => {
+        if (!cancelled) setOrders(result.orders);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      });
     return () => {
       cancelled = true;
     };
   }, [status, accessToken]);
 
-  if (status === "loading" || (status === "authenticated" && orders === null)) {
+  if (status === "loading" || (status === "authenticated" && orders === null && !loadError)) {
     return (
       <div className="flex flex-col gap-3">
         {[0, 1, 2].map((i) => (
@@ -55,6 +68,18 @@ export function MyOrdersList() {
 
   if (status !== "authenticated") {
     return null; // redirect effect above is already firing
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-16 text-center">
+        <AlertTriangle className="h-10 w-10 text-error" strokeWidth={1.25} aria-hidden="true" />
+        <p className="font-body text-sm text-text-secondary">We couldn&apos;t load your orders. Please try again.</p>
+        <Button type="button" variant="secondary" size="sm" onClick={refetch}>
+          Retry
+        </Button>
+      </div>
+    );
   }
 
   const claimSection = accessToken ? (

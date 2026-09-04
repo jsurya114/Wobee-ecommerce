@@ -18,6 +18,7 @@ import { ApplyCouponUseCase } from "./application/use-cases/apply-coupon.use-cas
 import { ChangeItemVariantUseCase } from "./application/use-cases/change-item-variant.use-case";
 import { GetCartUseCase } from "./application/use-cases/get-cart.use-case";
 import { GetOrCreateCartUseCase } from "./application/use-cases/get-or-create-cart.use-case";
+import { LockCartForCheckoutUseCase } from "./application/use-cases/lock-cart-for-checkout.use-case";
 import { MarkCartConvertedUseCase } from "./application/use-cases/mark-cart-converted.use-case";
 import { MergeGuestCartUseCase } from "./application/use-cases/merge-guest-cart.use-case";
 import { RemoveCouponUseCase } from "./application/use-cases/remove-coupon.use-case";
@@ -49,6 +50,8 @@ const removeItemUseCase = new RemoveItemUseCase(cartRepository);
 const mergeGuestCartUseCase = new MergeGuestCartUseCase(cartRepository, inventoryReader, getOrCreateCartUseCase);
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const markCartConvertedUseCase = new MarkCartConvertedUseCase(cartRepository);
+/** Exported for cross-module use — see the use-case's own doc comment (Week 3 Day 1 checkout-concurrency hardening). */
+export const lockCartForCheckoutUseCase = new LockCartForCheckoutUseCase(cartRepository);
 const applyCouponUseCase = new ApplyCouponUseCase(cartRepository, getCartUseCase, couponPreview);
 const removeCouponUseCase = new RemoveCouponUseCase(cartRepository);
 

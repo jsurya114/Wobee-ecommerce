@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { ValidationError } from "../../../../shared/errors";
 import type { CancelOrderWithRefundUseCase } from "../../application/use-cases/cancel-order-with-refund.use-case";
 import type { DeliverOrderAndCapturePaymentUseCase } from "../../application/use-cases/deliver-order-and-capture-payment.use-case";
-import type { GetOrderForAdminUseCase } from "../../../orders/application/use-cases/get-order-for-admin.use-case";
+import type { GetOrderDetailForAdminUseCase } from "../../application/use-cases/get-order-detail-for-admin.use-case";
 import type { ListOrdersUseCase } from "../../../orders/application/use-cases/list-orders.use-case";
 import type { ShipOrderUseCase } from "../../../orders/application/use-cases/ship-order.use-case";
 import type { StartProcessingOrderUseCase } from "../../../orders/application/use-cases/start-processing-order.use-case";
@@ -11,7 +11,7 @@ import type { StartProcessingOrderUseCase } from "../../../orders/application/us
 export class AdminOrdersController {
   constructor(
     private readonly listOrdersUseCase: ListOrdersUseCase,
-    private readonly getOrderForAdminUseCase: GetOrderForAdminUseCase,
+    private readonly getOrderDetailForAdminUseCase: GetOrderDetailForAdminUseCase,
     private readonly startProcessingOrderUseCase: StartProcessingOrderUseCase,
     private readonly shipOrderUseCase: ShipOrderUseCase,
     private readonly deliverOrderUseCase: DeliverOrderAndCapturePaymentUseCase,
@@ -26,7 +26,7 @@ export class AdminOrdersController {
 
   async getOne(req: Request, res: Response): Promise<void> {
     const orderId = requireOrderId(req);
-    const order = await this.getOrderForAdminUseCase.execute(orderId);
+    const order = await this.getOrderDetailForAdminUseCase.execute(orderId);
     res.status(200).json(order);
   }
 

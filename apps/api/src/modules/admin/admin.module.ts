@@ -82,7 +82,7 @@ import {
   updateProductUseCase,
   updateProductVariantUseCase,
 } from "../products/products.module";
-import { getPaymentCollectionSummaryUseCase, markCodPaymentCapturedUseCase } from "../payments/payments.module";
+import { getPaymentCollectionSummaryUseCase, getPaymentForOrderUseCase, markCodPaymentCapturedUseCase } from "../payments/payments.module";
 import { getPricingSettingUseCase, updatePricingSettingUseCase } from "../pricing/pricing.module";
 import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
 import {
@@ -99,6 +99,7 @@ import { GetCustomerDetailUseCase } from "./application/use-cases/get-customer-d
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { DeliverOrderAndCapturePaymentUseCase } from "./application/use-cases/deliver-order-and-capture-payment.use-case";
 import { GetAdminDashboardUseCase } from "./application/use-cases/get-admin-dashboard.use-case";
+import { GetOrderDetailForAdminUseCase } from "./application/use-cases/get-order-detail-for-admin.use-case";
 import { AdminAnalyticsController } from "./interface/http/admin-analytics.controller";
 import { createAdminAnalyticsRouter } from "./interface/http/admin-analytics.routes";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
@@ -152,9 +153,10 @@ const getAdminDashboardUseCase = new GetAdminDashboardUseCase(
 );
 
 const adminAuthController = new AdminAuthController(loginUserUseCase, refreshTokenUseCase, logoutUserUseCase, getCurrentUserUseCase);
+const getOrderDetailForAdminUseCase = new GetOrderDetailForAdminUseCase(getOrderForAdminUseCase, getPaymentForOrderUseCase);
 const adminOrdersController = new AdminOrdersController(
   listOrdersUseCase,
-  getOrderForAdminUseCase,
+  getOrderDetailForAdminUseCase,
   startProcessingOrderUseCase,
   shipOrderUseCase,
   deliverOrderAndCapturePaymentUseCase,

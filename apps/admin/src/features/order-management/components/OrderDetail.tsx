@@ -1,16 +1,21 @@
 "use client";
 
+import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
+import { hasPermission } from "@/features/shell/nav-config";
 import { LoadingState } from "@/features/shell/components/LoadingState";
 import { resolveImageUrl } from "@/lib/resolve-image-url";
 import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact, sumWeightBasedGrams } from "@woobe/utils";
 import { Badge, Card } from "@woobe/ui";
 import Link from "next/link";
+import type { AdminOrderView } from "../api/admin-orders.client";
 import { useAdminOrder } from "../hooks/useAdminOrder";
 import { OrderStatusActions } from "./OrderStatusActions";
 import { OrderTimeline } from "./OrderTimeline";
 
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { order, loading, error, startProcessing, ship, deliver, cancel, lastRefundIssued } = useAdminOrder(orderId);
+  const { user } = useAdminAuth();
+  const canViewCustomer = hasPermission(user?.role, "MANAGE_CUSTOMERS");
 
   if (loading) {
     return <LoadingState />;
@@ -97,13 +102,25 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </Card>
 
         <Card className="p-4">
-          <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Contact & shipping</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-body text-sm font-medium text-text-primary">Contact & shipping</h2>
+            {/* Week 3 Day 6 — "Customer relationship": null for a guest checkout (no account to link to); also hidden — same "defense in depth" reasoning as OrderStatusActions' own permission check above — for a staff role without MANAGE_CUSTOMERS, which the customer-detail route requires server-side. */}
+            {order.userId && canViewCustomer ? (
+              <Link href={`/customers/${order.userId}`} className="font-body text-xs text-primary hover:underline">
+                View customer
+              </Link>
+            ) : !order.userId ? (
+              <span className="font-body text-xs text-text-secondary">Guest checkout</span>
+            ) : null}
+          </div>
           <dl className="flex flex-col gap-1 font-body text-sm">
             <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Name</dt><dd className="text-right text-text-primary">{order.contactName}</dd></div>
             <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Phone</dt><dd className="text-right text-text-primary">{order.contactPhone}</dd></div>
             <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Email</dt><dd className="break-all text-right text-text-primary">{order.contactEmail}</dd></div>
             <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Address</dt><dd className="text-right text-text-primary">{order.shippingSnapshot.line1}, {order.shippingSnapshot.city}, {order.shippingSnapshot.state} {order.shippingSnapshot.pincode}</dd></div>
             <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Payment method</dt><dd className="text-right text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd></div>
+            {/* Week 3 Day 6 — distinct from "Payment method" above: that says HOW, this says whether money has actually moved (a CONFIRMED COD order is often still PENDING here until delivery — see ConfirmCodOrderUseCase). */}
+            <div className="flex items-center justify-between gap-3"><dt className="shrink-0 text-text-secondary">Payment status</dt><dd className="text-right"><PaymentStatusBadge status={order.paymentStatus} /></dd></div>
           </dl>
         </Card>
 
@@ -123,4 +140,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       </Card>
     </div>
   );
+}
+
+function PaymentStatusBadge({ status }: { status: AdminOrderView["paymentStatus"] }) {
+  if (!status) return <span className="font-body text-sm text-text-secondary">—</span>;
+  const variant = status === "CAPTURED" ? "success" : status === "FAILED" ? "error" : "neutral";
+  return <Badge variant={variant}>{status.toLowerCase()}</Badge>;
 }

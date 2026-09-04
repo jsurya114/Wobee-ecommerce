@@ -151,6 +151,49 @@ describe("checkout: full price/tax/shipping snapshot", () => {
     expect(persisted.shippingSnapshot).toMatchObject({ city: "Bengaluru", pincode: "560001" });
   });
 
+  it("Week 3 Day 2: ignores client-supplied price/shipping/tax/total fields entirely — server recomputes every one", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+
+    const agent = request.agent(app);
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    // A hostile or buggy client stuffing every authoritative financial field
+    // it can think of into the checkout body, all wildly wrong — Zod's
+    // checkoutSchema doesn't declare any of these keys, so `validate`
+    // middleware strips them from req.body before CheckoutUseCase ever runs
+    // (DEVELOPMENT_RULES.md #1: nothing client-sent is ever trusted).
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: "buyer@test.woobe.internal",
+      confirmEmail: "buyer@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod: "COD",
+      subtotalPaise: 1,
+      taxPaise: 0,
+      shippingFeePaise: 0,
+      discountPaise: 999_999_99,
+      totalPaise: 1,
+      unitPricePaise: 1,
+    });
+
+    expect(res.status).toBe(201);
+    createdOrderIds.push(res.body.id);
+
+    const rate = await prisma.pricingSetting.findFirstOrThrow({ orderBy: { effectiveFrom: "desc" } });
+    const expectedUnitPricePaise = Math.round((1200 * rate.defaultRatePerKgPaise) / 1000);
+
+    // None of the attacker-supplied values survived — every one is server-computed.
+    expect(res.body.discountPaise).toBe(0);
+    expect(res.body.shippingFeePaise).toBeGreaterThan(0);
+    expect(res.body.taxPaise).toBeGreaterThan(0);
+    expect(res.body.subtotalPaise).toBe(expectedUnitPricePaise);
+    expect(res.body.totalPaise).toBe(res.body.subtotalPaise + res.body.taxPaise + res.body.shippingFeePaise);
+    expect(res.body.items[0].unitPricePaise).toBe(expectedUnitPricePaise);
+
+    const persisted = await prisma.order.findUniqueOrThrow({ where: { id: res.body.id } });
+    expect(persisted.totalPaise).toBe(res.body.totalPaise);
+    expect(persisted.discountPaise).toBe(0);
+  });
+
   it("blocks checkout below the ADR-021 minimum order weight", async () => {
     const { variantId } = await createTestVariant({ weightGrams: 200, quantityAvailable: 5 });
 
@@ -185,6 +228,62 @@ describe("checkout: full price/tax/shipping snapshot", () => {
       });
 
     expect(res.status).toBe(422);
+  });
+
+  it("rejects checkout when a cart item's product/variant is deactivated after it was already added", async () => {
+    // AddItemUseCase already refuses to add an inactive variant (404) — this
+    // is the OTHER path: valid at add-to-cart time, deactivated by an admin
+    // while it sits in the bag. Checkout must re-check live state, not
+    // trust whatever was true when the item was added.
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+
+    const agent = request.agent(app);
+    const addRes = await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    expect(addRes.status).toBe(200);
+
+    await prisma.productVariant.update({ where: { id: variantId }, data: { isActive: false } });
+
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: "buyer@test.woobe.internal",
+      confirmEmail: "buyer@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("CONFLICT");
+    // Confirm this didn't half-succeed — no order, nothing reserved.
+    const orderCount = await prisma.order.count({ where: { items: { some: { variantId } } } });
+    expect(orderCount).toBe(0);
+  });
+
+  it("rejects checkout when stock drops below the cart's requested quantity after it was already added", async () => {
+    // No race here (single request) — proves the plain, non-concurrent
+    // insufficient-stock path independently of the concurrency describe
+    // block below.
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 3 });
+
+    const agent = request.agent(app);
+    const addRes = await agent.post("/api/v1/cart/items").send({ variantId, quantity: 3 });
+    expect(addRes.status).toBe(200);
+
+    // Simulate stock depletion by another sale between add-to-cart and checkout.
+    await prisma.inventory.updateMany({ where: { variantId }, data: { quantityAvailable: 1 } });
+
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: "buyer@test.woobe.internal",
+      confirmEmail: "buyer@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("CONFLICT");
+    const orderCount = await prisma.order.count({ where: { items: { some: { variantId } } } });
+    expect(orderCount).toBe(0);
+    // Nothing reserved from the failed attempt.
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(inventory.quantityReserved).toBe(0);
   });
 });
 
@@ -224,6 +323,48 @@ describe("checkout: concurrent reservation (ADR-015)", () => {
 
     const orderCount = await prisma.order.count({ where: { items: { some: { variantId } } } });
     expect(orderCount).toBe(1);
+  });
+});
+
+describe("checkout: duplicate-checkout concurrency (Week 3 Day 1 hardening)", () => {
+  it("only one of two simultaneous checkouts for the SAME cart succeeds — plenty of stock for both", async () => {
+    // Deliberately generous stock (10, for 2 requested) — this isolates the
+    // cart-lock fix from ADR-015's separate stock-scarcity guard above:
+    // if stock alone were the reason only one succeeds, that wouldn't prove
+    // the SAME-cart race is actually closed.
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 10 });
+
+    const agent = request.agent(app); // ONE cart for both concurrent requests
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    const body = {
+      contactEmail: "dup-checkout@test.woobe.internal",
+      confirmEmail: "dup-checkout@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod: "COD" as const,
+    };
+    const [resA, resB] = await Promise.all([
+      agent.post("/api/v1/orders/checkout").send(body),
+      agent.post("/api/v1/orders/checkout").send(body),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    const winner = resA.status === 201 ? resA : resB;
+    createdOrderIds.push(winner.body.id);
+
+    const loser = resA.status === 201 ? resB : resA;
+    expect(loser.body.error.code).toBe("CONFLICT");
+
+    // Exactly one order, exactly one unit reserved — not two of either.
+    const orderCount = await prisma.order.count({ where: { items: { some: { variantId } } } });
+    expect(orderCount).toBe(1);
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(inventory.quantityReserved).toBe(1);
+
+    const cart = await prisma.cart.findFirstOrThrow({ where: { items: { some: { variantId } } } });
+    expect(cart.status).toBe("CONVERTED");
   });
 });
 
@@ -362,5 +503,70 @@ describe("guest order claim (client-review fix, 2026-09-03)", () => {
       .post("/api/v1/orders/claim-guest-order")
       .send({ orderNumber, contactEmail: "anon@test.woobe.internal" });
     expect(res.status).toBe(401);
+  });
+});
+
+describe("Week 3 Day 6: customer order authorization — no IDOR/BOLA", () => {
+  it("a logged-in customer cannot fetch another logged-in customer's order by id — 404, not 403 (don't reveal it exists)", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const ownerA = await registerTestUser();
+    await ownerA.agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    const checkoutRes = await ownerA.agent.post("/api/v1/orders/checkout").send({
+      contactEmail: ownerA.email,
+      confirmEmail: ownerA.email,
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+    expect(checkoutRes.status).toBe(201);
+    createdOrderIds.push(checkoutRes.body.id);
+
+    // The actual owner can view it — establishes the baseline before
+    // proving the other account can't.
+    const ownRes = await ownerA.agent.get(`/api/v1/orders/${checkoutRes.body.id}`);
+    expect(ownRes.status).toBe(200);
+
+    const strangerB = await registerTestUser();
+    const strangerRes = await strangerB.agent.get(`/api/v1/orders/${checkoutRes.body.id}`);
+    expect(strangerRes.status).toBe(404);
+  });
+
+  it("\"My Orders\" is scoped per-account — customer B's list never contains customer A's orders", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const ownerA = await registerTestUser();
+    await ownerA.agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    const checkoutRes = await ownerA.agent.post("/api/v1/orders/checkout").send({
+      contactEmail: ownerA.email,
+      confirmEmail: ownerA.email,
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+    expect(checkoutRes.status).toBe(201);
+    createdOrderIds.push(checkoutRes.body.id);
+
+    const strangerB = await registerTestUser();
+    const listRes = await strangerB.agent.get("/api/v1/orders");
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.orders.some((o: { id: string }) => o.id === checkoutRes.body.id)).toBe(false);
+
+    // And it DOES show up for the actual owner, for contrast.
+    const ownListRes = await ownerA.agent.get("/api/v1/orders");
+    expect(ownListRes.body.orders.some((o: { id: string }) => o.id === checkoutRes.body.id)).toBe(true);
+  });
+
+  it("an anonymous (logged-out) caller cannot fetch a logged-in customer's order by id either", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const ownerA = await registerTestUser();
+    await ownerA.agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    const checkoutRes = await ownerA.agent.post("/api/v1/orders/checkout").send({
+      contactEmail: ownerA.email,
+      confirmEmail: ownerA.email,
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+    expect(checkoutRes.status).toBe(201);
+    createdOrderIds.push(checkoutRes.body.id);
+
+    const anonRes = await request(app).get(`/api/v1/orders/${checkoutRes.body.id}`);
+    expect(anonRes.status).toBe(404);
   });
 });

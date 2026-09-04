@@ -1,4 +1,4 @@
-import type { OrderStatus, PaymentMethod } from "@woobe/types";
+import type { OrderStatus, PaymentMethod, PaymentStatus } from "@woobe/types";
 import type { CancelOrderInput, ShipOrderInput } from "@woobe/validation";
 import { apiFetch } from "@/lib/api-client";
 
@@ -24,6 +24,8 @@ export interface AdminOrderView {
   id: string;
   orderNumber: string;
   status: OrderStatus;
+  /** Week 3 Day 6 — "Customer relationship" (week3.md's admin scope): null for a guest checkout, which has no account to link to. */
+  userId: string | null;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
@@ -35,6 +37,8 @@ export interface AdminOrderView {
   totalPaise: number;
   totalWeightGrams: number;
   paymentMethod: PaymentMethod;
+  /** Week 3 Day 6 — distinct from paymentMethod: whether money has actually moved. Null only in the narrow window before checkout's own Payment row exists. */
+  paymentStatus: PaymentStatus | null;
   placedAt: string;
   trackingNumber: string | null;
   carrier: string | null;

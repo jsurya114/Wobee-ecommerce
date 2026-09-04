@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
+import * as addressesApi from "@/features/addresses/api/addresses.client";
+import type { Address } from "@/features/addresses/api/addresses.client";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useCart } from "@/features/cart/hooks/useCart";
 import * as shippingApi from "@/features/shipping/api/shipping.client";
@@ -63,6 +65,47 @@ export function CheckoutForm() {
     setValue("address.fullName", user.name);
     if (user.phone) setValue("address.phone", user.phone);
   }, [user, setValue]);
+
+  // Week 3 Day 2 — saved-address selection. The backend has had full
+  // Address CRUD (account/addresses) since Week 2; checkout never offered
+  // picking one, so a logged-in shopper had to retype their address every
+  // time. Read-only fetch here (no AddressesProvider — that Context is
+  // deliberately scoped to the address-book page only, see its own doc
+  // comment; checkout only ever needs to READ the list once). Selecting one
+  // still just fills the same editable fields below — it never bypasses
+  // server-side snapshotting (checkout always re-sends the full address as
+  // typed, exactly as before this change).
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | "new">("new");
+  useEffect(() => {
+    if (!user || !accessToken) {
+      setSavedAddresses([]);
+      return;
+    }
+    let cancelled = false;
+    void addressesApi.listAddresses(accessToken).then((result) => {
+      if (cancelled) return;
+      setSavedAddresses(result.addresses);
+      const preferred = result.addresses.find((a) => a.isDefault) ?? result.addresses[0];
+      if (preferred) applySavedAddress(preferred);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applySavedAddress is stable (closes only over setValue); re-running per its identity would refetch on every keystroke.
+  }, [user, accessToken]);
+
+  function applySavedAddress(address: Address): void {
+    setSelectedAddressId(address.id);
+    setValue("address.fullName", address.fullName);
+    setValue("address.phone", address.phone);
+    setValue("address.line1", address.line1);
+    setValue("address.line2", address.line2 ?? "");
+    setValue("address.city", address.city);
+    setValue("address.state", address.state);
+    setValue("address.pincode", address.pincode);
+    void checkPincode(address.pincode);
+  }
 
   const onSubmit = handleSubmit(async (data) => {
     try {
@@ -154,6 +197,33 @@ export function CheckoutForm() {
 
         <Card className="flex flex-col gap-4 p-5">
           <h2 className="font-display text-lg text-text-primary">Shipping address</h2>
+          {savedAddresses.length > 0 ? (
+            <div className="flex flex-col gap-2 border-b border-border pb-4">
+              <p className="font-body text-xs font-medium uppercase tracking-[0.06em] text-text-secondary">Saved addresses</p>
+              <RadioGroup
+                value={selectedAddressId}
+                onValueChange={(value) => {
+                  if (value === "new") {
+                    setSelectedAddressId("new");
+                    return;
+                  }
+                  const address = savedAddresses.find((a) => a.id === value);
+                  if (address) applySavedAddress(address);
+                }}
+                className="flex flex-col gap-2"
+              >
+                {savedAddresses.map((address) => (
+                  <RadioGroupItem
+                    key={address.id}
+                    value={address.id}
+                    label={`${address.fullName}${address.isDefault ? " · Default" : ""}`}
+                    description={`${address.line1}, ${address.city}, ${address.state} ${address.pincode}`}
+                  />
+                ))}
+                <RadioGroupItem value="new" label="Use a different address" description="Fill in the fields below" />
+              </RadioGroup>
+            </div>
+          ) : null}
           <FormField
             label="Full name"
             autoComplete="name"

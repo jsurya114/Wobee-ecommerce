@@ -11,6 +11,7 @@ import type { ReturnSummary } from "@/features/returns/api/returns.client";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
 import * as ordersApi from "../api/orders.client";
 import { OrderStatusBadge } from "./OrderStatusBadge";
+import { OrderTimeline } from "./OrderTimeline";
 
 /**
  * The customer's own order detail (distinct from `/order-confirmation/[id]`,
@@ -71,6 +72,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <h1 className="font-display text-xl text-text-primary">{order.orderNumber}</h1>
         <OrderStatusBadge status={order.status} />
       </div>
+
+      <Card className="p-4">
+        <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Order status</h2>
+        <OrderTimeline order={order} />
+      </Card>
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Items</h2>

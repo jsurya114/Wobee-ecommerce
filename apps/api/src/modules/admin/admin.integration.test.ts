@@ -380,4 +380,45 @@ describe("cancellation + refund", () => {
     const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
     expect(inventory.quantityAvailable).toBe(3);
   });
+
+  it("Week 3 Day 5: a stray webhook arriving AFTER admin cancellation is acked 200, not left to 409, and does not resurrect the order", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedRazorpayOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+
+    const cancelRes = await request(app)
+      .post(`/api/v1/admin/orders/${order.id}/cancel`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ reason: "test" });
+    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.body.order.status).toBe("CANCELLED");
+
+    const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
+    // A late/duplicate delivery of a DIFFERENT event than the one that
+    // originally confirmed this order (its own eventId) — e.g. Razorpay's
+    // own retry of a delivery that was in flight when the admin cancelled.
+    const payload = {
+      event: "payment.captured",
+      payload: {
+        payment: { entity: { id: `pay_test_${randomUUID().slice(0, 12)}`, order_id: payment.razorpayOrderId, amount: order.totalPaise, status: "captured" } },
+      },
+    };
+    const body = JSON.stringify(payload);
+    const webhookRes = await request(app)
+      .post("/api/v1/payments/razorpay/webhook")
+      .set("X-Razorpay-Signature", signPayload(body))
+      .set("X-Razorpay-Event-Id", randomUUID())
+      .set("Content-Type", "application/json")
+      .send(body);
+
+    // Razorpay must get a 2xx — a non-2xx here means it retries a delivery
+    // for an order that will never confirm again, forever.
+    expect(webhookRes.status).toBe(200);
+
+    // The order must stay CANCELLED — a stray webhook must never resurrect it.
+    const finalOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(finalOrder.status).toBe("CANCELLED");
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(inventory.quantityAvailable).toBe(3); // stays restocked, not re-deducted
+  });
 });

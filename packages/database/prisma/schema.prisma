@@ -891,7 +891,15 @@ model Payment {
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  @@index([orderId])
+  /// Week 3 Day 4 hardening — exactly one Payment row per Order, for its
+  /// whole lifecycle (COD's ConfirmCodOrderUseCase and Razorpay's
+  /// CreateRazorpayOrderUseCase both only ever create one; a failed
+  /// Razorpay payment doesn't get retried on the SAME order — a retry is a
+  /// new checkout, a new Order). Was a plain @@index; promoted to @@unique
+  /// so the DB itself enforces "at most one" instead of relying on
+  /// check-then-create application code, which raced (see
+  /// CreateRazorpayOrderUseCase's own comment + PaymentAlreadyExistsForOrderError).
+  @@unique([orderId])
   @@map("payments")
 }
 

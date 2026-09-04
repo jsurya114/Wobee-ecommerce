@@ -6,12 +6,23 @@ import { NOTIFICATIONS_QUEUE_NAME, notificationQueueConnection } from "./modules
 
 /**
  * Separate process from server.ts (week2 (1).md §20's own architecture
- * diagram draws "worker" as its own box, downstream of BullMQ) — run
- * alongside the API with `pnpm --filter @woobe/api run worker`. Keeping
- * this out of server.ts's own process means a slow/stuck notification send
- * can never compete with the Express event loop for CPU, satisfying
- * "no unnecessary blocking of checkout/order requests" by construction
- * rather than by care taken inside a shared process.
+ * diagram draws "worker" as its own box, downstream of BullMQ) — in
+ * production, run alongside the API with `pnpm --filter @woobe/api run
+ * worker` (its own deployable unit, scaled independently of the API — this
+ * is deliberate, not merged with `start` on purpose). Keeping this out of
+ * server.ts's own process means a slow/stuck notification send can never
+ * compete with the Express event loop for CPU, satisfying "no unnecessary
+ * blocking of checkout/order requests" by construction rather than by care
+ * taken inside a shared process.
+ *
+ * Week 3 Day 8 hardening: `pnpm run dev`'s own `dev` script now starts this
+ * alongside `server.ts` via `concurrently` — found live, not by inspection,
+ * that it never had been: 12 real notifications sat permanently PENDING in
+ * `woobe_dev` (every order-confirmation email this whole project's history
+ * of local testing enqueued, none ever consumed) because nothing had ever
+ * started this process as part of the normal dev workflow. The enqueue
+ * side, retry policy, and idempotency below were all already correct —
+ * this was purely a "nobody's listening" gap, not a code defect.
  *
  * A thrown `NotificationDeliveryError(retryable: false)` is converted to
  * BullMQ's own `UnrecoverableError` — the one BullMQ-specific concept this

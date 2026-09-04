@@ -1,5 +1,6 @@
 import { Prisma, prisma } from "@woobe/database";
 import type { PaymentEntity } from "../../domain/entities/payment.entity";
+import { PaymentAlreadyExistsForOrderError } from "../../domain/errors/payment-already-exists-for-order.error";
 import type {
   CreatePaymentInput,
   PaymentCollectionSummary,
@@ -18,16 +19,33 @@ type PrismaTx = Prisma.TransactionClient;
 export class PaymentRepository implements PaymentRepositoryPort {
   async create(input: CreatePaymentInput, tx?: unknown): Promise<PaymentEntity> {
     const client = (tx as PrismaTx | undefined) ?? prisma;
-    const payment = await client.payment.create({
-      data: {
-        orderId: input.orderId,
-        provider: input.provider,
-        status: input.status,
-        amountPaise: input.amountPaise,
-        razorpayOrderId: input.razorpayOrderId,
-      },
-    });
-    return toEntity(payment);
+    try {
+      const payment = await client.payment.create({
+        data: {
+          orderId: input.orderId,
+          provider: input.provider,
+          status: input.status,
+          amountPaise: input.amountPaise,
+          razorpayOrderId: input.razorpayOrderId,
+        },
+      });
+      return toEntity(payment);
+    } catch (error) {
+      // P2002 on the orderId unique constraint specifically (see schema's
+      // own comment on Payment.@@unique([orderId])) — same
+      // meta.target-narrowed pattern order.repository.ts already uses for
+      // orderNumber collisions, so an unrelated unique violation (there
+      // isn't one on this table today, but the check costs nothing) still
+      // surfaces as a real error instead of being silently reinterpreted.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002" &&
+        (error.meta?.target as string[] | undefined)?.includes("orderId")
+      ) {
+        throw new PaymentAlreadyExistsForOrderError();
+      }
+      throw error;
+    }
   }
 
   async findByOrderId(orderId: string): Promise<PaymentEntity | null> {

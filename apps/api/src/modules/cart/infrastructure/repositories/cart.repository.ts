@@ -54,6 +54,19 @@ export class CartRepository implements CartRepositoryPort {
     await client.cart.update({ where: { id: cartId }, data: { status: CartStatus.CONVERTED, couponCode: null } });
   }
 
+  async lockCartForCheckout(cartId: string, tx: unknown): Promise<CartRecord | null> {
+    const client = tx as PrismaTx;
+    // Same `$queryRaw ... FOR UPDATE` pattern as inventory's own
+    // lockRowsForVariants — Prisma's query builder has no FOR UPDATE clause.
+    const rows = await client.$queryRaw<{ id: string; userId: string | null; status: CartStatus }[]>`
+      SELECT "id", "userId", "status"
+      FROM "carts"
+      WHERE "id" = ${cartId}
+      FOR UPDATE
+    `;
+    return rows[0] ? toRecord(rows[0]) : null;
+  }
+
   async findItems(cartId: string): Promise<CartItemRecord[]> {
     const rows = await prisma.cartItem.findMany({ where: { cartId }, orderBy: { createdAt: "asc" } });
     return rows.map(toItemRecord);

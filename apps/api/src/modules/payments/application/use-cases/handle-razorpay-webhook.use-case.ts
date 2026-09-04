@@ -1,4 +1,4 @@
-import { UnauthorizedError, ValidationError } from "../../../../shared/errors";
+import { ConflictError, UnauthorizedError, ValidationError } from "../../../../shared/errors";
 import { WebhookEventAlreadyExistsError } from "../../domain/errors/webhook-event-already-exists.error";
 import type { InventoryFinalizationPort } from "../ports/inventory-finalization.port";
 import type { OrderPort } from "../ports/order-port";
@@ -21,7 +21,7 @@ interface RazorpayWebhookPayload {
 
 export interface WebhookOutcome {
   /** For observability only — the HTTP layer returns 200 for every one of these (Razorpay must never be told to retry a delivery we've already handled or intentionally ignored). */
-  result: "deduped" | "ignored" | "amount-mismatch" | "processed";
+  result: "deduped" | "ignored" | "amount-mismatch" | "processed" | "stale";
 }
 
 /**
@@ -37,6 +37,21 @@ export interface WebhookOutcome {
  *     dedup-row creation. Every effect below (Payment update, inventory
  *     finalize/release) only runs when `changed` is true, so processing the
  *     same outcome twice is always safe, not just usually safe.
+ *
+ * Week 3 Day 5 hardening: `confirm`/`markPaymentFailed` don't just return
+ * `changed: false` for "already in the target state" — they THROW
+ * `ConflictError` for any OTHER unexpected current status (Day 3's audit:
+ * this is correct and deliberate for admin-initiated transitions, which
+ * only ever fire from a known state). A webhook is different: Razorpay
+ * doesn't guarantee delivery order, so a `payment.captured` can genuinely
+ * arrive after a `payment.failed` already resolved the same order (or vice
+ * versa) — an out-of-order/late event, not a bug in either delivery. Both
+ * branches below now catch that specific `ConflictError` and return
+ * `"stale"` rather than let it propagate into a non-2xx response, which
+ * would tell Razorpay to retry a delivery that will *never* succeed,
+ * forever. Critically, this never re-attempts the transition on a
+ * different path — the order is deliberately left exactly as its earlier,
+ * correctly-processed event already left it.
  */
 export class HandleRazorpayWebhookUseCase {
   constructor(
@@ -101,26 +116,44 @@ export class HandleRazorpayWebhookUseCase {
         return { result: "amount-mismatch" };
       }
 
-      const { changed } = await this.transaction.run(async (tx) => {
-        const transitioned = await this.orderPort.confirm(order.id, tx);
-        if (transitioned.changed) {
-          await this.paymentRepository.update(payment.id, { status: "CAPTURED", razorpayPaymentId: paymentEntity.id }, tx);
-          await this.inventoryFinalization.finalize(order.items, tx);
+      let changed = false;
+      try {
+        ({ changed } = await this.transaction.run(async (tx) => {
+          const transitioned = await this.orderPort.confirm(order.id, tx);
+          if (transitioned.changed) {
+            await this.paymentRepository.update(payment.id, { status: "CAPTURED", razorpayPaymentId: paymentEntity.id }, tx);
+            await this.inventoryFinalization.finalize(order.items, tx);
+          }
+          return transitioned;
+        }));
+      } catch (error) {
+        if (error instanceof ConflictError) {
+          if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+          return { result: "stale" }; // e.g. already PAYMENT_FAILED or CANCELLED — a late/out-of-order event, ack and stop
         }
-        return transitioned;
-      });
+        throw error;
+      }
       if (changed) {
         await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
       }
     } else if (params.payload.event === "payment.failed") {
-      const { changed } = await this.transaction.run(async (tx) => {
-        const transitioned = await this.orderPort.markPaymentFailed(order.id, tx);
-        if (transitioned.changed) {
-          await this.paymentRepository.update(payment.id, { status: "FAILED" }, tx);
-          await this.inventoryFinalization.release(order.items, tx);
+      let changed = false;
+      try {
+        ({ changed } = await this.transaction.run(async (tx) => {
+          const transitioned = await this.orderPort.markPaymentFailed(order.id, tx);
+          if (transitioned.changed) {
+            await this.paymentRepository.update(payment.id, { status: "FAILED" }, tx);
+            await this.inventoryFinalization.release(order.items, tx);
+          }
+          return transitioned;
+        }));
+      } catch (error) {
+        if (error instanceof ConflictError) {
+          if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+          return { result: "stale" }; // e.g. already CONFIRMED — a late/out-of-order event, ack and stop
         }
-        return transitioned;
-      });
+        throw error;
+      }
       if (changed) {
         await this.orderPort.notifyOrderEvent(order.id, "PAYMENT_FAILED");
       }

@@ -7,7 +7,7 @@
 // module's use-cases through its ports (confirmOrderUseCase,
 // markOrderPaymentFailedUseCase, both exported below), never by writing to
 // the Order table themselves.
-import { getCartUseCase, getOrCreateCartUseCase, markCartConvertedUseCase } from "../cart/cart.module";
+import { getCartUseCase, getOrCreateCartUseCase, lockCartForCheckoutUseCase, markCartConvertedUseCase } from "../cart/cart.module";
 import { recordAuditLogUseCase } from "../audit/audit.module";
 import { redeemCouponUseCase } from "../coupons/coupons.module";
 import { reserveInventoryForCheckoutUseCase, restockFinalizedSaleUseCase } from "../inventory/inventory.module";
@@ -70,7 +70,10 @@ const cartReader: CartReaderPort = {
     return { ...cart, couponCode: cart.appliedCoupon?.code ?? null };
   },
 };
-const cartWriter: CartWriterPort = { markConverted: (cartId, tx) => markCartConvertedUseCase.execute(cartId, tx) };
+const cartWriter: CartWriterPort = {
+  markConverted: (cartId, tx) => markCartConvertedUseCase.execute(cartId, tx),
+  lockForCheckout: (cartId, tx) => lockCartForCheckoutUseCase.execute(cartId, tx),
+};
 const couponRedeemer: CouponRedeemerPort = {
   validateAndLock: (input, tx) => redeemCouponUseCase.validateAndLock(input, tx),
   finalize: (couponId, userId, orderId, tx) => redeemCouponUseCase.finalize(couponId, userId, orderId, tx),

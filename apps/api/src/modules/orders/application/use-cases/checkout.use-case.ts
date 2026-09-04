@@ -46,6 +46,20 @@ const MAX_ORDER_NUMBER_ATTEMPTS = 3;
  * `createOrderWithRetry` is intentional, not an oversight: an order-number
  * collision is astronomically rare, and re-deriving from live state again
  * is simpler and safer than trying to cache it across a retry.
+ *
+ * Week 3 Day 1 hardening: the very first thing done inside the transaction
+ * is `cartWriter.lockForCheckout` — a `SELECT ... FOR UPDATE` on the cart
+ * row (same pattern ADR-015 already uses for inventory), re-checking the
+ * cart is still ACTIVE under that lock. Closes a real duplicate-order
+ * window: two checkout requests for the identical cart (a double-click, a
+ * client-side retry) both pass every check ABOVE the transaction — nothing
+ * there is locked — so without this, both could reserve inventory and each
+ * create their own order from the same cart. This does not (yet) give a
+ * retried request the SAME order back — `Order` has no stable link to the
+ * cart that produced it — it fails the second attempt deterministically
+ * instead. A full idempotency-key replay (Day 4's mechanism, extended to
+ * checkout itself) is the natural next step if duplicate-order reports
+ * ever show this isn't enough.
  */
 export class CheckoutUseCase {
   constructor(
@@ -110,6 +124,21 @@ export class CheckoutUseCase {
     const couponCode = input.userId ? cart.couponCode : null;
 
     return this.transaction.run(async (tx) => {
+      // Week 3 Day 1 hardening — MUST be the first thing inside the
+      // transaction. Everything above this line (cart resolve, getCart,
+      // availability/minimum-weight checks) runs unlocked and can't
+      // distinguish "the only checkout attempt" from "one of two racing
+      // attempts for the identical cart" (a double-click, a client retry).
+      // Locking the cart row here serializes any such race: the second
+      // transaction blocks until the first commits (or rolls back), then
+      // re-reads status under the lock and — seeing CONVERTED — fails
+      // cleanly instead of silently reserving inventory and creating a
+      // second order from the same cart (see CartWriterPort.lockForCheckout).
+      const lockedCart = await this.cartWriter.lockForCheckout(cartId, tx);
+      if (!lockedCart || lockedCart.status !== "ACTIVE") {
+        throw new ConflictError("This order has already been placed for this bag.");
+      }
+
       const couponResult = couponCode
         ? await this.couponRedeemer.validateAndLock(
             {
