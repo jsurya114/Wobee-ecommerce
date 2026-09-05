@@ -483,3 +483,40 @@ describe("auth: refresh + logout (full session lifecycle)", () => {
     expect(afterReuseDetected.status).toBe(401);
   });
 });
+
+/**
+ * GOOGLE_CLIENT_ID is deliberately unset in this test env (vitest.config.ts
+ * never sets it, and it's not injected by CI for this suite) — real Google
+ * ID tokens can't be minted in tests anyway. So these tests exercise the
+ * REAL wiring's safe-fail and validation behavior (NotConfiguredGoogleVerifier
+ * actually wired in auth.module.ts, validate() and authGuard actually mounted
+ * ahead of the handler) rather than a mocked Google response — the business
+ * logic itself (account creation/linking/conflict) is covered by
+ * AuthenticateWithGoogleUseCase's and LinkGoogleAccountUseCase's own unit
+ * tests, using a hand-written fake verifier. Every case below 400/401/503s
+ * before any repository call is reachable, so no `users` row is ever created
+ * by this block — no afterAll cleanup needed here (unlike the rest of this
+ * file, which does clean up its own uniquely-prefixed rows above).
+ */
+describe("auth: google", () => {
+  it("POST /auth/google with a well-formed body fails safely with 503 SERVICE_UNAVAILABLE (Google not configured in this env)", async () => {
+    const res = await request(app).post("/api/v1/auth/google").send({ credential: "anything" });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe("SERVICE_UNAVAILABLE");
+  });
+
+  it("POST /auth/google with a missing credential fails validation (400) BEFORE the use-case runs, even though Google isn't configured", async () => {
+    const res = await request(app).post("/api/v1/auth/google").send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /auth/google with an empty-string credential also fails validation (400)", async () => {
+    const res = await request(app).post("/api/v1/auth/google").send({ credential: "" });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /auth/google/link without an Authorization header is rejected (401) before the use-case runs", async () => {
+    const res = await request(app).post("/api/v1/auth/google/link").send({ credential: "anything" });
+    expect(res.status).toBe(401);
+  });
+});

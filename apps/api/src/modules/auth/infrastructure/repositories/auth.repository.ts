@@ -2,6 +2,7 @@ import { AuthMethod, Prisma, prisma, Role } from "@woobe/database";
 import { ConflictError } from "../../../../shared/errors";
 import type {
   AuthRepositoryPort,
+  CreateGoogleUserInput,
   CreateUserInput,
   CustomerSummary,
   EmailVerificationRecord,
@@ -287,6 +288,49 @@ export class AuthRepository implements AuthRepositoryPort {
         createdAt: true,
       },
     });
+  }
+
+  async findUserByGoogleSubject(providerSubject: string): Promise<UserEntity | null> {
+    const credential = await prisma.authCredential.findUnique({
+      where: { providerSubject },
+      include: { user: true },
+    });
+    return credential ? toEntity(credential.user) : null;
+  }
+
+  async createUserWithGoogle(input: CreateGoogleUserInput): Promise<UserEntity> {
+    try {
+      const user = await prisma.user.create({
+        data: {
+          email: input.email,
+          name: input.name,
+          authCredentials: {
+            create: { method: AuthMethod.GOOGLE, providerSubject: input.providerSubject },
+          },
+        },
+      });
+      return toEntity(user);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictError("An account with this email already exists");
+      }
+      throw error;
+    }
+  }
+
+  async linkGoogleAccount(userId: string, providerSubject: string): Promise<void> {
+    try {
+      await prisma.authCredential.upsert({
+        where: { userId_method: { userId, method: AuthMethod.GOOGLE } },
+        create: { userId, method: AuthMethod.GOOGLE, providerSubject },
+        update: { providerSubject },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictError("This Google account is already linked to a different user");
+      }
+      throw error;
+    }
   }
 }
 

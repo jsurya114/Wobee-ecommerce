@@ -24,6 +24,11 @@ export interface AuthSession {
   accessToken: string;
 }
 
+/** `/auth/google`'s response — a normal session plus whether this call created the account, so the caller can pick "Welcome to Woobe!" vs "Welcome back!" copy. */
+export interface GoogleAuthSession extends AuthSession {
+  isNewUser: boolean;
+}
+
 /**
  * The response every OTP "send a code" endpoint returns — no session yet.
  * Shared by register/start + register/resend (account created on verify)
@@ -107,6 +112,22 @@ export function login(input: LoginInput): Promise<AuthSession> {
   return apiFetch<AuthSession>("/api/v1/auth/login", {
     method: "POST",
     body: input,
+  });
+}
+
+/**
+ * Continue with Google — the only thing ever sent is the opaque ID token
+ * (JWT) Google Identity Services hands back to its own callback; the
+ * server is the sole authority on the email/name/picture it decodes from
+ * that credential. 200 (existing user) or 201 (new user) either way, both
+ * carrying a normal session plus `isNewUser` for the caller's toast copy.
+ */
+export function authenticateWithGoogle(
+  credential: string,
+): Promise<GoogleAuthSession> {
+  return apiFetch<GoogleAuthSession>("/api/v1/auth/google", {
+    method: "POST",
+    body: { credential },
   });
 }
 

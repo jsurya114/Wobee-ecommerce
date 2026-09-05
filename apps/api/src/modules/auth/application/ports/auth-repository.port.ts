@@ -77,6 +77,13 @@ export interface RefreshTokenRecord {
   revokedAt: Date | null;
 }
 
+/** "Continue with Google" — creates a brand-new customer with a GOOGLE AuthCredential (no password). */
+export interface CreateGoogleUserInput {
+  email: string;
+  name: string;
+  providerSubject: string;
+}
+
 /** Week 2 Day 7 (week2 (1).md §19's admin "Customer list" row) — never the password hash or any auth-credential/token field, see UserEntity's own shape for why that's structurally impossible here (this is that same select, plus createdAt). */
 export interface CustomerSummary {
   id: string;
@@ -151,4 +158,12 @@ export interface AuthRepositoryPort {
   findCustomerSummaryById(id: string): Promise<CustomerSummary | null>;
   /** "Account status" (week2 (1).md §19) — activate/deactivate a customer account. Already has real teeth without any new enforcement: LoginUserUseCase and RefreshTokenUseCase both already check `isActive` (Week 1), so a deactivated customer can't log in again and their next refresh-rotation fails — only their current short-lived access token keeps working until it naturally expires. Returns CustomerSummary (not UserEntity) since the only caller is this same admin surface and the frontend needs createdAt for display. */
   setUserActive(id: string, isActive: boolean): Promise<CustomerSummary>;
+
+  // ── "Continue with Google" (2026-09-05) ──
+  /** Looks a user up by their linked Google account's stable `sub` — the only identifier ever used for Google account lookup/linking (never email alone). */
+  findUserByGoogleSubject(providerSubject: string): Promise<UserEntity | null>;
+  /** Creates a brand-new customer with a GOOGLE AuthCredential (no password). Throws ConflictError on a unique-constraint race (email or providerSubject already taken) — the use-case has already checked for an email conflict, this is a TOCTOU backstop, same pattern as createUserWithPassword. */
+  createUserWithGoogle(input: CreateGoogleUserInput): Promise<UserEntity>;
+  /** Authenticated account-linking: attaches (or replaces) the caller's OWN GOOGLE credential. Throws ConflictError if this Google account is already linked to a DIFFERENT user (providerSubject unique constraint). */
+  linkGoogleAccount(userId: string, providerSubject: string): Promise<void>;
 }

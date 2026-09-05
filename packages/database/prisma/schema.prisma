@@ -54,10 +54,13 @@ enum Role {
 }
 
 /// Extensible — mobile OTP login (planned future addition) is an additive
-/// new value + row here, not a migration touching User (ADR-018).
+/// new value + row here, not a migration touching User (ADR-018). GOOGLE
+/// (2026-09-05, "Continue with Google") is the first of these actually
+/// wired end-to-end — see AuthCredential.providerSubject below.
 enum AuthMethod {
   PASSWORD
   OTP
+  GOOGLE
 }
 
 /// Order.status lifecycle — plan.md §4. Unchanged from the original brief.
@@ -254,12 +257,18 @@ model PasswordReset {
 /// Auth credentials live in their own table, keyed to userId with a method
 /// column, rather than a password column on User directly (ADR-018).
 model AuthCredential {
-  id           String     @id @default(uuid())
-  userId       String
-  method       AuthMethod
-  passwordHash String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id              String     @id @default(uuid())
+  userId          String
+  method          AuthMethod
+  passwordHash    String?
+  /// The provider's stable subject identifier (Google's `sub` claim) for
+  /// AuthMethod.GOOGLE rows — PASSWORD/OTP rows leave this null. Postgres
+  /// unique indexes permit multiple NULLs, so this one nullable column
+  /// enforces "a given Google account can back at most one Woobe user" at
+  /// the DB level without constraining the other auth methods at all.
+  providerSubject String?    @unique
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

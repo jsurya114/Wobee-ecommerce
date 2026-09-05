@@ -57,3 +57,9 @@ export class TooManyRequestsError extends DomainError {
   readonly code = "TOO_MANY_REQUESTS";
   readonly httpStatus = 429;
 }
+
+/** Required external configuration is missing in this environment (e.g. Google OAuth not configured) — the route fails safely and explicitly rather than silently skipping verification or crashing unrelated routes. */
+export class ServiceUnavailableError extends DomainError {
+  readonly code = "SERVICE_UNAVAILABLE";
+  readonly httpStatus = 503;
+}

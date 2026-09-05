@@ -23,6 +23,8 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>;
   /** Finishes email-OTP registration: verifies the code, which is what actually creates the account and starts the session. Step 1 (send code) is a plain authApi call — it touches no auth state. */
   verifyRegistrationOtp: (input: VerifyOtpInput) => Promise<void>;
+  /** Continue with Google — verifies server-side; returns whether this created a new account, for the caller's own toast copy. */
+  authenticateWithGoogle: (credential: string) => Promise<boolean>;
   logout: () => Promise<void>;
   /** Re-fetches /auth/me and updates the in-memory user — for a feature that mutates the profile through a DIFFERENT endpoint (Week 2 Day 3's PATCH /users/me) to refresh what this context holds, without a full re-login. */
   refreshUser: () => Promise<void>;
@@ -107,6 +109,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
+  const authenticateWithGoogle = useCallback(async (credential: string) => {
+    const session = await authApi.authenticateWithGoogle(credential);
+    setAccessToken(session.accessToken);
+    setUser(session.user);
+    setStatus("authenticated");
+    return session.isNewUser;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await authApi.logout();
@@ -131,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         status,
         login,
         verifyRegistrationOtp,
+        authenticateWithGoogle,
         logout,
         refreshUser,
       }}

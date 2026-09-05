@@ -101,3 +101,9 @@ export type ResetPasswordFormValues = z.infer<typeof resetPasswordFormSchema>;
 /** "Resend code" for an in-progress password reset. */
 export const resendPasswordResetOtpSchema = z.object({ email: emailField });
 export type ResendPasswordResetOtpInput = z.infer<typeof resendPasswordResetOtpSchema>;
+
+/** "Continue with Google" — the client only ever sends the opaque Google ID token; the backend is the sole authority on what it means. */
+export const googleAuthSchema = z.object({
+  credential: z.string().min(1, "Missing Google credential"),
+});
+export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;

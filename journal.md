@@ -2950,3 +2950,117 @@ Traced end-to-end: `saveIfNew`'s `userId` always originates from `req.user?.id`,
 - Did not add a UI-level "you were logged out, please sign in again" prompt for the genuine-refresh-failure path — it already degrades to the same behavior an actually-logged-out visitor sees on that page today (guest-appropriate rendering / a login-gated action's own existing "log in" prompt), which is correct but not especially warm; a toast could be added later if that gap is ever reported directly.
 - Not investigated: whether any other client outside `apps/web` (e.g. a future mobile client) would need the same coordinator — out of scope, `apps/admin` has its own, separate staff-session cookie/token scheme (ADR-024/025) not touched here.
 
+## 2026-09-05 — "Continue with Google" customer authentication — 7-agent coordinated build (backend, frontend, security, architecture, regression, E2E, final gate)
+
+**Branch:** `woobe-ui/bug-fixes`. Same coordination pattern as the persistent-checkout-addresses feature above: the orchestrator investigated the full existing auth architecture first, wrote an exact shared spec (schema, ports, use-cases, endpoint contracts) from that investigation, then dispatched non-overlapping agents against it, then reconciled.
+
+### Root cause / gap
+
+There was no federated login — `SocialAuthButtons.tsx` already existed (visual parity with the design mock, rendered inside both `LoginForm` and `RegisterForm`) but its Google button was a `toast.info("Social sign-in is coming soon.")` no-op. Customers had only email+password and email-OTP registration.
+
+### Existing architecture reused (confirmed by direct inspection, not assumed)
+
+`AuthCredential` (ADR-018: credentials live in their own table keyed by `method`, never columns bolted onto `User`) already had exactly the shape a third auth method needed — `enum AuthMethod { PASSWORD OTP }`, unique on `[userId, method]`. `issueTokenPair()` (shared by register/login/refresh/OTP-verify) was reused verbatim — no second session system. The domain/application/infrastructure/interface layering, the `*Port` + composition-root (`auth.module.ts`) pattern, the `DomainError` hierarchy, `rateLimit()`, and `validate()` middleware were all reused as-is, matching every prior auth feature (OTP registration, forgot-password) in shape.
+
+### Google identity + account-linking strategy — the security-critical decision
+
+Google's `sub` claim (never email, never display name) is the ONLY identifier used to look up or link a Google account: `AuthCredential.providerSubject String? @unique` (new nullable column — Postgres unique indexes allow multiple NULLs, so PASSWORD/OTP rows are unaffected). `AuthMethod` gained one value, `GOOGLE`.
+
+`AuthenticateWithGoogleUseCase`: verify ID token → look up `AuthCredential` by `(GOOGLE, sub)` → found: log in (checking `isActive`) via `issueTokenPair` → not found: look up `User` by email → **an existing PASSWORD/OTP account with that email is refused (`GoogleAccountConflictError`, 409) — never silently linked or taken over** → no match: create a new customer + `GOOGLE` credential (verified email is treated as proof of ownership, same trust level this codebase already grants a verified OTP code — no password required, per the brief). A TOCTOU race between the email-existence check and the create is backstopped by `User.email @unique` (P2002 → `ConflictError`), exactly like `RegisterUserUseCase` already does. A second, authenticated-only `POST /auth/google/link` use-case/endpoint exists for explicit linking (`req.user!.id` only, never a body-supplied id) as the secure alternative to silent merging — no frontend UI calls it yet (flagged below, not needed for the brief's login/register flow).
+
+### Google ID-token verification
+
+`google-auth-library`'s `OAuth2Client.verifyIdToken({idToken, audience: GOOGLE_CLIENT_ID})` — signature, issuer, audience, and expiry are all checked by the library, none hand-rolled. Unverified-email Google accounts are rejected (`GoogleEmailUnverifiedError`). `GOOGLE_CLIENT_ID` optional in dev/test (an unset value wires `NotConfiguredGoogleVerifier`, which fails the route safely with 503 rather than skipping verification); `env.ts` gained a `.superRefine` that fails API boot immediately if `NODE_ENV=production` and it's unset. No `GOOGLE_CLIENT_SECRET` anywhere — this ID-token flow needs none.
+
+### Token/session architecture
+
+Unchanged. `issueTokenPair` (JWT access token + opaque sha256-hashed rotating `RefreshToken` row + httpOnly cookie) is called identically to login/register. Logout, `/me`, and refresh-reuse-detection needed zero code changes — a Google session is a normal `User` row + normal `RefreshToken` row + normal JWT, structurally indistinguishable from a password session at those endpoints.
+
+### Database
+
+Migration `20260905153737_add_google_auth_credential` — purely additive (`ALTER TYPE "AuthMethod" ADD VALUE 'GOOGLE'`, nullable `AuthCredential.providerSubject`, its unique index). No data loss, no existing row touched, applied cleanly to both `woobe_dev` and `woobe_test`. One accepted Postgres limitation for the record: an added enum value isn't trivially reversible in a single transaction (would need a type rebuild) — not a defect, just how Postgres enums work.
+
+### API
+
+`POST /api/v1/auth/google` (`{credential}` → `200`/`201` `{user, accessToken, isNewUser}` + refresh cookie, same shape as login/register) and `POST /api/v1/auth/google/link` (authenticated, 204). Both rate-limited on the same budget as `/login`.
+
+### Frontend
+
+`SocialAuthButtons.tsx`'s existing placeholder button replaced by a real `GoogleAuthButton.tsx` — no changes needed to `LoginForm.tsx`/`RegisterForm.tsx` (both already rendered `<SocialAuthButtons />`). Uses Google Identity Services (GIS) — never a hand-rolled redirect, never a client-assembled profile. GIS's real button renders into a genuinely-clickable off-screen container; the visibly Woobe-styled button proxies a real click into it (the standard technique for a custom-styled GIS button), so the actual user-initiated click still lands on Google's own UI. Loading/disabled/duplicate-click-prevention all gated on one `busy` flag that only flips on an actual credential callback (closing the Google popup without completing is silently a no-op, not an error). Renders nothing when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset. `useAuth`'s `authenticateWithGoogle` follows the exact `login`/`verifyRegistrationOtp` callback shape — no new state machine.
+
+### Security decisions (independently reviewed, see Coordination)
+
+No silent account takeover on email match (refused, not merged); provider-identity collisions structurally impossible (`providerSubject @unique`, checked by direct code + race tracing, not just by the doc comment); Google-created users get only `CUSTOMER` role (schema default, never set explicitly); `/auth/google/link`'s `userId` is always `req.user!.id`, never body-supplied (no IDOR surface exists — the request schema carries no id field at all); no raw Google token ever logged or persisted (only the opaque `sub`); frontend never decides validity, only forwards the opaque credential and reacts to the backend's typed errors. The Google conflict-disclosure ("this email already exists") was compared against this codebase's own existing `/register` duplicate-email 409 and found to be a **narrower** enumeration surface, not a new one — reaching it requires an attacker to already hold a Google-signed, email-verified ID token for the victim's address, not just type the address into a form.
+
+### Environment variables
+
+`GOOGLE_CLIENT_ID` (apps/api, optional in dev/test, required in production) and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (apps/web, public by design — not a secret). Both documented with placeholders in the respective `.env.example` files; no real credentials anywhere in the diff (grepped).
+
+### Tests
+
+14 new backend tests from the implementation pass (8 unit `AuthenticateWithGoogleUseCase`, 2 unit `LinkGoogleAccountUseCase`, 4 integration safe-fail/validation-order checks against the real `NotConfiguredGoogleVerifier` wiring) + 3 more from the regression pass closing real gaps (`google-auth-gaps.integration.test.ts`: a Google-only account's `/me` works with no PASSWORD row at all; a Google-only account's password-login attempt fails cleanly via the existing `!passwordHash` branch; `linkGoogleAccount`'s own cross-user `providerSubject` conflict, exercised against the real DB constraint, not just a mock). `apps/api` suite: 627 → **644 passing** (89 files), zero regressions, zero edits to any pre-existing test.
+
+### Coordination (7 agents + orchestrator reconciliation)
+
+1. Backend implementer — schema/migration, ports, use-cases, infra services, controller/routes/composition-root wiring, 10 new unit/integration tests, per an exact spec the orchestrator wrote from its own investigation of the existing auth module.
+2. Frontend implementer — `GoogleAuthButton`, `useAuth`/`auth.client.ts` additions, env docs — built in parallel against a fixed API contract, zero file overlap with Agent 1.
+3. Security/IDOR reviewer — 20-point checklist against the actual code (not doc comments), traced the email-conflict TOCTOU race explicitly, checked the enumeration-surface comparison above. Verdict: ship as-is, zero vulnerabilities found; one cosmetic (non-security) message-wording nit logged, not fixed.
+4. Regression + coverage verifier — full workspace suites re-run twice (one unrelated, undiffed `products.integration.test.ts` flake self-resolved on rerun, distinct from the previously-documented `returns.integration.test.ts` flake — both are pre-existing infra flakiness, neither caused by this feature), added the 3 tests above in a new, non-overlapping file.
+5. Clean Architecture/SOLID reviewer — 10/10 PASS (port narrowness, use-case SRP, composition-root-only wiring, controller thinness, zero Prisma-outside-infrastructure, zero new cross-module edges — confirmed `boundaries:check` and grepped `google-auth-library`'s one import site directly). Flagged the off-screen-button click-proxy technique for Security's awareness (not an architecture defect); Security reviewed it and raised no objection.
+6. End-to-end browser verifier — live Chrome session: full register→logout→login→hard-reload-still-logged-in→logout regression pass (screenshotted, zero console errors); confirmed the no-Google-Client-ID graceful-degradation path (button absent, zero `accounts.google.com` requests) at both desktop and 375px; ran a synthetic fake-Client-ID check proving the button renders/loads correctly when configured, and left the environment restored exactly as found.
+7. Final workspace gate — run directly by the orchestrating session: see Verified below.
+
+### Files changed
+
+`apps/api`: `src/config/env.ts`, `src/shared/errors/domain-error.ts` (+`ServiceUnavailableError`), `src/modules/auth/{application/ports/auth-repository.port.ts, application/ports/google-id-token-verifier.port.ts (new), application/use-cases/authenticate-with-google.use-case.ts (+test, new), application/use-cases/link-google-account.use-case.ts (+test, new), domain/errors/google-auth.errors.ts (new), infrastructure/repositories/auth.repository.ts, infrastructure/services/google-id-token-verifier.service.ts (new), infrastructure/services/not-configured-google-verifier.ts (new), interface/http/auth.controller.ts, interface/http/auth.routes.ts, auth.module.ts, auth.integration.test.ts, google-auth-gaps.integration.test.ts (new)}`, `package.json` (+`google-auth-library`). `apps/web`: `src/features/auth/{api/auth.client.ts, components/SocialAuthButtons.tsx, components/GoogleAuthButton.tsx (new), hooks/useAuth.tsx}`, `.env.example`. `packages/database/prisma/schema.prisma`. `packages/validation/src/auth.schema.ts`. Root `.env.example`. `apps/admin`: **zero changes** (confirmed via `git diff --stat`).
+
+### Migrations
+
+`20260905153737_add_google_auth_credential` — see Database above.
+
+### Verified (final gate, run after all 7 agents' work reconciled)
+
+`pnpm -r run typecheck` — clean, all 9 projects. `pnpm -r run lint` — clean, all 9 projects (`--max-warnings=0`). `pnpm run boundaries:check` — `571 modules, 1781 dependencies, 0 violations`. `pnpm --filter @woobe/api run test` — **89 files / 644 tests, all passing**. `pnpm --filter @woobe/validation run test` — 13/13 passing. `pnpm -r run build` — all three apps (`api`/`web`/`admin`) clean production builds. `pnpm run check:migrations` — reports "no new migrations on this branch" (the script diffs committed history against `origin/main`; the migration file is untracked pending a commit decision) — manually confirmed the SQL contains no `DROP TABLE`/`DROP COLUMN`/`TRUNCATE`/`ALTER COLUMN...TYPE` pattern, so it will pass this same check once committed.
+
+### Remaining limitations
+
+- **No frontend UI for `/auth/google/link`** yet — a customer whose Google sign-in hits the email-conflict path is told to log in with their password; the secure authenticated-linking endpoint exists server-side but isn't wired to any account-settings button. Follow-up if self-service linking is wanted.
+- **A genuinely misconfigured/revoked `GOOGLE_CLIENT_ID` in production fails without an on-page toast** — Google's own OAuth server rejects an invalid client ID inside the popup itself (a cross-origin document our code cannot inspect), rather than through GIS's `error_callback`; the user sees an orphaned Google-hosted error page, not a Woobe toast. Confirmed live with a synthetic fake client ID during E2E verification. This only manifests from a deployment-time misconfiguration, never for a normal user against a correctly-configured client ID, and there's no safe way to intercept cross-origin popup content — documented rather than worked around.
+- **Live, real Google-account authentication was not exercised end-to-end** — no real Google Cloud OAuth Client ID is available in this environment. Everything reachable without one (unit-level account-linking logic via a fake verifier port, the safe-fail/validation wiring, and the button's absent/rendered/error-recovery states in a live browser) was verified for real; a developer with real Google Cloud credentials still needs to set `GOOGLE_CLIENT_ID`/`NEXT_PUBLIC_GOOGLE_CLIENT_ID` and click through a real consent screen once before shipping to confirm the last mile.
+- Row cleanup / pruning of old data, IP-based limiter false-sharing, etc. — all pre-existing, documented gaps elsewhere in this journal, untouched and unaffected by this feature.
+
+## 2026-09-05 — Google Sign-In configured with real credentials, live end-to-end verified, one real remount bug found and fixed
+
+**Branch:** `woobe-ui/bug-fixes`. Follow-up to the same day's "Continue with Google" build — no rearchitecture, per explicit instruction; this closes the "not yet configured/tested live" limitation from that entry.
+
+### Configuration
+
+Real Google Cloud OAuth Client ID (Web application type, no client secret used — this flow never needs one) obtained by the user and set in both places the implementation already expected: root `.env` (`GOOGLE_CLIENT_ID`, apps/api) and `apps/web/.env.local` (`NEXT_PUBLIC_GOOGLE_CLIENT_ID`), same value in both, both dev servers restarted. Both `.env.example` files already documented these variables correctly from the original build — zero doc changes needed.
+
+**Found and fixed during setup:** the root `.env` had picked up two stray lines from a manual edit outside this session — a duplicate `GOOGLE_CLIENT_ID` and, more importantly, `NEXT_PUBLIC_GOOGLE_CLIENT_ID` set to the **client secret** value. Inert in practice (apps/api's zod schema silently ignores unknown keys; apps/web never reads the root `.env`, only its own `.env.local`, which was already correct), but a secret living under a `NEXT_PUBLIC_`-shaped name is exactly the pattern that leaks client-side if anyone later wires it up — removed immediately rather than left as "harmless."
+
+### Live end-to-end verification (real Google account, not simulated)
+
+Confirmed directly against the database after the user's own real Google sign-in: one `AuthCredential` row, `method: GOOGLE`, real non-null `providerSubject`, linked to a `User` row with `role: CUSTOMER`, `isActive: true`, name populated from the verified Google profile — and **no** `PASSWORD` credential on that same row (confirms "no password for a Google-created account" worked exactly as designed). A real, non-revoked `RefreshToken` row exists for that user, issued in the same instant as account creation — proof `issueTokenPair` (the same helper login/register use) fired for real, not a new session mechanism.
+
+### Bug found: Google button stuck disabled after logout, needed a full page reload
+
+**Root cause:** `GoogleAuthButton` only renders on `/login`/`/register`, so it unmounts on navigation away (e.g. after a successful login) and remounts on the way back (e.g. after logout). The Google Identity Services script itself only loads once per page lifetime; `next/script`'s `onLoad` prop fires only for that first-ever load and is **not** re-fired for a later remount of a component using the same `src` — so the remounted instance's `google.accounts.id.initialize()`/`renderButton()` never ran, `scriptReady` stayed `false` forever, and the visible button stayed disabled until a hard reload forced everything to re-run from scratch.
+
+**Fix — one line**, `apps/web/src/features/auth/components/GoogleAuthButton.tsx`: swapped `<Script onLoad={handleScriptLoad}>` for `<Script onReady={handleScriptLoad}>` — `next/script`'s prop built for exactly this (fires on every mount, immediately if the script is already loaded, not just on the original network load).
+
+**Verified live, not just by reading the code:** reproduced the exact failure first (client-side nav away from `/login` and back, no full reload — confirmed the pre-fix code left the button disabled), then reproduced the fix working across **two independent remount cycles** (Home→Account, Products→Account), button enabled immediately both times, zero reloads. One expected, benign console warning noted and deliberately left alone — GIS's own `initialize() is called multiple times... only the last initialized instance will be used`, which is precisely the correct behavior here (each remount's popup callback must point at *that* mount's own `busy`-state setter, not a dead previous instance's — "fixing" this away would have reintroduced a real stuck-loading-state bug to silence a harmless log line).
+
+### Files changed
+
+`apps/web/src/features/auth/components/GoogleAuthButton.tsx` (one prop, `onLoad` → `onReady`, plus a doc comment). No other file touched — no backend change, no other frontend file, no test file (this is a client-only script-lifecycle fix with no new business logic to unit-test; covered by the live reproduction above instead).
+
+### Verified
+
+`pnpm --filter @woobe/web run typecheck`/`lint` clean. `pnpm --filter @woobe/web run build` clean. Live browser (chrome-devtools MCP): bug reproduced pre-fix, fix confirmed across two remount cycles post-fix, zero console errors beyond the two already-documented benign ones (the GIS multi-init warning above, and this environment's own stale Google-origin-propagation delay from the Cloud Console change, unrelated to this bug and already resolved in the user's own browser). Real `pnpm --filter @woobe/api run test` full-suite rerun during this session: 644/644 (one transient, unrelated `reviews.integration.test.ts` full-suite-parallelism flake self-resolved on rerun and in isolation — same pre-existing flake class as `products`/`returns`, not caused by anything in this session).
+
+### Remaining limitations
+
+- The "misconfigured/revoked Client ID fails silently in an orphaned popup" limitation from the original build entry stands as documented — unrelated to and unaffected by this session's fix.
+- Google Cloud Console origin-registration propagation delay is inherent to Google's own infrastructure, not this codebase; already resolved for the user's real testing browser by the time of this entry.
+
