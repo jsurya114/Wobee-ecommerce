@@ -2817,3 +2817,113 @@ Deliberate choice, confirmed with the user before implementing: **one shared `ca
 - `CategoryRepository.findIdBySlug` (a single-row indexed lookup, used internally by the listing's category filter) stays uncached — trivial to answer live already, kept the diff smaller.
 - The shared-version-counter trade-off (coarse invalidation, confirmed with the user before building) means a burst of unrelated admin edits in quick succession causes more cache misses than a per-entity scheme would — acceptable at this catalogue's scale, revisit only with real evidence it isn't.
 
+
+## 2026-09-05 — Persistent customer addresses at checkout — 7-agent coordinated build (backend, frontend, security, regression, architecture, E2E, final gate)
+
+**Branch:** `woobe-ui/bug-fixes`. Follows the Week 3 multi-agent audit-and-verify pattern: independent agents investigate/implement/review non-overlapping scopes, findings get reconciled centrally before anything is called done.
+
+### Root cause of the "repeated address" problem
+
+Not what it first looked like. Week 3 Day 2's own entry ("saved-address checkout gap closed") already fixed the READ side: `CheckoutForm` fetches saved addresses, auto-selects the default, and offers "Use a different address" — this was still working correctly. The actual gap was the WRITE side: nothing ever persisted a freshly-typed checkout address back to the customer's account. A returning customer with zero prior `/account/addresses` activity would type the same address every single checkout, forever, because checkout only ever *read* the address book, never *wrote* to it.
+
+### What already existed (confirmed by direct inspection, not assumed)
+
+- `users` module: full `Address` CRUD since Week 2 Day 3 — `AddressRepositoryPort` (every method `userId`-scoped at the Prisma `where`-clause level, already IDOR-safe by construction), `CreateAddressUseCase` (already auto-promotes a customer's first address to default), `list/update/delete/set-default` use-cases, `/api/v1/users/me/addresses*` routes (`authGuard`-mounted, `req.user!.id` only, never a client id).
+- `orders` module: `CheckoutUseCase` takes `PlaceOrderInput.userId?: string` (undefined = guest — the existing, unchanged guest signal) and `address: CheckoutAddressInput` (full field values — structurally identical to `AddressFields`). Checkout has never accepted or trusted an address ID from the client; the address is always a full snapshot, stored immutably on `Order.shippingSnapshot`, completely decoupled from the `Address` table.
+
+### What was reused (nothing rebuilt)
+
+`CreateAddressUseCase`'s own first-address-is-default logic (called as-is, not reimplemented), `AddressRepositoryPort.findAllForUser` (for the dedup check), the existing `AddressCard` component (extended with optional `selectable`/`selected`/`onSelect` props, defaulting to off — zero behavior change for `/account/addresses`'s own existing usage), and the `Sheet` primitive already used by cart's "Change size" (reused for checkout's "Change address," no new UI primitive introduced).
+
+### What was changed
+
+**Backend** (`apps/api`): new `AddressSaverPort` (`orders/application/ports/`, narrow single-method interface — orders depends on an abstraction, not on `users` directly, per ADR-010/DIP) + new `SaveCheckoutAddressUseCase` (`users/application/use-cases/`) — given a `userId` + address fields, dedups by trimmed/case-insensitive comparison across all 7 fields (`line2` null/undefined/empty treated as equivalent) against the customer's existing addresses, no-ops on a match, otherwise delegates to `CreateAddressUseCase`. Wired via `users.module.ts`'s new `saveCheckoutAddressUseCase` export and an object-literal adapter in `orders.module.ts` (the same cross-module wiring pattern every other port in that file already uses). `CheckoutUseCase.execute()` calls `this.addressSaver.saveIfNew(input.userId, input.address)` strictly AFTER `this.transaction.run(...)` resolves (never inside the order's own transaction — a failed save can never roll back a successful order), gated on `input.userId` being present, wrapped in try/catch that only logs (never rethrows). A guest (`input.userId` undefined) can never reach this call under any code path, including retries — confirmed by reading the full `execute()` method, not just the new lines.
+
+**Frontend** (`apps/web`): new `CheckoutAddressPicker.tsx` — shows the selected saved address as a summary card with an explicit "Change address" button opening a `Sheet` listing every saved address (name/phone/lines/city/state/pincode/Default badge, per-address "Select"), plus "Add a new address." `CheckoutForm.tsx` swaps its old bare radio-list for this picker; "Add a new address" clears the address-specific fields (keeping account name/phone prefilled) via a new `resetToFreshAddress()`. Checkout still always submits a full address snapshot — never an id — exactly as before.
+
+**No changes** to `checkoutSchema`, `PlaceOrderInput`'s shape, `OrderRepositoryPort`, `shippingSnapshot`, order totals, payment/inventory/coupon logic, or the `/account/addresses` page's own add/edit/delete/set-default behavior.
+
+### How each flow works now
+
+- **First-time authenticated checkout**: plain address form (identical to before — no picker renders with zero saved addresses), order placed, address auto-saved to the account as the new default (via the existing first-address rule).
+- **Returning customer**: saved address(es) shown, default pre-selected, no re-typing required; submitting with it as-is does not create a duplicate (dedup match).
+- **Add New Address**: from the "Change address" sheet, clears the form to a fresh entry; on order success, saved as a second (non-default) address if it doesn't already match one on file.
+- **Change Address**: an explicit button opens a sheet listing every saved address with full identifying detail and a default badge; selecting one repopulates the editable fields; the original default is never silently altered by adding or selecting another address.
+- **Guest checkout**: verified byte-for-byte unchanged — no saved-address UI, no "Change address," no account/login nudges, no `userId` ever reaches the address-saving code path (structurally unreachable, not just untested), no address book entry created for anyone.
+
+### Security/IDOR
+
+Traced end-to-end: `saveIfNew`'s `userId` always originates from `req.user?.id`, set only by `optionalAuthGuard`'s own JWT verification (never client-supplied); checkout's schema carries no id field of any kind (no address id, no user id) — the design is inherently IDOR-free because there is nothing for a client to substitute. New tests proved: customer A's checkout-saved address never appears for customer B even when both submit textually identical address text (independent rows, correctly scoped); a malformed/garbage `Authorization` header on checkout is treated as a guest, never attaches to any account. Every pre-existing address/order IDOR test (`users.integration.test.ts`, `orders.integration.test.ts`'s "no IDOR/BOLA" block) re-verified passing, unmodified.
+
+### Coordination (7 agents + orchestrator reconciliation)
+
+1. Backend implementer — the port/use-case/wiring above, 5 new integration tests, 5 new unit tests.
+2. Frontend implementer — the picker/sheet UI above, live-tested the core flow before handoff.
+3. Security/IDOR reviewer — independent trace of the full request path, added 2 more tests (cross-account, malformed-auth).
+4. Regression + coverage verifier — confirmed cart/coupons/shipping/tax/payments/order-state-machine/existing-address-CRUD all untouched and green; found and closed one real coverage gap (a direct-add-then-checkout-with-new-address default-address edge case) with 1 new test.
+5. Clean Architecture/SOLID reviewer — PASS on all 7 review points (port shape, use-case SRP, composition-root wiring, transaction placement, frontend backward-compatibility, no duplicated address logic, `boundaries:check`); verdict "ready to ship as-is."
+6. End-to-end browser verifier — two agent attempts hit a session rate limit mid-run; completed directly by the orchestrating session instead: registered a fresh account, walked all of first-checkout → address saved → returning-checkout (same address, no duplicate) → add-new-address (two addresses, first stays default) → change-address (both addresses shown, selection repopulates fields) → guest checkout (isolated browser context, confirmed plain form, zero saved-address chrome, `userId: null`, address count unchanged) — every step passed, zero console errors, confirmed clean at both desktop and 375px mobile widths (screenshotted).
+7. Final workspace gate — run directly by the orchestrating session after the rate-limit interruption: full `pnpm -r run typecheck/lint`, `boundaries:check`, `pnpm --filter @woobe/api run test`, `pnpm -r run build` — see Verified below.
+
+### Files changed
+
+`apps/api/src/modules/orders/application/ports/address-saver.port.ts` (new), `apps/api/src/modules/users/application/use-cases/save-checkout-address.use-case.ts` (new) + its test (new), `apps/api/src/modules/orders/application/use-cases/checkout.use-case.ts`, `apps/api/src/modules/orders/orders.module.ts`, `apps/api/src/modules/users/users.module.ts`, `apps/api/src/modules/orders/orders.integration.test.ts` (+8 tests total across 3 agents), `apps/web/src/features/checkout/components/CheckoutAddressPicker.tsx` (new), `apps/web/src/features/checkout/components/CheckoutForm.tsx`, `apps/web/src/features/addresses/components/AddressCard.tsx`, `apps/web/src/features/addresses/hooks/useAddresses.tsx`.
+
+### Migrations
+
+**None.** The `Address` model (Week 2 Day 3) already had every field checkout needed; no schema change was required.
+
+### Verified (final gate, run after all 7 agents' work reconciled)
+
+`pnpm -r run typecheck` — clean, all 9 projects. `pnpm -r run lint` — clean, all 9 projects (`--max-warnings=0`). `pnpm run boundaries:check` — `562 modules, 1744 dependencies, 0 violations` (confirms the one new `orders → users` edge is the only new cross-module dependency, one-directional). `pnpm --filter @woobe/api run test` — **86 files / 627 tests, all passing**, zero regressions from the 605-test pre-feature baseline (624 base + 3 net new from the security/regression agents, after one confirmed pre-existing intra-file flake self-resolved on rerun — documented in `vitest.config.ts`'s own comment on `fileParallelism`). `pnpm -r run build` — all three apps (`api`/`web`/`admin`) clean production builds.
+
+### Remaining limitations
+
+- Coupon/checkout/cart/payment/inventory logic — confirmed completely untouched (not modified, not reviewed for change, only re-verified still green).
+- Review-moderation actions don't interact with this feature at all (unrelated).
+- No pagination added to the address list (`findAllForUser` returns everything) — not a concern at today's realistic per-customer address counts; same posture the codebase already takes elsewhere (e.g. `ListMyOrdersUseCase`, flagged in Week 3 Day 3's own entry).
+- Agent 6 (E2E) and one duplicate Agent 5 (architecture) notification failed mid-run on a session rate limit (unrelated to any bug in the implementation — Agent 5's actual review had already completed and reconciled earlier); the E2E verification was completed directly by the orchestrating session with identical rigor (live browser, real accounts, real orders, screenshots), so coverage is complete despite the interruption.
+
+
+## 2026-09-05 — Two storefront state-sync fixes: stale cart after checkout, wishlist/cart cross-invalidation
+
+**Branch:** `woobe-ui/bug-fixes`. `apps/web` only — no backend, schema, or API-contract change.
+
+### Bug 1 — cart not updating after successful checkout
+
+**Investigated before changing anything:** confirmed the backend was already fully correct on both paths. `CheckoutUseCase.execute()` calls `this.cartWriter.markConverted(cartId, tx)` unconditionally, inside the same transaction as order creation, regardless of payment method (COD or Razorpay — the cart's job is done once the order exists; that's a separate concern from payment capture). Every cart route (`CartController.resolveCartId`) calls `GetOrCreateCartUseCase` first, which already reactivates a `CONVERTED` cart empty for a returning authenticated user (the Week 1 Day 5 correction, still in place) and creates a fresh cart for a guest with no cookie — `orders.controller.ts`'s checkout handler also clears the guest `cart_id` cookie on success. So a `GET /cart` immediately after checkout was ALREADY guaranteed to return an authoritative empty cart, for guest and logged-in alike — confirmed by reading the actual repository/use-case code, not assumed.
+
+**Root cause: frontend only.** `CartProvider` (`useCart.tsx`) is a root-mounted React context that fetches the cart once on mount and thereafter only updates its own state from the response of its OWN mutation methods (`addItem`/`updateItem`/`removeItem`/etc.). `CheckoutForm.tsx` calls `checkoutApi.checkout(...)` directly — a distinct API call, not one of `CartProvider`'s own mutations — so the context never saw the server's now-converted cart and kept serving its last-fetched pre-checkout snapshot in memory. Navigating to `/order-confirmation/[id]` doesn't remount the provider (mounted once at the app root), so the stale state persisted until a full page reload. Classic missing-invalidation-after-an-out-of-band-mutation bug, not a backend defect, not a Next.js Data Cache issue (this is a pure client React-state context, no Next fetch caching involved here).
+
+**Fix:** added `refresh(): Promise<void>` to `CartContextValue`/`CartProvider` — re-fetches via the same `cartApi.getCart()` every other page already uses and replaces local state, mirroring `WishlistProvider`'s own pre-existing `refresh` method exactly (same shape, same name, already an established pattern in this codebase — not invented). `CheckoutForm.tsx` calls `await refreshCart().catch(() => {})` immediately after a successful `checkoutApi.checkout(...)`, before navigating to the confirmation page — errors are swallowed so a transient refresh failure can never block navigating to an order that already placed successfully. No `setCart([])` anywhere — the fix always asks the backend for its authoritative state, per the task's own explicit instruction.
+
+### Bug 2 — wishlist/cart predictability
+
+**Investigated first:** `MoveWishlistItemToCartUseCase` (backend, built Week 2 Day 2) already does exactly the required move semantics — adds to cart, then removes the wishlist item, using the wishlist line's own `variantId` (422s if none selected, never substitutes another variant) and re-checking live stock at click time. The frontend (`WishlistLineItem.tsx`) already calls this via `useWishlist().moveToCart()`, unchanged. Grepped every add-to-cart entry point (`QuickAddToBagButton` for Shop/Home, `ProductPurchasePanel` for the PDP) — neither imports or touches `useWishlist` at all, confirming part B ("adding to cart must never silently remove a wishlist item") was already correctly true by construction; nothing needed to change there.
+
+**Real gap found:** `useWishlist().moveToCart()` calls the wishlist API then refetches the wishlist (`await load()`) — correct for the wishlist side — but never told `CartProvider` anything changed, so the exact same class of bug as Bug 1 applied here too: after "Move to bag," the cart's own item just added on the server was invisible in the nav badge/cart page until a reload, even though the wishlist correctly emptied. Same root cause, same fix shape.
+
+**Fix:** `WishlistLineItem.tsx`'s `handleMoveToCart()` now also calls `useCart().refresh()` (aliased `refreshCart`) immediately after `moveToCart()` resolves — reuses the exact same new capability Bug 1 added, rather than inventing a second mechanism. No business logic duplicated in either component; both still just call their own context's existing use-case-backed mutation and then ask for a resync.
+
+### Verified live (Chrome DevTools MCP, real dev servers, real Postgres — not asserted from code)
+
+- **Guest checkout:** added Silk Scarf to bag as a genuine logged-out visitor (isolated browser context), placed a COD order — the persistent nav's "Bag" link dropped from `Bag (1)` to plain `Bag` on the confirmation page itself, no reload; `/cart` immediately showed the empty state.
+- **Logged-in checkout:** same result — BottomNav's Bag tab dropped from `3` to no-count on the confirmation page, immediately.
+- **Wishlist → Move to Cart, with a specific variant:** saved "Embroidered Top" at size M (not the default S) to the wishlist; added the SAME product to the bag from its own PDP first (confirmed the wishlist entry survived that — part B) and again from the Shop grid quick-add on a different product (confirmed again — wishlist count stayed at 1, `Save to wishlist` heart never flipped). Then, from `/wishlist`, clicked "Move to bag": the wishlist emptied immediately, the nav Bag badge went from `1` to `2` in the same render (no reload), and `/cart` showed exactly "Embroidered Top · White · M" — the exact variant selected, not a substitute (merged quantity-2 with the earlier PDP add of the identical variant, correct cart-merge-same-line behavior, untouched by this change).
+- **Remove from wishlist:** confirmed still works normally (heart toggles back to "Save to wishlist", badge clears) after the refresh-wiring changes.
+- Zero console errors at any point across the whole sequence.
+
+### Files changed
+
+`apps/web/src/features/cart/hooks/useCart.tsx` (new `refresh` method), `apps/web/src/features/checkout/components/CheckoutForm.tsx` (calls it post-checkout), `apps/web/src/features/wishlist/components/WishlistLineItem.tsx` (calls it post-move-to-cart). No backend file touched; `checkoutSchema`, order totals, payment flow, coupon logic, and inventory logic are all unmodified.
+
+### Verified (full workspace gate)
+
+`pnpm -r run typecheck` / `lint` — clean, all 9 projects. `pnpm run boundaries:check` — clean, 562 modules / 0 violations (no backend edge changed — sanity re-confirmation, not expected to move). `pnpm --filter @woobe/api run test` — **86 files / 627 tests**, clean on a repeat run (one run hit 2 failures in files this session never touched — `admin` collections reorder and a wishlist stock-check test — confirmed pre-existing intra-suite flakiness via an immediate clean rerun, not a regression from this change). `pnpm --filter @woobe/web run build` — clean production build.
+
+### Follow-ups / known gaps
+
+- `MoveWishlistItemToCartUseCase`'s own non-atomic cart-add-then-wishlist-remove (flagged repeatedly in earlier entries, e.g. Week 2 Day 2's independent review) remains untouched — out of scope for this pass, unrelated to the state-sync bug fixed here.
+- No other call site reads a stale cart/wishlist snapshot after an out-of-band mutation that this pass's grep found — but the general shape ("a component calls an API outside its owning context's mutation methods, so that context never resyncs") is now a known pattern to watch for if a similar report surfaces elsewhere.
+
+

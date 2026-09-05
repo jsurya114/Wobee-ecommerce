@@ -4,6 +4,7 @@ import { allocateCouponDiscount } from "../../domain/allocate-coupon-discount";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import { isGuestCheckoutEmailConfirmed } from "../../domain/ensure-guest-checkout-email-confirmed";
 import { OrderNumberCollisionError } from "../../domain/errors/order-number-collision.error";
+import type { AddressSaverPort } from "../ports/address-saver.port";
 import type { CartReaderPort, CheckoutCartLine } from "../ports/cart-reader.port";
 import type { CartResolverPort } from "../ports/cart-resolver.port";
 import type { CartWriterPort } from "../ports/cart-writer.port";
@@ -73,6 +74,7 @@ export class CheckoutUseCase {
     private readonly orderNumberGenerator: OrderNumberGeneratorPort,
     private readonly transaction: TransactionPort,
     private readonly couponRedeemer: CouponRedeemerPort,
+    private readonly addressSaver: AddressSaverPort,
   ) {}
 
   async execute(input: PlaceOrderInput): Promise<OrderEntity> {
@@ -123,7 +125,7 @@ export class CheckoutUseCase {
     // over it.
     const couponCode = input.userId ? cart.couponCode : null;
 
-    return this.transaction.run(async (tx) => {
+    const order = await this.transaction.run(async (tx) => {
       // Week 3 Day 1 hardening — MUST be the first thing inside the
       // transaction. Everything above this line (cart resolve, getCart,
       // availability/minimum-weight checks) runs unlocked and can't
@@ -215,6 +217,26 @@ export class CheckoutUseCase {
       await this.cartWriter.markConverted(cartId, tx);
       return order;
     });
+
+    // Persistent-address feature: for a logged-in customer only (a guest has
+    // no account to save an address under — input.userId is undefined for
+    // guests, the same signal used everywhere else in this use-case),
+    // best-effort save the submitted address to their address book. This
+    // runs AFTER the transaction has already committed successfully — never
+    // inside it — so a bug or transient DB issue here can never roll back or
+    // block an already-successful order. Failures are logged, never thrown.
+    if (input.userId) {
+      try {
+        await this.addressSaver.saveIfNew(input.userId, input.address);
+      } catch (error) {
+        console.error(
+          "[checkout] failed to save address to account, order still succeeded:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+
+    return order;
   }
 
   private async buildOrderItems(lines: CheckoutCartLine[], lineDiscounts: Map<string, number>): Promise<CreateOrderItemInput[]> {

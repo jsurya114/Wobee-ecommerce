@@ -17,6 +17,7 @@ import { getCurrentUserUseCase, updateUserProfileUseCase } from "../auth/auth.mo
 import { CreateAddressUseCase } from "./application/use-cases/create-address.use-case";
 import { DeleteAddressUseCase } from "./application/use-cases/delete-address.use-case";
 import { ListAddressesUseCase } from "./application/use-cases/list-addresses.use-case";
+import { SaveCheckoutAddressUseCase } from "./application/use-cases/save-checkout-address.use-case";
 import { SetDefaultAddressUseCase } from "./application/use-cases/set-default-address.use-case";
 import { UpdateAddressUseCase } from "./application/use-cases/update-address.use-case";
 import { AddressRepository } from "./infrastructure/repositories/address.repository";
@@ -31,6 +32,9 @@ const createAddressUseCase = new CreateAddressUseCase(addressRepository);
 const updateAddressUseCase = new UpdateAddressUseCase(addressRepository);
 const deleteAddressUseCase = new DeleteAddressUseCase(addressRepository);
 const setDefaultAddressUseCase = new SetDefaultAddressUseCase(addressRepository);
+
+/** Exported for `orders`' AddressSaverPort adapter (persistent-address feature) — checkout saves the submitted address to the customer's account, deduped against their existing addresses, reusing createAddressUseCase for the actual write so the "first address becomes default" rule stays defined in exactly one place. */
+export const saveCheckoutAddressUseCase = new SaveCheckoutAddressUseCase(addressRepository, createAddressUseCase);
 
 const usersController = new UsersController(
   getCurrentUserUseCase,

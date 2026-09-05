@@ -570,3 +570,215 @@ describe("Week 3 Day 6: customer order authorization — no IDOR/BOLA", () => {
     expect(anonRes.status).toBe(404);
   });
 });
+
+describe("checkout: saves address to account (persistent-address feature)", () => {
+  const secondAddress = {
+    fullName: "Second Recipient",
+    phone: "9123456780",
+    line1: "456 Another Road",
+    city: "Mumbai",
+    state: "Maharashtra",
+    pincode: "400001",
+  };
+
+  async function checkoutAs(agent: ReturnType<typeof request.agent>, email: string, address: typeof checkoutAddress): Promise<Record<string, unknown>> {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: email,
+      confirmEmail: email,
+      address,
+      paymentMethod: "COD",
+    });
+    expect(res.status).toBe(201);
+    createdOrderIds.push(res.body.id as string);
+    return res.body as Record<string, unknown>;
+  }
+
+  it("a customer with zero saved addresses gets one added, marked default, after checkout", async () => {
+    const { agent, email } = await registerTestUser();
+
+    await checkoutAs(agent, email, checkoutAddress);
+
+    const listRes = await agent.get("/api/v1/users/me/addresses");
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.addresses).toHaveLength(1);
+    const saved = listRes.body.addresses[0];
+    expect(saved.isDefault).toBe(true);
+    expect(saved.fullName).toBe(checkoutAddress.fullName);
+    expect(saved.phone).toBe(checkoutAddress.phone);
+    expect(saved.line1).toBe(checkoutAddress.line1);
+    expect(saved.city).toBe(checkoutAddress.city);
+    expect(saved.state).toBe(checkoutAddress.state);
+    expect(saved.pincode).toBe(checkoutAddress.pincode);
+  });
+
+  it("checking out again with the IDENTICAL address does not create a duplicate", async () => {
+    const { agent, email } = await registerTestUser();
+
+    await checkoutAs(agent, email, checkoutAddress);
+    await checkoutAs(agent, email, checkoutAddress);
+
+    const listRes = await agent.get("/api/v1/users/me/addresses");
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.addresses).toHaveLength(1);
+  });
+
+  it("checking out with a DIFFERENT address adds a second, non-default entry — the first stays default", async () => {
+    const { agent, email } = await registerTestUser();
+
+    await checkoutAs(agent, email, checkoutAddress);
+    await checkoutAs(agent, email, secondAddress);
+
+    const listRes = await agent.get("/api/v1/users/me/addresses");
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.addresses).toHaveLength(2);
+
+    const first = listRes.body.addresses.find((a: { line1: string }) => a.line1 === checkoutAddress.line1);
+    const second = listRes.body.addresses.find((a: { line1: string }) => a.line1 === secondAddress.line1);
+    expect(first.isDefault).toBe(true);
+    expect(second.isDefault).toBe(false);
+  });
+
+  it("a customer who already saved an address directly (via /account/addresses, not checkout) keeps it default after checking out with a NEW, different address", async () => {
+    const { agent, email } = await registerTestUser();
+
+    // Pre-existing address added through the direct address-book endpoint —
+    // NOT via checkout — mirroring a customer who set up their account
+    // before ever placing an order.
+    const directAddRes = await agent.post("/api/v1/users/me/addresses").send({
+      fullName: "Pre-existing Person",
+      phone: "9000000000",
+      line1: "1 Pre-existing Lane",
+      city: "Chennai",
+      state: "Tamil Nadu",
+      pincode: "600001",
+    });
+    expect(directAddRes.status).toBe(201);
+    expect(directAddRes.body.address.isDefault).toBe(true);
+
+    await checkoutAs(agent, email, secondAddress);
+
+    const listRes = await agent.get("/api/v1/users/me/addresses");
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.addresses).toHaveLength(2);
+
+    const preExisting = listRes.body.addresses.find((a: { line1: string }) => a.line1 === "1 Pre-existing Lane");
+    const fromCheckout = listRes.body.addresses.find((a: { line1: string }) => a.line1 === secondAddress.line1);
+    // The pre-existing address, added before this customer ever checked out,
+    // stays default — the checkout-triggered save must never silently
+    // un-default it or promote itself.
+    expect(preExisting.isDefault).toBe(true);
+    expect(fromCheckout.isDefault).toBe(false);
+  });
+
+  it("a guest checkout never creates an address book entry for anyone", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const agent = request.agent(app);
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    const addressCountBefore = await prisma.address.count();
+
+    const email = "guest-address-check@test.woobe.internal";
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: email,
+      confirmEmail: email,
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+    expect(res.status).toBe(201);
+    createdOrderIds.push(res.body.id);
+    expect(res.body.userId).toBeNull(); // guest order — no account to save an address under
+
+    // No new address row was created anywhere as a side effect of this
+    // guest checkout — there is no account for CheckoutUseCase's
+    // `if (input.userId)` guard to even consider calling addressSaver for.
+    const addressCountAfter = await prisma.address.count();
+    expect(addressCountAfter).toBe(addressCountBefore);
+  });
+
+  it("editing a saved address afterward does not change a previously-placed order's shippingSnapshot", async () => {
+    const { agent, email } = await registerTestUser();
+
+    const order = await checkoutAs(agent, email, checkoutAddress);
+
+    const beforeRes = await agent.get(`/api/v1/orders/${order.id as string}`);
+    expect(beforeRes.status).toBe(200);
+    const snapshotBefore = beforeRes.body.shippingSnapshot;
+
+    const listRes = await agent.get("/api/v1/users/me/addresses");
+    const savedAddressId = listRes.body.addresses[0].id as string;
+
+    const patchRes = await agent
+      .patch(`/api/v1/users/me/addresses/${savedAddressId}`)
+      .send({ line1: "999 Edited Lane Entirely Different" });
+    expect(patchRes.status).toBe(200);
+
+    const afterRes = await agent.get(`/api/v1/orders/${order.id as string}`);
+    expect(afterRes.status).toBe(200);
+    expect(afterRes.body.shippingSnapshot).toEqual(snapshotBefore);
+    expect(afterRes.body.shippingSnapshot.line1).toBe(checkoutAddress.line1);
+  });
+
+  it("IDOR: customer A's checkout-saved address never appears in customer B's address book, and customer B checking out with the SAME address text saves an independent row scoped to B, not A", async () => {
+    const customerA = await registerTestUser();
+    const customerB = await registerTestUser();
+
+    await checkoutAs(customerA.agent, customerA.email, checkoutAddress);
+
+    // Customer B checks out with the textually-identical address — if
+    // dedup or the save itself were ever scoped by anything other than the
+    // caller's own userId (e.g. a global address table scan, or a
+    // request-supplied id), this could either skip saving B's address
+    // (mistaking A's row for a dup) or — worse — let B see/touch A's row.
+    await checkoutAs(customerB.agent, customerB.email, checkoutAddress);
+
+    const listA = await customerA.agent.get("/api/v1/users/me/addresses");
+    const listB = await customerB.agent.get("/api/v1/users/me/addresses");
+    expect(listA.status).toBe(200);
+    expect(listB.status).toBe(200);
+
+    // Each account has exactly its own one saved address — B's checkout
+    // created an independent row, it did not dedupe against or expose A's.
+    expect(listA.body.addresses).toHaveLength(1);
+    expect(listB.body.addresses).toHaveLength(1);
+    const addressIdA = listA.body.addresses[0].id as string;
+    const addressIdB = listB.body.addresses[0].id as string;
+    expect(addressIdA).not.toBe(addressIdB);
+
+    // B cannot reach A's saved address by id even though B now knows the
+    // request shape — same 404-not-403 posture as every other address IDOR
+    // test in users.integration.test.ts.
+    const crossReadRes = await customerB.agent.patch(`/api/v1/users/me/addresses/${addressIdA}`).send({ line1: "Hijacked" });
+    expect(crossReadRes.status).toBe(404);
+
+    // A's row is untouched by B's attempt.
+    const listAAfter = await customerA.agent.get("/api/v1/users/me/addresses");
+    expect(listAAfter.body.addresses[0].line1).toBe(checkoutAddress.line1);
+  });
+
+  it("a malformed/garbage Authorization header on checkout is treated as a guest — never saves an address under any account", async () => {
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5 });
+    const agent = request.agent(app).set("Authorization", "Bearer not-a-real-jwt-token");
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+
+    const addressCountBefore = await prisma.address.count();
+
+    const email = "garbage-token-address-check@test.woobe.internal";
+    const res = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: email,
+      confirmEmail: email,
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+    expect(res.status).toBe(201);
+    createdOrderIds.push(res.body.id);
+    // optionalAuthGuard silently falls back to guest on a token it can't
+    // verify — this must never be a path to attaching an order (or saving
+    // an address) to an arbitrary/guessed account.
+    expect(res.body.userId).toBeNull();
+
+    const addressCountAfter = await prisma.address.count();
+    expect(addressCountAfter).toBe(addressCountBefore);
+  });
+});

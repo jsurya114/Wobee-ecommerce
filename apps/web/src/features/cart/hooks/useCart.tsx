@@ -16,6 +16,18 @@ interface CartContextValue {
   /** Requires a logged-in accessToken — throws if called while signed out (the coupon UI only renders the input for a logged-in customer). */
   applyCoupon: (code: string) => Promise<void>;
   removeCoupon: () => Promise<void>;
+  /**
+   * Re-fetches the authoritative cart from the server and replaces local
+   * state with it — the same shape as WishlistProvider's own `refresh`.
+   * For callers whose action changes the cart on the backend WITHOUT going
+   * through one of this context's own mutation methods above (checkout
+   * converts the cart; wishlist's move-to-cart adds an item via a
+   * different module's endpoint) — those callers can't rely on a
+   * `setCart(result)` they never received, so they call this instead to
+   * pull the fresh state rather than leaving the UI showing a stale
+   * pre-action snapshot until a full page reload remounts this provider.
+   */
+  refresh: () => Promise<void>;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -127,8 +139,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCart(result);
   }, [accessToken]);
 
+  const refresh = useCallback(async () => {
+    const result = await cartApi.getCart(accessToken ?? undefined);
+    setCart(result);
+  }, [accessToken]);
+
   return (
-    <CartContext.Provider value={{ cart, isLoading, addItem, updateItem, changeItemVariant, removeItem, applyCoupon, removeCoupon }}>
+    <CartContext.Provider value={{ cart, isLoading, addItem, updateItem, changeItemVariant, removeItem, applyCoupon, removeCoupon, refresh }}>
       {children}
     </CartContext.Provider>
   );

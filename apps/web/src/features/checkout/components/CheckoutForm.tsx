@@ -3,7 +3,16 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { formatGrams, formatPaiseAsInr } from "@woobe/utils";
 import { checkoutSchema, type CheckoutInput } from "@woobe/validation";
-import { Button, Card, CardContent, CardHeader, CardTitle, FormField, RadioGroup, RadioGroupItem } from "@woobe/ui";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  FormField,
+  RadioGroup,
+  RadioGroupItem,
+} from "@woobe/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -17,11 +26,12 @@ import { useCart } from "@/features/cart/hooks/useCart";
 import * as shippingApi from "@/features/shipping/api/shipping.client";
 import type { ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import * as checkoutApi from "../api/checkout.client";
+import { CheckoutAddressPicker } from "./CheckoutAddressPicker";
 
 export function CheckoutForm() {
   const router = useRouter();
   const { user, accessToken } = useAuth();
-  const { cart, isLoading: isCartLoading } = useCart();
+  const { cart, isLoading: isCartLoading, refresh: refreshCart } = useCart();
 
   const {
     register,
@@ -41,7 +51,8 @@ export function CheckoutForm() {
   // (checkPincodeServiceability is deliberately permissive today, no
   // approved restricted-area list exists yet — see that function's own
   // doc comment). Never blocks checkout; it's a courtesy heads-up.
-  const [deliveryEstimate, setDeliveryEstimate] = useState<ShippingEstimate | null>(null);
+  const [deliveryEstimate, setDeliveryEstimate] =
+    useState<ShippingEstimate | null>(null);
   const pincodeField = register("address.pincode");
   const checkPincode = async (pincode: string) => {
     if (!pincode.trim()) {
@@ -49,7 +60,9 @@ export function CheckoutForm() {
       return;
     }
     try {
-      setDeliveryEstimate(await shippingApi.getShippingEstimate(pincode.trim()));
+      setDeliveryEstimate(
+        await shippingApi.getShippingEstimate(pincode.trim()),
+      );
     } catch {
       // Silent — this check is a courtesy, not a validation gate; a failed
       // lookup just means no estimate shows, not a form error.
@@ -76,7 +89,9 @@ export function CheckoutForm() {
   // server-side snapshotting (checkout always re-sends the full address as
   // typed, exactly as before this change).
   const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
-  const [selectedAddressId, setSelectedAddressId] = useState<string | "new">("new");
+  const [selectedAddressId, setSelectedAddressId] = useState<string | "new">(
+    "new",
+  );
   useEffect(() => {
     if (!user || !accessToken) {
       setSavedAddresses([]);
@@ -86,7 +101,8 @@ export function CheckoutForm() {
     void addressesApi.listAddresses(accessToken).then((result) => {
       if (cancelled) return;
       setSavedAddresses(result.addresses);
-      const preferred = result.addresses.find((a) => a.isDefault) ?? result.addresses[0];
+      const preferred =
+        result.addresses.find((a) => a.isDefault) ?? result.addresses[0];
       if (preferred) applySavedAddress(preferred);
     });
     return () => {
@@ -107,9 +123,43 @@ export function CheckoutForm() {
     void checkPincode(address.pincode);
   }
 
+  // "Add a new address" (CheckoutAddressPicker) — clears the editable fields
+  // back to a fresh entry, same starting point a shopper with zero saved
+  // addresses already gets (name/phone pre-filled from the account, same as
+  // the effect above; everything address-specific blank) rather than leaving
+  // whichever saved address's values happened to be filled in already.
+  function resetToFreshAddress(): void {
+    setSelectedAddressId("new");
+    setValue("address.fullName", user?.name ?? "");
+    setValue("address.phone", user?.phone ?? "");
+    setValue("address.line1", "");
+    setValue("address.line2", "");
+    setValue("address.city", "");
+    setValue("address.state", "");
+    setValue("address.pincode", "");
+    setDeliveryEstimate(null);
+  }
+
   const onSubmit = handleSubmit(async (data) => {
     try {
       const order = await checkoutApi.checkout(data, accessToken ?? undefined);
+      // CheckoutUseCase converts the cart server-side inside the same
+      // transaction as order creation (unconditional — happens regardless
+      // of payment method, since that's a separate concern from "is this
+      // cart's job done"), but that response never reaches CartProvider's
+      // own `setCart` (checkout is a distinct API call, not one of the
+      // cart context's own mutation methods) — without this, the nav
+      // badge/cart page would keep showing the pre-checkout snapshot until
+      // a full page reload remounted the provider. `refreshCart` re-fetches
+      // the now-authoritative (converted/empty) cart from the server, the
+      // same "ask the backend, don't guess" rule every other cart mutation
+      // already follows. Awaited (not fire-and-forget) so the nav badge is
+      // already correct by the time the confirmation page renders, rather
+      // than snapping from stale to correct a beat later — errors are
+      // swallowed rather than blocking navigation to an order that was
+      // already placed successfully; the next real page load resolves it
+      // regardless.
+      await refreshCart().catch(() => {});
       // The order lands at PENDING_PAYMENT regardless of method — the
       // confirmation page drives it the rest of the way (COD confirms
       // itself immediately; Razorpay opens Checkout and waits for the
@@ -119,7 +169,8 @@ export function CheckoutForm() {
       if (error instanceof ApiError) {
         if (error.fieldErrors) {
           for (const [field, messages] of Object.entries(error.fieldErrors)) {
-            if (messages?.[0]) setError(field as keyof CheckoutInput, { message: messages[0] });
+            if (messages?.[0])
+              setError(field as keyof CheckoutInput, { message: messages[0] });
           }
           return;
         }
@@ -131,14 +182,23 @@ export function CheckoutForm() {
   });
 
   if (isCartLoading) {
-    return <p className="py-16 text-center font-body text-sm text-text-secondary">Loading your bag…</p>;
+    return (
+      <p className="py-16 text-center font-body text-sm text-text-secondary">
+        Loading your bag…
+      </p>
+    );
   }
 
   if (!cart || cart.items.length === 0) {
     return (
       <div className="flex flex-col items-center gap-4 py-16 text-center">
-        <p className="font-body text-sm text-text-secondary">Your bag is empty.</p>
-        <Link href="/products" className="font-body text-sm text-primary hover:underline">
+        <p className="font-body text-sm text-text-secondary">
+          Your bag is empty.
+        </p>
+        <Link
+          href="/products"
+          className="font-body text-sm text-primary hover:underline"
+        >
           Continue shopping
         </Link>
       </div>
@@ -149,9 +209,13 @@ export function CheckoutForm() {
     return (
       <div className="flex flex-col items-center gap-4 py-16 text-center">
         <p className="font-body text-sm text-text-secondary">
-          Your bag needs {cart.shipping.gramsToMinimum}g more to meet the minimum order weight.
+          Your bag needs {cart.shipping.gramsToMinimum}g more to meet the
+          minimum order weight.
         </p>
-        <Link href="/cart" className="font-body text-sm text-primary hover:underline">
+        <Link
+          href="/cart"
+          className="font-body text-sm text-primary hover:underline"
+        >
           Back to bag
         </Link>
       </div>
@@ -159,13 +223,17 @@ export function CheckoutForm() {
   }
 
   const estimatedTotal =
-    cart.totalPaise + (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise) - cart.discountPaise;
+    cart.totalPaise +
+    (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise) -
+    cart.discountPaise;
 
   return (
     <div className="grid gap-6 pb-4 md:grid-cols-[1fr_320px] md:gap-8 md:pb-0">
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-6">
         <Card className="p-5">
-          <h2 className="mb-4 font-display text-lg text-text-primary">Contact</h2>
+          <h2 className="mb-4 font-display text-lg text-text-primary">
+            Contact
+          </h2>
           <FormField
             label="Email"
             type="email"
@@ -188,7 +256,8 @@ export function CheckoutForm() {
                 error={errors.confirmEmail?.message}
                 {...register("confirmEmail", {
                   required: "Please confirm your email",
-                  validate: (value) => value === watch("contactEmail") || "Emails do not match",
+                  validate: (value) =>
+                    value === watch("contactEmail") || "Emails do not match",
                 })}
               />
             </div>
@@ -196,33 +265,16 @@ export function CheckoutForm() {
         </Card>
 
         <Card className="flex flex-col gap-4 p-5">
-          <h2 className="font-display text-lg text-text-primary">Shipping address</h2>
+          <h2 className="font-display text-lg text-text-primary">
+            Shipping address
+          </h2>
           {savedAddresses.length > 0 ? (
-            <div className="flex flex-col gap-2 border-b border-border pb-4">
-              <p className="font-body text-xs font-medium uppercase tracking-[0.06em] text-text-secondary">Saved addresses</p>
-              <RadioGroup
-                value={selectedAddressId}
-                onValueChange={(value) => {
-                  if (value === "new") {
-                    setSelectedAddressId("new");
-                    return;
-                  }
-                  const address = savedAddresses.find((a) => a.id === value);
-                  if (address) applySavedAddress(address);
-                }}
-                className="flex flex-col gap-2"
-              >
-                {savedAddresses.map((address) => (
-                  <RadioGroupItem
-                    key={address.id}
-                    value={address.id}
-                    label={`${address.fullName}${address.isDefault ? " · Default" : ""}`}
-                    description={`${address.line1}, ${address.city}, ${address.state} ${address.pincode}`}
-                  />
-                ))}
-                <RadioGroupItem value="new" label="Use a different address" description="Fill in the fields below" />
-              </RadioGroup>
-            </div>
+            <CheckoutAddressPicker
+              savedAddresses={savedAddresses}
+              selectedAddressId={selectedAddressId}
+              onSelectSaved={applySavedAddress}
+              onSelectNew={resetToFreshAddress}
+            />
           ) : null}
           <FormField
             label="Full name"
@@ -250,7 +302,12 @@ export function CheckoutForm() {
             {...register("address.line2")}
           />
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="City" autoComplete="address-level2" error={errors.address?.city?.message} {...register("address.city")} />
+            <FormField
+              label="City"
+              autoComplete="address-level2"
+              error={errors.address?.city?.message}
+              {...register("address.city")}
+            />
             <FormField
               label="State"
               autoComplete="address-level1"
@@ -270,7 +327,9 @@ export function CheckoutForm() {
             }}
           />
           {deliveryEstimate ? (
-            <p className={`font-body text-xs ${deliveryEstimate.serviceable ? "text-text-secondary" : "text-error"}`}>
+            <p
+              className={`font-body text-xs ${deliveryEstimate.serviceable ? "text-text-secondary" : "text-error"}`}
+            >
               {deliveryEstimate.serviceable
                 ? `Delivers in ${deliveryEstimate.estimatedDeliveryDaysMin}-${deliveryEstimate.estimatedDeliveryDaysMax} days`
                 : deliveryEstimate.reason}
@@ -279,7 +338,9 @@ export function CheckoutForm() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="mb-4 font-display text-lg text-text-primary">Payment method</h2>
+          <h2 className="mb-4 font-display text-lg text-text-primary">
+            Payment method
+          </h2>
           {/* The order always lands at PENDING_PAYMENT at checkout time; the
               confirmation page drives each method the rest of the way — see
               the onSubmit comment above. */}
@@ -287,16 +348,30 @@ export function CheckoutForm() {
             control={control}
             name="paymentMethod"
             render={({ field }) => (
-              <RadioGroup value={field.value} onValueChange={field.onChange} className="flex flex-col gap-2">
-                <RadioGroupItem value="COD" label="Cash on delivery" description="Pay when your order arrives" />
-                <RadioGroupItem value="RAZORPAY" label="Pay online" description="Card, UPI, or netbanking via Razorpay" />
+              <RadioGroup
+                value={field.value}
+                onValueChange={field.onChange}
+                className="flex flex-col gap-2"
+              >
+                <RadioGroupItem
+                  value="COD"
+                  label="Cash on delivery"
+                  description="Pay when your order arrives"
+                />
+                <RadioGroupItem
+                  value="RAZORPAY"
+                  label="Pay online"
+                  description="Card, UPI, or netbanking via Razorpay"
+                />
               </RadioGroup>
             )}
           />
         </Card>
 
         <Button type="submit" isLoading={isSubmitting} className="w-full">
-          {isSubmitting ? "Placing order…" : `Place order — ${formatPaiseAsInr(estimatedTotal)}`}
+          {isSubmitting
+            ? "Placing order…"
+            : `Place order — ${formatPaiseAsInr(estimatedTotal)}`}
         </Button>
       </form>
 
@@ -308,32 +383,43 @@ export function CheckoutForm() {
           <dl className="flex flex-col gap-2 font-body text-sm">
             <div className="flex justify-between">
               <dt className="text-text-secondary">Items ({cart.itemCount})</dt>
-              <dd className="text-text-primary">{formatPaiseAsInr(cart.totalPaise)}</dd>
+              <dd className="text-text-primary">
+                {formatPaiseAsInr(cart.totalPaise)}
+              </dd>
             </div>
             <div className="flex justify-between">
               {/* Weight-based items only (ADR-021) — a FIXED-priced accessory's weight never moves this figure, client-review fix 2026-09-04. */}
               <dt className="text-text-secondary">Total weight</dt>
-              <dd className="text-text-primary">{formatGrams(cart.weightBasedTotalGrams)}</dd>
+              <dd className="text-text-primary">
+                {formatGrams(cart.weightBasedTotalGrams)}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-secondary">Shipping</dt>
               <dd className="text-text-primary">
-                {cart.shipping.isFreeDelivery ? "Free" : formatPaiseAsInr(cart.shipping.shippingFeePaise)}
+                {cart.shipping.isFreeDelivery
+                  ? "Free"
+                  : formatPaiseAsInr(cart.shipping.shippingFeePaise)}
               </dd>
             </div>
             {cart.discountPaise > 0 ? (
               <div className="flex justify-between">
                 <dt className="text-text-secondary">Coupon discount</dt>
-                <dd className="text-success">-{formatPaiseAsInr(cart.discountPaise)}</dd>
+                <dd className="text-success">
+                  -{formatPaiseAsInr(cart.discountPaise)}
+                </dd>
               </div>
             ) : null}
           </dl>
           <div className="mt-4 flex justify-between border-t border-border pt-4 font-body text-base font-medium">
             <span className="text-text-primary">Estimated total</span>
-            <span className="text-text-primary">{formatPaiseAsInr(estimatedTotal)}</span>
+            <span className="text-text-primary">
+              {formatPaiseAsInr(estimatedTotal)}
+            </span>
           </div>
           <p className="mt-3 font-body text-xs text-text-secondary">
-            Tax is calculated server-side and shown on your final order confirmation.
+            Tax is calculated server-side and shown on your final order
+            confirmation.
           </p>
         </CardContent>
       </Card>

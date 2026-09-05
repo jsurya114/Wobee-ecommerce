@@ -5,11 +5,13 @@ import { X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useCart } from "@/features/cart/hooks/useCart";
 import { useWishlist } from "../hooks/useWishlist";
 import type { WishlistLine } from "../api/wishlist.client";
 
 export function WishlistLineItem({ line }: { line: WishlistLine }) {
   const { removeItem, moveToCart } = useWishlist();
+  const { refresh: refreshCart } = useCart();
   const [isPending, setIsPending] = useState(false);
 
   async function handleRemove() {
@@ -26,6 +28,13 @@ export function WishlistLineItem({ line }: { line: WishlistLine }) {
     setIsPending(true);
     try {
       await moveToCart(line.itemId, 1);
+      // moveToCart's own API call adds the item to the cart on the server
+      // (wishlist's move-to-cart endpoint, not one of CartProvider's own
+      // mutation methods), so CartProvider's in-memory state never sees
+      // that response — without this, the nav badge/cart page would keep
+      // showing the pre-move item count until a full reload. Same
+      // "re-fetch the authoritative state" fix as checkout's own.
+      await refreshCart().catch(() => {});
       toast.success(`Added ${line.productName} to your bag`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't add this item to your bag");
