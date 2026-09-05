@@ -9,8 +9,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { setUnauthorizedHandler } from "@/lib/api-client";
 import * as authApi from "../api/auth.client";
 import type { AuthUser } from "../api/auth.client";
+import { refreshAccessToken } from "../api/refresh-coordinator";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -44,7 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     void (async () => {
       try {
-        const { accessToken: freshToken } = await authApi.refresh();
+        // Goes through the shared coordinator, not authApi.refresh()
+        // directly — the refresh token is single-use/rotating, so this
+        // mount effect racing a concurrent 401-triggered refresh (or its
+        // own React-StrictMode double-invoke) must never fire two real
+        // /auth/refresh calls (see refresh-coordinator.ts's own comment).
+        const { accessToken: freshToken } = await refreshAccessToken();
         const { user: freshUser } = await authApi.me(freshToken);
         if (cancelled) return;
         setAccessToken(freshToken);
@@ -57,6 +64,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Lets apiFetch silently recover from an expired (not merely absent)
+  // access token instead of throwing an uncaught 401 on the first
+  // authenticated call after 15 minutes — see setUnauthorizedHandler's own
+  // doc comment in lib/api-client.ts. Registered once, at the top of the
+  // provider tree, so it's live before any child's own effect could fire
+  // its first authenticated request.
+  useEffect(() => {
+    setUnauthorizedHandler(async () => {
+      try {
+        const { accessToken: freshToken } = await refreshAccessToken();
+        setAccessToken(freshToken);
+        return freshToken;
+      } catch {
+        // The refresh token itself is invalid/expired/revoked — a genuine
+        // logged-out state, not a retryable hiccup. Reflect that in
+        // context so the rest of the UI (nav, guarded pages) reacts the
+        // same way an explicit logout would, then let the caller's
+        // original 401 surface normally.
+        setAccessToken(null);
+        setUser(null);
+        setStatus("unauthenticated");
+        return null;
+      }
+    });
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   const login = useCallback(async (input: LoginInput) => {
