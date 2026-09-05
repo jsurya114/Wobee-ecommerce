@@ -4,6 +4,7 @@ import Link from "next/link";
 import { QuickAddToBagButton } from "@/features/cart/components/QuickAddToBagButton";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import type { ProductSummary } from "../api/products.client";
+import { ShareProductButton } from "./ShareProductButton";
 
 /**
  * The one canonical product card (redesign spec §D) — reused by every grid
@@ -42,7 +43,10 @@ export function ProductCard({ product, showQuickAdd = false }: { product: Produc
             <ImageOff className="h-6 w-6 text-text-secondary/40" strokeWidth={1.5} aria-hidden="true" />
           </div>
         )}
-        <WishlistButton productId={product.id} size="sm" className="absolute right-2 top-2" />
+        <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5">
+          <WishlistButton productId={product.id} size="sm" />
+          <ShareProductButton slug={product.slug} name={product.name} size="sm" />
+        </div>
         {showQuickAdd ? (
           <QuickAddToBagButton slug={product.slug} productName={product.name} className="absolute bottom-2 right-2" />
         ) : null}
