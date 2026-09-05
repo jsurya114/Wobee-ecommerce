@@ -10,11 +10,13 @@ import { findCategoryBySlugUseCase } from "../categories/categories.module";
 import { findCollectionBySlugUseCase } from "../collections/collections.module";
 import { findInStockVariantIdsUseCase, getAvailableQuantitiesUseCase, initializeInventoryForVariantUseCase } from "../inventory/inventory.module";
 import { calculateEffectivePriceUseCase } from "../pricing/pricing.module";
+import { env } from "../../config/env";
 import type { CategoryReaderPort } from "./application/ports/category-reader.port";
 import type { CollectionReaderPort } from "./application/ports/collection-reader.port";
 import type { InventoryInitializerPort } from "./application/ports/inventory-initializer.port";
 import type { InventoryReaderPort } from "./application/ports/inventory-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
+import type { ProductRepositoryPort } from "./application/ports/product-repository.port";
 import { AddProductImageUseCase } from "./application/use-cases/admin/add-product-image.use-case";
 import { CreateProductUseCase } from "./application/use-cases/admin/create-product.use-case";
 import { CreateProductVariantUseCase } from "./application/use-cases/admin/create-product-variant.use-case";
@@ -34,11 +36,24 @@ import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-
 import { ListProductsUseCase } from "./application/use-cases/list-products.use-case";
 import { ResolveProductIdsForVariantsUseCase } from "./application/use-cases/resolve-product-ids-for-variants.use-case";
 import { SearchProductSuggestionsUseCase } from "./application/use-cases/search-product-suggestions.use-case";
+import { CachedProductRepository } from "./infrastructure/repositories/cached-product-repository";
 import { ProductRepository } from "./infrastructure/repositories/product.repository";
 import { ProductsController } from "./interface/http/products.controller";
 import { createProductsRouter } from "./interface/http/products.routes";
 
-const productRepository = new ProductRepository();
+// ADR-017 (Caching Strategy): wraps every customer-facing read this module
+// exposes in a Redis read-through cache — see CachedProductRepository's own
+// doc comment for exactly what's cached vs. always-live, and for why every
+// admin method still passes straight through underneath, uncached. Skipped
+// entirely under `pnpm test` — every *.integration.test.ts here seeds
+// fixtures via raw Prisma writes that bypass this decorator's own
+// invalidation, then asserts on an immediate GET of the same resource; a
+// live cache in that path would break those tests deterministically, not
+// flakily. The cache helper's own hit/miss/error-fallback/version-bump
+// behavior is verified directly by catalog-cache.test.ts instead.
+const realProductRepository = new ProductRepository();
+const productRepository: ProductRepositoryPort =
+  env.NODE_ENV === "test" ? realProductRepository : new CachedProductRepository(realProductRepository);
 
 const categoryReader: CategoryReaderPort = { findIdBySlug: (slug) => findCategoryBySlugUseCase.execute(slug) };
 const collectionReader: CollectionReaderPort = { findIdBySlug: (slug) => findCollectionBySlugUseCase.execute(slug) };

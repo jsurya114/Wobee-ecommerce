@@ -2771,3 +2771,49 @@ Also confirmed already-correct along the way (no changes needed): unknown-paymen
 
 
 ---
+
+## 2026-09-05 — Redis read-through caching for the public catalog surface (ADR-017, finally implemented)
+
+**Branch:** `woobe-ui/bug-fixes`. `apps/api` only (plus this entry) — no schema migration, no API contract change, no `apps/web`/`apps/admin` change.
+
+Implements ADR-017 (`project_planning/plan.md`, written Week 1, never built): "Redis (read-through) — session tokens, rate-limit counters, inventory reservation TTL locks, and the admin ₹/kg default rate + per-product rate overrides for DISPLAY purposes. Short TTL (30–60s) as a backstop; explicit bust on write is the primary mechanism." Triggered by the same "revisit later" clause the previous entry's Home-latency fix already cited.
+
+**Investigation before writing anything (per the task's own explicit "show the plan first" instruction):**
+- Confirmed exactly which repository reads are safe to cache by reading the actual Prisma queries: `ProductRepository.findMany`/`findBySlug`/`findRelatedProducts` return zero live price/stock — weight, `ratePerKgOverridePaise`, `fixedPricePaise`, `minPricePaiseCache` are admin-set catalog attributes; live price (`pricingReader.calculateMany`) and live stock (`inventoryReader.getAvailableQuantities`) are computed separately, one layer up, in each use-case, and stay completely outside the cache — checkout/PDP price and stock are exactly as live as before this change, on every single request.
+- Found and deliberately excluded the one genuinely live-dependent shape: `ListProductsUseCase`'s `inStockOnly=true` path feeds a live, constantly-changing variant-id set into the query — caching that would be both the closest thing here to caching inventory and a near-zero-hit-rate key anyway. `CachedProductRepository.findMany` bypasses the cache whenever `filter.inStockVariantIds` is set, verified live (see below).
+- **A real, pre-implementation blocker found by reading the tests, not assumed:** every `*.integration.test.ts` in this repo (confirmed in `home.integration.test.ts`, `products.integration.test.ts`) seeds fixtures via raw `prisma.*.create()` — bypassing any repository-level cache's own invalidation — then immediately asserts on a `GET` of the same resource. A cache active in `pnpm test` would have made several of `home.integration.test.ts`'s own tests fail deterministically (stale cached response from an earlier test in the same file). Fix: each `*.module.ts` composition root only constructs the `Cached*`/`CacheInvalidatingCollectionRepository` wrapper when `env.NODE_ENV !== "test"` — in test, the plain, always-live repository is wired instead, so all 605 existing tests exercise the exact same code path they always have. The cache helper's own correctness (hit/miss/error-fallback/version-bump) is proven directly by a new `catalog-cache.test.ts`, independent of the HTTP integration suite (the helper itself has no env-based self-disabling — that decision lives one layer up, at each composition root, not baked into the primitive).
+
+**Architecture — decorator, at the infrastructure layer, one shared Redis client:**
+- **New:** `apps/api/src/shared/cache/catalog-cache.ts` — `cacheAside(key, ttlSeconds, load)` (GET → miss → `load()` → `SET EX`, every Redis call individually try/caught, fails open to `load()` on any error or malformed JSON — same posture `middleware/rate-limit.ts` already established) + `getCatalogCacheVersion()`/`bumpCatalogCacheVersion()`, one shared `INCR`-based counter prefixed into every cache key. Reuses the one `redis` client from `config/redis.ts` — no second connection.
+- **New:** `CachedProductRepository`, `CachedCategoryRepository`, `CachedBannerRepository` (each `implements` its module's existing `*RepositoryPort`, delegating every method except the ones below straight through to the real repository — zero use-case/controller/domain changes anywhere) and `CacheInvalidatingCollectionRepository` (delegates every read, only exists to bump the shared version on a collection write, since Home's cached aggregate and products' cached `?collection=` filter both embed collection data with no dedicated cache entry of their own).
+- **`home.module.ts`:** the whole `GetHomePageUseCase.execute()` result cached as one unit (on top of, not instead of, `listProductsUseCase`/`listCategoriesUseCase`/`listVisibleBannersUseCase` already being individually cached) — composed as a plain `{ execute() }` object at the composition root, the same pattern this codebase already uses for every other cross-module port; `get-homepage.use-case.ts` itself is untouched. Needed a one-line type change in `home.controller.ts` (concrete `GetHomePageUseCase` class param → a narrow structural `HomePageReader` interface) since TypeScript's nominal-ish typing for classes with private fields would otherwise reject the plain-object wrapper — compile-time only, zero runtime behavior change.
+
+**What's cached, TTL, key, invalidation:**
+
+| Resource | Cached call | TTL | Invalidated by |
+|---|---|---|---|
+| Home aggregate | `GetHomePageUseCase.execute()` | 60s | any product/variant/category/banner/collection admin write |
+| Product listing (skipped when `inStockOnly`) | `ProductRepository.findMany` | 60s | product/variant create/update/activate/image change |
+| Product detail | `ProductRepository.findBySlug` | 120s | same |
+| Related products | `ProductRepository.findRelatedProducts` | 120s | same |
+| Categories list | `CategoryRepository.findActiveCategories` | 300s | category create/update/activate/reorder |
+| Visible banners | `BannerRepository.findVisible` (param excluded from key — see below) | 60s | banner create/update/delete/activate/reorder |
+
+Deliberate choice, confirmed with the user before implementing: **one shared `cache:catalog:version` counter**, not per-entity `DEL` — editing one product also expires other unrelated products' still-valid cached detail pages, in exchange for a provably-correct, single-`INCR` invalidation with no `SCAN`/pattern-matching and no risk of ever serving stale-past-a-write data. `BannerRepository.findVisible(now)` takes a live timestamp excluded from the key (a per-millisecond key would never hit) — the 60s TTL is what bounds how late/early a scheduled banner's start/end can appear, same "short TTL as backstop" trade-off ADR-017 already accepts. `products/suggestions` (search typeahead) was investigated and deliberately left uncached, per the user's own explicit call — already `pg_trgm`-indexed and fast, smaller win than the rest, kept the diff smaller.
+
+**Not cached, and why:** admin read/write use-cases (an admin must see their own edit immediately), `resolveFromPricing`'s live rate calc, `GetProductBySlugUseCase`'s live price/stock composition, `findByIds` (shared by Home *and* Wishlist — skipping it keeps Wishlist's request path completely untouched, at zero cost since Home's own top-level cache already prevents that call from re-running on repeat Home visits), and everything explicitly out of scope: cart, wishlist, orders, checkout, payments, coupons, auth/sessions, inventory reservations.
+
+**Verified live against the real dev fleet (not just the test suite):**
+- `GET /api/v1/home`: 43ms (cold) → 7-8ms (warm), Redis keys confirmed present (`home:page`, `products:list:*` ×4 for the budget tiles, `banners:visible`, `categories:list`).
+- `GET /api/v1/products?category=tops` vs `?category=dresses`: separate cache keys, both independently cached (23ms/12ms → 10ms warm; 12ms cold for the second, different category).
+- `GET /api/v1/products?inStock=true`: confirmed zero new cache key written (bypass working as designed).
+- Real admin `PATCH /api/v1/admin/products/:id` rename → `cache:catalog:version` 0→1 → the very next `GET /api/v1/products/:slug` immediately showed the new name, not the cached old one. Same proven for a category rename (0→1 further bump; also incidentally surfaced that `categories:list`'s cached snapshot had been serving an already-stale sort order from earlier in the session — exactly the behavior caching is supposed to have, and confirmation the bump forces a genuinely fresh read, not a coincidence). Both test edits reverted afterward.
+- Redis stopped entirely (`docker stop woobe-redis`): `GET /api/v1/home`, `/products`, `/products/:slug`, `/categories`, `/banners` all still returned `200` — confirmed fail-open, zero request failures, only a logged `[catalog-cache] ... failed` line per call. Restarted Redis, confirmed clean recovery and cache re-population.
+
+**Full workspace gate, all clean:** `pnpm -r run lint`, `typecheck`, `boundaries:check` (558 modules / 1,729 dependencies, 0 violations — this pass's new decorator files added no cross-module edges), `pnpm --filter @woobe/api run test` — **85 files, 614 tests** (605 pre-existing + 9 new in `catalog-cache.test.ts`), zero regressions. `pnpm -r run build` — all three apps clean.
+
+**Follow-ups / known gaps:**
+- Review moderation (approve/reject) does NOT bump the catalog cache version — Home's customer-reviews section can lag up to its own 60s TTL after a moderation action. Not in the task's named scope (products/categories/banners/collections); flagging for a future session if it matters.
+- `CategoryRepository.findIdBySlug` (a single-row indexed lookup, used internally by the listing's category filter) stays uncached — trivial to answer live already, kept the diff smaller.
+- The shared-version-counter trade-off (coarse invalidation, confirmed with the user before building) means a burst of unrelated admin edits in quick succession causes more cache misses than a per-entity scheme would — acceptable at this catalogue's scale, revisit only with real evidence it isn't.
+

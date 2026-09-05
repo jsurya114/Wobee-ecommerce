@@ -10,11 +10,20 @@ import { ListCategoriesAdminUseCase } from "./application/use-cases/admin/list-c
 import { ReorderCategoriesUseCase } from "./application/use-cases/admin/reorder-categories.use-case";
 import { SetCategoryActiveUseCase } from "./application/use-cases/admin/set-category-active.use-case";
 import { UpdateCategoryUseCase } from "./application/use-cases/admin/update-category.use-case";
+import type { CategoryRepositoryPort } from "./application/ports/category-repository.port";
+import { CachedCategoryRepository } from "./infrastructure/repositories/cached-category-repository";
 import { CategoryRepository } from "./infrastructure/repositories/category.repository";
 import { CategoriesController } from "./interface/http/categories.controller";
 import { createCategoriesRouter } from "./interface/http/categories.routes";
+import { env } from "../../config/env";
 
-const categoryRepository = new CategoryRepository();
+// ADR-017 (Caching Strategy) — see CachedCategoryRepository's own doc
+// comment for exactly what's cached (findActiveCategories only) vs. left
+// live (admin reads, findIdBySlug). Skipped under `pnpm test` — see
+// products.module.ts's own comment on this same pattern for why.
+const realCategoryRepository = new CategoryRepository();
+const categoryRepository: CategoryRepositoryPort =
+  env.NODE_ENV === "test" ? realCategoryRepository : new CachedCategoryRepository(realCategoryRepository);
 
 /** Exported for cross-module use — `home` composes the active category list into its category-rail payload (redesign §B). */
 export const listCategoriesUseCase = new ListCategoriesUseCase(categoryRepository);
