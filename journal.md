@@ -2739,3 +2739,35 @@ Also confirmed already-correct along the way (no changes needed): unknown-paymen
 **Follow-ups / known gaps:**
 - Real CI (GitHub Actions) can only be confirmed once `week4` is merged to `main` or a PR is opened against it — same as Week 3.
 - Not yet merged to `main` — awaiting the user's explicit instruction, per this session's own established pattern.
+
+---
+
+## 2026-09-05 — Bugfix: cart weight-progress pill on auth pages + Home navigation stutter (2 real root causes, 2 files)
+
+**Branch:** `woobe-ui/bug-fixes`. `apps/web` only — no schema/API-contract/cart/wishlist/auth-behavior changes.
+
+### Issue 1 — cart weight-progress pill visible on `/login` and `/register`
+
+**Root cause:** `FloatingCartWeightIndicator` (the mobile ambient "Xg more to checkout" pill) is mounted once in the shared `(storefront)/layout.tsx` — the only layout in this app, since auth pages have no separate route group (the 2026-08-30 login/register redesign entry already noted the "don't touch architecture" constraint rules out a route-group split). Visibility is gated by `useCartWeightBarVisibility`'s own `HIDDEN_ROUTE_PREFIXES` allowlist-by-exclusion — already used to correctly hide the pill on `/cart`, `/checkout`, PDP, and `/order-confirmation` — but `/login`/`/register` were never added to it, even though the sibling `WhatsAppButton` component already hides itself on exactly these two routes (plus `/forgot-password`) for the identical reason (Week 4 Day 8 entry, above).
+
+**Fix:** added `"/login"` and `"/register"` to `HIDDEN_ROUTE_PREFIXES` in `useCartWeightBarVisibility.ts` — one line, reusing the existing, already-shared visibility hook (also consumed by `useWhatsAppBottomOffset`) rather than adding a new pathname check anywhere else. No component was hidden globally; the pill still renders correctly on Home/Shop/Wishlist/Account/PDP-adjacent pages.
+
+### Issue 2 — Home navigation stutter (Account/Wishlist/Cart → Home)
+
+**Root cause, confirmed by inspection + a real production build + live browser traces (Chrome DevTools MCP), not guessed:**
+- `next build` shows `/account`, `/cart`, and `/wishlist` as `○ Static` (prerendered once, zero backend round trip ever) — they're thin Server Component shells; all their real data comes from client-side contexts (`useCart`/`useWishlist`/`useAuth`, mounted once at the root, not per-page).
+- `/` is `ƒ Dynamic` (`force-dynamic`, ADR-026) — by design, since homepage pricing must never be frozen at build time. But this also means **every single navigation to Home re-runs `GetHomePageUseCase.execute()`'s full 7-way parallel query fan-out against Postgres, with zero caching**, unlike its "smooth" siblings which pay no backend cost at all on navigation.
+- A production build + click-through trace confirmed the resulting gap directly: Account LCP ~55-72ms vs. Home LCP ~355-390ms on this machine's local Postgres (near-zero network latency); the same redundant round trip, done at Postgres-over-a-real-network latency (the reported environment), is exactly the kind of cost that compounds into the reported 1-2 seconds.
+- Server-side instrumentation (a temporary log line in `HomeController`, removed after use) confirmed: before the fix, every Home visit hit the database again; there was no caching layer at all for this specific fetch, anywhere in the request path.
+- ADR-026 itself already named the fix: *"a `revalidate`-based ISR compromise can be revisited later if homepage traffic ever makes it one — a straightforward change from this same starting point, not a rewrite."*
+
+**Fix:** `getHomePage()` (`features/home/api/home.client.ts`) now passes `{ next: { revalidate: 60 } }` on its one `fetch` to `GET /api/v1/home`. This uses Next's **Data Cache** (per-fetch), not the Full Route Cache — deliberately *not* touching the page's own `dynamic = "force-dynamic"` export, so `next build` still never needs a live API (verified: killed the API entirely, `rm -rf .next`, rebuilt clean — ADR-026's original guarantee holds). `GET /api/v1/home` is public/unauthenticated (`HomeController`'s own doc comment) and every figure it returns is already documented elsewhere as a display-only cache (`minPricePaiseCache` etc. — checkout/cart always recompute live, `DEVELOPMENT_RULES.md` #1), so a bounded 60s staleness window on homepage browse content doesn't touch that guarantee.
+
+**Verified:** repeat Home navigations within the 60s window no longer reach Postgres (confirmed via the temporary controller log, then reverted). `pnpm -r run lint` / `typecheck` / `boundaries:check` (553 modules, 0 violations) / `test` (88 files, 641 tests — unchanged from Week 4's own baseline) all clean. `pnpm -r run build` clean for all three apps, including the zero-live-services build-independence check. Live-browser regression sweep: guest → `/login`/`/register` with items in cart → pill absent; Home/Cart/PDP → pill still shows and still calculates correctly; Home ⇄ Account/Wishlist/Cart/Shop/PDP navigation cycled repeatedly with no console errors and no new/duplicate network requests introduced.
+
+**Follow-ups / known gaps:**
+- The remaining ~350ms client-side LCP on Home (even fully cached) is React's cost of committing a much bigger tree than Account/Cart/Wishlist (dozens of product cards/images vs. a near-empty page) — inherent to Home being a richer page, not a bug; not touched, per this task's explicit scope.
+- Did not extend the auth-page pill exclusion to `/forgot-password` (unlike `WhatsAppButton`, which already hides there too) — the reported issue named only Login/Register; flagging the inconsistency here in case a future session wants parity.
+
+
+---
