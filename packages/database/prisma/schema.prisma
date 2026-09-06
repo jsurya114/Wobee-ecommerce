@@ -148,26 +148,36 @@ enum NotificationStatus {
 // ─────────────────────────────────────────────────────────────────────────
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  phone     String?  @unique
-  name      String
-  role      Role     @default(CUSTOMER)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(uuid())
+  email       String    @unique
+  phone       String?   @unique
+  name        String
+  role        Role      @default(CUSTOMER)
+  isActive    Boolean   @default(true)
+  /// Staff Management System (2026-09-06) — set from LoginUserUseCase on every
+  /// successful password login (customer or staff, same generic use-case);
+  /// never touched by a failed login or a refresh. Null until the first
+  /// successful login ever happens (e.g. a staff account still mid-invitation
+  /// has never logged in). Display-only — no auth decision reads this.
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  authCredentials   AuthCredential[]
-  refreshTokens     RefreshToken[]
-  passwordResets    PasswordReset[]
-  addresses         Address[]
-  cart              Cart?
-  wishlist          Wishlist?
-  orders            Order[]
-  reviews           Review[]
-  couponRedemptions CouponRedemption[]
-  adminAuditLogs    AdminAuditLog[]
-  uploadedMedia     Media[]
+  authCredentials      AuthCredential[]
+  refreshTokens        RefreshToken[]
+  passwordResets       PasswordReset[]
+  addresses            Address[]
+  cart                 Cart?
+  wishlist             Wishlist?
+  orders               Order[]
+  reviews              Review[]
+  couponRedemptions    CouponRedemption[]
+  adminAuditLogs       AdminAuditLog[]
+  uploadedMedia        Media[]
+  /// Present only while this staff account hasn't finished activation yet —
+  /// see StaffInvitation's own doc comment.
+  staffInvitation      StaffInvitation?  @relation("StaffInvitationUser")
+  sentStaffInvitations StaffInvitation[] @relation("StaffInvitationInviter")
 
   @@map("users")
 }
@@ -274,6 +284,39 @@ model AuthCredential {
 
   @@unique([userId, method])
   @@map("auth_credentials")
+}
+
+/// Staff Management System (2026-09-06, ADR-024's MANAGE_STAFF surface). A
+/// staff User row is created directly (role set, isActive true) with NO
+/// AuthCredential yet — this row is the only thing that lets them finish
+/// setting one. Mirrors PasswordReset's OTP shape exactly (hashed code, TTL,
+/// resend cooldown/cap, attempts cap) rather than inventing a second token
+/// system, but is its own table (not a reuse of PasswordReset) for two
+/// reasons: (1) semantically a brand-new account being onboarded is a
+/// different event than an existing account resetting a forgotten password,
+/// worth keeping distinguishable in the data; (2) it carries `invitedById`
+/// and survives past `consumedAt` (never deleted) so "who invited whom, and
+/// when did they accept" stays a real, auditable record — PasswordReset is
+/// deleted the moment it's used and was never meant to answer that question.
+/// `userId` is `@unique` — at most one (possibly-consumed) invitation per
+/// staff account ever exists; a resend updates this same row.
+model StaffInvitation {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  invitedById String
+  codeHash    String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0)
+  resendCount Int       @default(0)
+  lastSentAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  user      User @relation("StaffInvitationUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("StaffInvitationInviter", fields: [invitedById], references: [id])
+
+  @@index([invitedById])
+  @@map("staff_invitations")
 }
 
 model Address {

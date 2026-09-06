@@ -86,6 +86,14 @@ const envSchema = z.object({
   // dev/test (POST /auth/google fails safely with 503 SERVICE_UNAVAILABLE
   // when unset); required in production, enforced by the superRefine below.
   GOOGLE_CLIENT_ID: z.string().optional(),
+
+  // Staff Management System (2026-09-06) — an invitation email can sit
+  // unread far longer than a live password-reset flow (weekend, someone
+  // out of office), so it gets its own, longer, explicitly configurable TTL
+  // rather than silently reusing forgot-password's 5-minute window (see
+  // staff-invitation.policy.ts). 72h (3 days) is a starting default, not a
+  // measured requirement — tune per how onboarding actually plays out.
+  STAFF_INVITATION_TTL_HOURS: z.coerce.number().int().positive().default(72),
 });
 
 const envSchemaWithRefinements = envSchema.superRefine((data, ctx) => {

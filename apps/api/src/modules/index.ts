@@ -19,6 +19,7 @@ import { router as refundsRouter } from "./refunds/refunds.module";
 import { router as returnsRouter } from "./returns/returns.module";
 import { router as reviewsRouter } from "./reviews/reviews.module";
 import { router as shippingRouter } from "./shipping/shipping.module";
+import { router as staffRouter } from "./staff/staff.module";
 import { router as usersRouter } from "./users/users.module";
 import { router as wishlistRouter } from "./wishlist/wishlist.module";
 
@@ -50,4 +51,5 @@ export const moduleRouters: { path: string; router: Router }[] = [
   { path: "/notifications", router: notificationsRouter },
   { path: "/admin", router: adminRouter },
   { path: "/audit", router: auditRouter },
+  { path: "/staff", router: staffRouter },
 ];

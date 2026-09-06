@@ -3,15 +3,20 @@ import { ConflictError } from "../../../../shared/errors";
 import type {
   AuthRepositoryPort,
   CreateGoogleUserInput,
+  CreateStaffInput,
   CreateUserInput,
   CustomerSummary,
   EmailVerificationRecord,
   ListCustomersFilter,
   ListCustomersResult,
+  ListStaffFilter,
   PasswordResetRecord,
   RefreshEmailVerificationInput,
   RefreshPasswordResetInput,
+  RefreshStaffInvitationInput,
   RefreshTokenRecord,
+  StaffInvitationRecord,
+  StaffSummary,
   UpsertEmailVerificationInput,
   UpsertPasswordResetInput,
   UserWithPasswordHash,
@@ -102,8 +107,8 @@ export class AuthRepository implements AuthRepositoryPort {
     });
   }
 
-  async revokeAllRefreshTokensForUser(userId: string): Promise<void> {
-    await prisma.refreshToken.updateMany({
+  async revokeAllRefreshTokensForUser(userId: string, tx?: unknown): Promise<void> {
+    await client(tx).refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
@@ -275,8 +280,8 @@ export class AuthRepository implements AuthRepositoryPort {
     return user;
   }
 
-  async setUserActive(id: string, isActive: boolean): Promise<CustomerSummary> {
-    return prisma.user.update({
+  async setUserActive(id: string, isActive: boolean, tx?: unknown): Promise<CustomerSummary> {
+    return client(tx).user.update({
       where: { id },
       data: { isActive },
       select: {
@@ -332,6 +337,210 @@ export class AuthRepository implements AuthRepositoryPort {
       throw error;
     }
   }
+
+  async updateLastLoginAt(id: string): Promise<void> {
+    // updateMany so a race with e.g. a concurrent deactivation is a no-op, not a crash.
+    await prisma.user.updateMany({ where: { id }, data: { lastLoginAt: new Date() } });
+  }
+
+  // ── Staff Management System (2026-09-06) ──
+
+  async findStaffForAdmin(filter: ListStaffFilter): Promise<StaffSummary[]> {
+    const where: Prisma.UserWhereInput = {
+      role: filter.role ?? { not: Role.CUSTOMER },
+      ...(filter.search
+        ? {
+            OR: [
+              { name: { contains: filter.search, mode: "insensitive" } },
+              { email: { contains: filter.search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+      ...staffStatusWhere(filter.status),
+    };
+
+    const rows = await prisma.user.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      select: staffSelect,
+    });
+    return rows.map(toStaffSummary);
+  }
+
+  async findStaffSummaryById(id: string): Promise<StaffSummary | null> {
+    const row = await prisma.user.findFirst({
+      where: { id, role: { not: Role.CUSTOMER } },
+      select: staffSelect,
+    });
+    return row ? toStaffSummary(row) : null;
+  }
+
+  async createStaffUser(input: CreateStaffInput): Promise<StaffSummary> {
+    try {
+      // A single nested Prisma write — the User row and its StaffInvitation
+      // are created in one atomic query tree, no manual $transaction needed
+      // (Prisma nested creates are already all-or-nothing). No AuthCredential
+      // yet: that's exactly what ActivateStaffUseCase creates later.
+      const row = await prisma.user.create({
+        data: {
+          email: input.email,
+          name: input.name,
+          role: input.role,
+          staffInvitation: {
+            create: {
+              invitedById: input.invitedById,
+              codeHash: input.codeHash,
+              expiresAt: input.expiresAt,
+            },
+          },
+        },
+        select: staffSelect,
+      });
+      return toStaffSummary(row);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictError("A staff account with this email already exists");
+      }
+      throw error;
+    }
+  }
+
+  async changeUserRole(id: string, role: Role, tx?: unknown): Promise<StaffSummary> {
+    const row = await client(tx).user.update({ where: { id }, data: { role }, select: staffSelect });
+    return toStaffSummary(row);
+  }
+
+  async findStaffInvitationByEmail(email: string): Promise<StaffInvitationRecord | null> {
+    const row = await prisma.user.findUnique({ where: { email }, select: { staffInvitation: true } });
+    return row?.staffInvitation ? toStaffInvitationRecord(row.staffInvitation) : null;
+  }
+
+  async findStaffInvitationByUserId(userId: string): Promise<StaffInvitationRecord | null> {
+    const row = await prisma.staffInvitation.findUnique({ where: { userId } });
+    return row ? toStaffInvitationRecord(row) : null;
+  }
+
+  async incrementStaffInvitationAttempts(userId: string): Promise<void> {
+    await prisma.staffInvitation.updateMany({ where: { userId }, data: { attempts: { increment: 1 } } });
+  }
+
+  async refreshStaffInvitation(input: RefreshStaffInvitationInput): Promise<void> {
+    // `attempts` deliberately NOT reset — same hard-lifetime-cap rule every
+    // other OTP-shaped flow in this codebase follows (see otp.policy.ts).
+    await prisma.staffInvitation.updateMany({
+      where: { userId: input.userId },
+      data: {
+        codeHash: input.codeHash,
+        expiresAt: input.expiresAt,
+        lastSentAt: input.lastSentAt,
+        resendCount: { increment: 1 },
+      },
+    });
+  }
+
+  async consumeStaffInvitationAndSetPassword(input: { userId: string; passwordHash: string }): Promise<void> {
+    // One transaction: creating the PASSWORD credential and marking the
+    // invitation consumed must both happen or neither does — a crash between
+    // the two would otherwise leave an account with a password but a still-
+    // "pending" invitation (blocks nothing, but corrupts the audit trail).
+    await prisma.$transaction([
+      prisma.authCredential.create({
+        data: { userId: input.userId, method: AuthMethod.PASSWORD, passwordHash: input.passwordHash },
+      }),
+      prisma.staffInvitation.update({ where: { userId: input.userId }, data: { consumedAt: new Date() } }),
+    ]);
+  }
+
+  async transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+    return prisma.$transaction((tx) => fn(tx));
+  }
+
+  async runWithLockedActiveSuperAdmins<T>(fn: (lockedActiveSuperAdminIds: string[], tx: unknown) => Promise<T>): Promise<T> {
+    return prisma.$transaction(async (tx) => {
+      // Locks every currently-active super-admin row for the lifetime of
+      // this transaction — a second, concurrent call to this same method
+      // blocks here until the first commits (or rolls back), so the two
+      // requests are serialized instead of both reading a stale count. See
+      // this method's own doc comment on the port interface for why a plain
+      // count-then-update isn't safe under Postgres MVCC.
+      const rows = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "users" WHERE role = 'SUPER_ADMIN'::"Role" AND "isActive" = true FOR UPDATE
+      `;
+      return fn(
+        rows.map((r) => r.id),
+        tx,
+      );
+    });
+  }
+}
+
+/** Resolves to the transactional client when `tx` is a live Prisma transaction handle, otherwise the module-level singleton — the same optional-tx pattern RecordAuditLogUseCase already established. */
+function client(tx?: unknown): Prisma.TransactionClient | typeof prisma {
+  return (tx as Prisma.TransactionClient | undefined) ?? prisma;
+}
+
+const staffSelect = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  isActive: true,
+  lastLoginAt: true,
+  createdAt: true,
+  authCredentials: { where: { method: AuthMethod.PASSWORD }, select: { id: true } },
+} satisfies Prisma.UserSelect;
+
+/** Prisma's relation-filter shape for "does/doesn't have a PASSWORD credential yet" — see StaffStatus's own doc comment for why this, not a stored column, is the source of truth. */
+function staffStatusWhere(status?: StaffSummary["status"]): Prisma.UserWhereInput {
+  if (status === "DEACTIVATED") return { isActive: false };
+  if (status === "ACTIVE") return { isActive: true, authCredentials: { some: { method: AuthMethod.PASSWORD } } };
+  if (status === "INVITED") return { isActive: true, authCredentials: { none: { method: AuthMethod.PASSWORD } } };
+  return {};
+}
+
+function toStaffSummary(row: {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  isActive: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  authCredentials: { id: string }[];
+}): StaffSummary {
+  const hasCredential = row.authCredentials.length > 0;
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role as StaffSummary["role"],
+    isActive: row.isActive,
+    status: !row.isActive ? "DEACTIVATED" : hasCredential ? "ACTIVE" : "INVITED",
+    lastLoginAt: row.lastLoginAt,
+    createdAt: row.createdAt,
+  };
+}
+
+function toStaffInvitationRecord(row: {
+  userId: string;
+  invitedById: string;
+  codeHash: string;
+  expiresAt: Date;
+  consumedAt: Date | null;
+  attempts: number;
+  resendCount: number;
+  lastSentAt: Date;
+}): StaffInvitationRecord {
+  return {
+    userId: row.userId,
+    invitedById: row.invitedById,
+    codeHash: row.codeHash,
+    expiresAt: row.expiresAt,
+    consumedAt: row.consumedAt,
+    attempts: row.attempts,
+    resendCount: row.resendCount,
+    lastSentAt: row.lastSentAt,
+  };
 }
 
 function toEntity(user: {

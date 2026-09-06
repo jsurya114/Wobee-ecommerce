@@ -32,14 +32,16 @@ import { OtpCodeService } from "./infrastructure/services/otp-code.service";
 import { RefreshTokenService } from "./infrastructure/services/refresh-token.service";
 import { SmtpOtpNotifier } from "./infrastructure/services/smtp-otp-notifier";
 import { SmtpPasswordResetNotifier } from "./infrastructure/services/smtp-password-reset-notifier";
+export { createSmtpTransport } from "./infrastructure/services/smtp-transport";
 import { AuthController } from "./interface/http/auth.controller";
 import { createAuthRouter } from "./interface/http/auth.routes";
 
-const authRepository = new AuthRepository();
-const bcryptService = new BcryptService();
+/** Exported for cross-module use — the Staff module (2026-09-06) composes staff CRUD directly on top of this, same "sibling module imports auth's exports" shape `users` already uses for profile edits. */
+export const authRepository = new AuthRepository();
+export const bcryptService = new BcryptService();
 const jwtService = new JwtService();
 const refreshTokenService = new RefreshTokenService();
-const otpCodeService = new OtpCodeService();
+export const otpCodeService = new OtpCodeService();
 // Real email when SMTP is configured, otherwise the dev stub (logs the code;
 // the API also returns it as `devCode` in non-prod). Both implement the same
 // OtpNotifierPort — see DECISIONS_PENDING.md #7.

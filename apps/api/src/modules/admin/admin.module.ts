@@ -6,8 +6,9 @@
 // product/variant/media management and inventory adjustment — apps/admin's
 // UI for collections (deferred here since Day 2, see collections.module.ts's
 // own doc comment) lands alongside them, since both are part of the same
-// "Admin Product Management" surface. Settings and staff management remain
-// Week 2-4 scope (architecture.md §6) — see apps/admin's nav-config.ts.
+// "Admin Product Management" surface. Staff management (2026-09-06) is the
+// Staff module's own use-cases composed here, same shape as every other
+// admin-* controller — see ../staff/staff.module.ts.
 import { Router } from "express";
 import {
   getCurrentUserUseCase,
@@ -95,6 +96,14 @@ import {
 } from "../returns/returns.module";
 import { listReviewsAdminUseCase, moderateReviewUseCase } from "../reviews/reviews.module";
 import { listAddressesUseCase } from "../users/users.module";
+import {
+  changeStaffRoleUseCase,
+  createStaffUseCase,
+  getStaffDetailUseCase,
+  listStaffUseCase,
+  resendStaffInvitationUseCase,
+  setStaffActiveUseCase,
+} from "../staff/staff.module";
 import { GetCustomerDetailUseCase } from "./application/use-cases/get-customer-detail.use-case";
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { DeliverOrderAndCapturePaymentUseCase } from "./application/use-cases/deliver-order-and-capture-payment.use-case";
@@ -126,6 +135,8 @@ import { AdminReviewsController } from "./interface/http/admin-reviews.controlle
 import { createAdminReviewsRouter } from "./interface/http/admin-reviews.routes";
 import { AdminSettingsController } from "./interface/http/admin-settings.controller";
 import { createAdminSettingsRouter } from "./interface/http/admin-settings.routes";
+import { AdminStaffController } from "./interface/http/admin-staff.controller";
+import { createAdminStaffRouter } from "./interface/http/admin-staff.routes";
 
 // Cancellation is the one admin action that spans three modules (orders +
 // refunds + audit). `orders` can't compose it itself without recreating the
@@ -236,6 +247,14 @@ const getCustomerDetailUseCase = new GetCustomerDetailUseCase(
 );
 const adminCustomersController = new AdminCustomersController(listCustomersAdminUseCase, getCustomerDetailUseCase, setCustomerActiveUseCase);
 const adminAnalyticsController = new AdminAnalyticsController(getAdminDashboardUseCase);
+const adminStaffController = new AdminStaffController(
+  createStaffUseCase,
+  listStaffUseCase,
+  getStaffDetailUseCase,
+  changeStaffRoleUseCase,
+  setStaffActiveUseCase,
+  resendStaffInvitationUseCase,
+);
 
 export const router = Router();
 router.use("/auth", createAdminAuthRouter(adminAuthController));
@@ -251,3 +270,4 @@ router.use("/inventory", createAdminInventoryRouter(adminInventoryController));
 router.use("/customers", createAdminCustomersRouter(adminCustomersController));
 router.use("/settings", createAdminSettingsRouter(adminSettingsController));
 router.use("/analytics", createAdminAnalyticsRouter(adminAnalyticsController));
+router.use("/staff", createAdminStaffRouter(adminStaffController));
