@@ -4,9 +4,13 @@ import Link from "next/link";
 import type { Collection } from "@/features/catalog/api/collections.client";
 
 /**
- * "Featured collections" rail (Week 2 Day 8 Part 2, week2 (1).md §12).
- * 2026-08-31: image cards, not text-only — `coverImageUrl` is the
- * collection's own top-sorted assigned product's real photo (see
+ * "Curated collections" rail (Week 2 Day 8 Part 2, week2 (1).md §12;
+ * relabeled from "Featured collections" 2026-09-06 — homepage audit finding
+ * I: these are plain, manually-curated `Collection` rows with no featured/
+ * priority flag and no drop-date lifecycle, so "curated" is the honest name
+ * for what this actually is; a real "New Drops" mechanic is future work,
+ * not this pass). 2026-08-31: image cards, not text-only — `coverImageUrl`
+ * is the collection's own top-sorted assigned product's real photo (see
  * CollectionRepository.findActiveCollections), never invented art. A
  * collection with no products assigned yet falls back to a tinted panel
  * with its name, same "no fake imagery" rule as before.
@@ -17,7 +21,7 @@ export function FeaturedCollections({ collections }: { collections: Collection[]
   return (
     <section className="px-4 py-section sm:px-6">
       <div className="mx-auto max-w-6xl">
-        <SectionHeader>Featured collections</SectionHeader>
+        <SectionHeader>Curated collections</SectionHeader>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {collections.map((collection) => (
             <Link key={collection.id} href={`/collections/${collection.slug}`} className="group block overflow-hidden rounded-card bg-surface-2">

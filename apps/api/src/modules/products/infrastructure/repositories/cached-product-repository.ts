@@ -103,6 +103,9 @@ export class CachedProductRepository implements ProductRepositoryPort {
   findPrimaryImageUrlByCategoryIds(categoryIds: string[]): Promise<Map<string, string>> {
     return this.inner.findPrimaryImageUrlByCategoryIds(categoryIds);
   }
+  countActiveProductsBySize(sizes: string[]): Promise<Map<string, number>> {
+    return this.inner.countActiveProductsBySize(sizes);
+  }
   findAllForAdmin(filter: ListProductsAdminFilter): Promise<ListProductsAdminResult> {
     return this.inner.findAllForAdmin(filter);
   }

@@ -25,6 +25,9 @@ function makeUseCase(overrides: {
   categoryImages?: Map<string, string>;
   banners?: unknown[];
   budgetProducts?: unknown[];
+  /** Defaults to "every product id that appears in variantToProduct" — the common case where nothing is deliberately out of stock. */
+  inStockProductIds?: Set<string>;
+  sizeCounts?: Map<string, number>;
 }) {
   const newArrivalsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.newArrivals ?? [], page: 1, limit: 8, total: 0 }) };
   const bestSellingVariantsReader = { execute: vi.fn().mockResolvedValue(overrides.variantSales ?? []) };
@@ -36,6 +39,10 @@ function makeUseCase(overrides: {
   const categoryImageResolver = { execute: vi.fn().mockResolvedValue(overrides.categoryImages ?? new Map()) };
   const visibleBannersLister = { execute: vi.fn().mockResolvedValue(overrides.banners ?? []) };
   const budgetProductsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.budgetProducts ?? [], page: 1, limit: 1, total: 0 }) };
+  const inStockProductIdsProvider = {
+    execute: vi.fn().mockResolvedValue(overrides.inStockProductIds ?? new Set((overrides.variantToProduct ?? new Map()).values())),
+  };
+  const sizeAvailabilityReader = { execute: vi.fn().mockResolvedValue(overrides.sizeCounts ?? new Map()) };
 
   const useCase = new GetHomePageUseCase(
     newArrivalsLister,
@@ -48,6 +55,8 @@ function makeUseCase(overrides: {
     categoryImageResolver,
     visibleBannersLister,
     budgetProductsLister,
+    inStockProductIdsProvider,
+    sizeAvailabilityReader,
   );
 
   return {
@@ -62,6 +71,8 @@ function makeUseCase(overrides: {
     categoryImageResolver,
     visibleBannersLister,
     budgetProductsLister,
+    inStockProductIdsProvider,
+    sizeAvailabilityReader,
   };
 }
 
@@ -75,13 +86,13 @@ describe("GetHomePageUseCase", () => {
     expect(result.banners).toEqual(banners);
   });
 
-  it("passes newest-sort through to the product lister for New Arrivals", async () => {
+  it("passes newest-sort + inStockOnly through to the product lister for New Arrivals (merchandising fix, 2026-09-06 — sold-out products must not linger in the rail)", async () => {
     const arrivals = [product("p1")];
     const { useCase, newArrivalsLister } = makeUseCase({ newArrivals: arrivals });
 
     const result = await useCase.execute();
 
-    expect(newArrivalsLister.execute).toHaveBeenCalledWith({ sort: "newest", page: 1, limit: 8 });
+    expect(newArrivalsLister.execute).toHaveBeenCalledWith({ sort: "newest", page: 1, limit: 8, inStockOnly: true });
     expect(result.newArrivals).toEqual(arrivals);
   });
 
@@ -159,13 +170,37 @@ describe("GetHomePageUseCase", () => {
   });
 
   it("returns an empty Best Sellers rail when there's no sales history yet, without calling the product resolver", async () => {
-    const { useCase, variantProductResolver, productsByIdsReader } = makeUseCase({ variantSales: [] });
+    const { useCase, variantProductResolver, productsByIdsReader, inStockProductIdsProvider } = makeUseCase({ variantSales: [] });
 
     const result = await useCase.execute();
 
     expect(result.bestSellers).toEqual([]);
     expect(variantProductResolver.execute).not.toHaveBeenCalled();
     expect(productsByIdsReader.execute).not.toHaveBeenCalled();
+    expect(inStockProductIdsProvider.execute).not.toHaveBeenCalled();
+  });
+
+  it("drops a Best Seller that sold well historically but has zero current stock (merchandising fix, 2026-09-06 — single-unit inventory means popular and buyable aren't the same question)", async () => {
+    const { useCase } = makeUseCase({
+      variantSales: [
+        { variantId: "v1", quantitySold: 9 },
+        { variantId: "v2", quantitySold: 5 },
+      ],
+      variantToProduct: new Map([
+        ["v1", "sold-out-favorite"],
+        ["v2", "back-in-stock"],
+      ]),
+      productsById: new Map([
+        ["sold-out-favorite", product("sold-out-favorite")],
+        ["back-in-stock", product("back-in-stock")],
+      ]),
+      // Only "back-in-stock" is currently available — "sold-out-favorite" outranks it but must not appear.
+      inStockProductIds: new Set(["back-in-stock"]),
+    });
+
+    const result = await useCase.execute();
+
+    expect(result.bestSellers.map((p) => p.id)).toEqual(["back-in-stock"]);
   });
 
   it("caps Featured Collections at 4 even when more active collections exist", async () => {
@@ -241,7 +276,29 @@ describe("GetHomePageUseCase", () => {
         { label: "Under ₹799", maxPricePaise: 79_900, imageUrl: null },
         { label: "Under ₹999", maxPricePaise: 99_900, imageUrl: null },
       ],
+      sizeAvailability: [],
     });
+  });
+
+  it("resolves Shop Your Size in curated-size order, omitting any size with zero matching variants", async () => {
+    const { useCase, sizeAvailabilityReader } = makeUseCase({
+      sizeCounts: new Map([
+        ["L", 3],
+        ["XS", 1],
+        ["M", 7],
+        // "S", "XL", "XXL", "One Size" deliberately absent — zero matches.
+      ]),
+    });
+
+    const result = await useCase.execute();
+
+    expect(sizeAvailabilityReader.execute).toHaveBeenCalledWith(["XS", "S", "M", "L", "XL", "XXL", "One Size"]);
+    // Curated order preserved (XS before M before L), not count-sorted.
+    expect(result.sizeAvailability).toEqual([
+      { size: "XS", count: 1 },
+      { size: "M", count: 7 },
+      { size: "L", count: 3 },
+    ]);
   });
 
   it("resolves each budget tile's cover image from the cheapest qualifying product", async () => {

@@ -213,10 +213,10 @@ export class OrderRepository implements OrderRepositoryPort {
     return match !== null;
   }
 
-  async findBestSellingVariantQuantities(limit: number): Promise<VariantSaleQuantity[]> {
+  async findBestSellingVariantQuantities(limit: number, statuses?: OrderStatus[]): Promise<VariantSaleQuantity[]> {
     const rows = await prisma.orderItem.groupBy({
       by: ["variantId"],
-      where: { order: { status: { in: SOLD_STATUSES } } },
+      where: { order: { status: { in: statuses ?? SOLD_STATUSES } } },
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: "desc" } },
       take: limit,

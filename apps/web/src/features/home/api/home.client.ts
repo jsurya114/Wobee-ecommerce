@@ -35,14 +35,24 @@ export interface HomeBudgetTile {
   imageUrl: string | null;
 }
 
+/** One "Shop your size" pill — `size` matches the PLP's own `SIZE_OPTIONS` values 1:1, so it links straight into the existing `?size=` filter. */
+export interface HomeSizeOption {
+  size: string;
+  count: number;
+}
+
 export interface HomePageData {
   banners: HomeBanner[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummary[];
+  /** Rendered as "Loved by Customers" (merchandising logic corrections, 2026-09-06) — see GetHomePageUseCase's own doc comment for what now counts toward this. */
   bestSellers: ProductSummary[];
+  /** Rendered as "Curated Collections" (2026-09-06 — the "Featured"/"New Drops" labels implied a lifecycle this data never had). */
   featuredCollections: Collection[];
   customerReviews: HomeReview[];
   budgetTiles: HomeBudgetTile[];
+  /** "Shop your size" rail — already sorted (curated order) and already filtered to sizes with at least one live variant. */
+  sizeAvailability: HomeSizeOption[];
 }
 
 /**

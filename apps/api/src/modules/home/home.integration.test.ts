@@ -63,7 +63,10 @@ async function registerCustomer(): Promise<{ userId: string }> {
   return { userId: user.id };
 }
 
-async function createTestProduct(name: string, opts: { isActive?: boolean } = {}): Promise<{ productId: string; variantId: string }> {
+async function createTestProduct(
+  name: string,
+  opts: { isActive?: boolean; size?: string; quantityAvailable?: number } = {},
+): Promise<{ productId: string; variantId: string }> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const product = await prisma.product.create({
     data: {
@@ -77,22 +80,42 @@ async function createTestProduct(name: string, opts: { isActive?: boolean } = {}
   createdProductIds.push(product.id);
 
   const variant = await prisma.productVariant.create({
-    data: { productId: product.id, sku: `${TEST_PREFIX}-${suffix}`, color: "Black", size: "M", weightGrams: 400, effectivePricePaiseCache: 5_000 },
+    data: {
+      productId: product.id,
+      sku: `${TEST_PREFIX}-${suffix}`,
+      color: "Black",
+      size: opts.size ?? "M",
+      weightGrams: 400,
+      effectivePricePaiseCache: 5_000,
+    },
   });
   createdVariantIds.push(variant.id);
 
-  await prisma.inventory.create({ data: { variantId: variant.id, warehouseId, quantityAvailable: 50, quantityReserved: 0 } });
+  await prisma.inventory.create({
+    data: { variantId: variant.id, warehouseId, quantityAvailable: opts.quantityAvailable ?? 50, quantityReserved: 0 },
+  });
 
   return { productId: product.id, variantId: variant.id };
 }
 
-/** A CONFIRMED order (counts as "sold") with one line item — mirrors reviews.integration.test.ts's own direct-Prisma order fixture. */
-async function createSoldOrder(variantId: string, quantity: number, userId: string | null = null): Promise<void> {
+/**
+ * A "sold" order with one line item — mirrors reviews.integration.test.ts's
+ * own direct-Prisma order fixture. Defaults to DELIVERED (merchandising
+ * logic corrections, 2026-09-06): `home`'s "Loved by Customers" rail now
+ * only counts completed deliveries, not merely CONFIRMED/PROCESSING/SHIPPED
+ * — see get-homepage.use-case.ts's own doc comment.
+ */
+async function createSoldOrder(
+  variantId: string,
+  quantity: number,
+  userId: string | null = null,
+  status: "CONFIRMED" | "PROCESSING" | "SHIPPED" | "DELIVERED" = "DELIVERED",
+): Promise<void> {
   const order = await prisma.order.create({
     data: {
       orderNumber: `WOOBE-TEST-${crypto.randomUUID().slice(0, 8)}`,
       userId,
-      status: "CONFIRMED",
+      status,
       contactName: "Home Tester",
       contactPhone: "9876543210",
       contactEmail: "home-tester@test.woobe.internal",
@@ -161,7 +184,7 @@ describe("GET /api/v1/home", () => {
     }
   });
 
-  it("ranks Best Sellers by real units sold across CONFIRMED orders, excludes an unpurchased product", async () => {
+  it("ranks Loved by Customers by real units sold across DELIVERED orders, excludes an unpurchased product", async () => {
     const { variantId: bigSellerVariant, productId: bigSellerProduct } = await createTestProduct("Big Seller");
     const { variantId: smallSellerVariant, productId: smallSellerProduct } = await createTestProduct("Small Seller");
     const { productId: neverSoldProduct } = await createTestProduct("Never Sold");
@@ -185,7 +208,7 @@ describe("GET /api/v1/home", () => {
     expect(bestSellerIds).not.toContain(neverSoldProduct);
   });
 
-  it("never counts a PENDING_PAYMENT order's items toward Best Sellers", async () => {
+  it("never counts a PENDING_PAYMENT order's items toward Loved by Customers", async () => {
     const { variantId, productId } = await createTestProduct("Pending Payment Only");
     const order = await prisma.order.create({
       data: {
@@ -229,6 +252,30 @@ describe("GET /api/v1/home", () => {
     expect(bestSellerIds).not.toContain(productId);
   });
 
+  it.each(["CONFIRMED", "PROCESSING", "SHIPPED"] as const)(
+    "never counts a %s order's items toward Loved by Customers — only DELIVERED represents a completed sale (merchandising fix, 2026-09-06)",
+    async (status) => {
+      const { variantId, productId } = await createTestProduct(`Not Yet Delivered ${status}`);
+      await createSoldOrder(variantId, 9_000, null, status);
+
+      const res = await request(app).get("/api/v1/home");
+
+      const bestSellerIds: string[] = res.body.bestSellers.map((p: { id: string }) => p.id);
+      expect(bestSellerIds).not.toContain(productId);
+    },
+  );
+
+  it("excludes a Loved-by-Customers product that sold well but has zero current stock (merchandising fix, 2026-09-06)", async () => {
+    const { variantId, productId } = await createTestProduct("Sold Out Favorite");
+    await createSoldOrder(variantId, 9_000);
+    await prisma.inventory.updateMany({ where: { variantId }, data: { quantityAvailable: 0 } });
+
+    const res = await request(app).get("/api/v1/home");
+
+    const bestSellerIds: string[] = res.body.bestSellers.map((p: { id: string }) => p.id);
+    expect(bestSellerIds).not.toContain(productId);
+  });
+
   it("shows an APPROVED review with its product's name/slug, and never a PENDING one", async () => {
     const { userId } = await registerCustomer();
     const { productId } = await createTestProduct("Reviewed Product");
@@ -250,7 +297,7 @@ describe("GET /api/v1/home", () => {
     expect(shown).not.toHaveProperty("userId");
   });
 
-  it("excludes a Best Seller / review whose product is inactive", async () => {
+  it("excludes a Loved-by-Customers product / review whose product is inactive", async () => {
     const { variantId, productId } = await createTestProduct("Will Go Inactive", { isActive: true });
     await createSoldOrder(variantId, 7);
     await prisma.product.update({ where: { id: productId }, data: { isActive: false } });
@@ -259,5 +306,37 @@ describe("GET /api/v1/home", () => {
 
     const bestSellerIds: string[] = res.body.bestSellers.map((p: { id: string }) => p.id);
     expect(bestSellerIds).not.toContain(productId);
+  });
+
+  it("New Arrivals excludes a brand-new product with zero available stock (merchandising fix, 2026-09-06)", async () => {
+    // Not asserting positive containment of an in-stock product here — same
+    // shared-DB, concurrent-tests non-determinism the file's own "New
+    // Arrivals is wired..." test already documents (something newer created
+    // by a sibling test can push any one fixture out of the top-8 window).
+    // The negative assertion below is unaffected by that: a freshly created,
+    // zero-stock product must never appear regardless of what else is newer.
+    const { variantId: outOfStockVariant, productId: outOfStockId } = await createTestProduct("Sold Out Arrival", { quantityAvailable: 0 });
+
+    const res = await request(app).get("/api/v1/home");
+
+    const newArrivalIds: string[] = res.body.newArrivals.map((p: { id: string }) => p.id);
+    expect(newArrivalIds).not.toContain(outOfStockId);
+    // Sanity — the fixture really is out of stock, not just excluded for some other reason.
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId: outOfStockVariant } });
+    expect(inventory.quantityAvailable).toBe(0);
+  });
+
+  it("exposes a Shop Your Size availability count for a curated clothing size with a live variant", async () => {
+    await createTestProduct("Curated Size Product", { size: "One Size" });
+
+    const res = await request(app).get("/api/v1/home");
+
+    expect(Array.isArray(res.body.sizeAvailability)).toBe(true);
+    const oneSize = res.body.sizeAvailability.find((entry: { size: string }) => entry.size === "One Size");
+    expect(oneSize).toBeDefined();
+    expect(oneSize.count).toBeGreaterThan(0);
+    // A non-clothing, footwear-style numeric size must never appear here (category-aware sizing — homepage audit finding 5).
+    const numericSizeEntries = res.body.sizeAvailability.filter((entry: { size: string }) => /^\d/.test(entry.size));
+    expect(numericSizeEntries).toEqual([]);
   });
 });

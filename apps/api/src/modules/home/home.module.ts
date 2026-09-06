@@ -8,8 +8,10 @@
 import { listVisibleBannersUseCase } from "../banners/banners.module";
 import { listCategoriesUseCase } from "../categories/categories.module";
 import { listCollectionsUseCase } from "../collections/collections.module";
+import { findInStockVariantIdsUseCase } from "../inventory/inventory.module";
 import { getBestSellingVariantQuantitiesUseCase } from "../orders/orders.module";
 import {
+  countActiveProductsBySizeUseCase,
   getCategoryImagesUseCase,
   getProductsByIdsUseCase,
   listProductsUseCase,
@@ -22,9 +24,36 @@ import { GetHomePageUseCase, type HomePageView } from "./application/use-cases/g
 import { HomeController } from "./interface/http/home.controller";
 import { createHomeRouter } from "./interface/http/home.routes";
 
+/**
+ * "Loved by Customers" now reads a stricter "sold" definition than the
+ * admin dashboard's own Best Sellers panel (merchandising logic
+ * corrections, 2026-09-06) — DELIVERED only, see
+ * `findBestSellingVariantQuantities`'s own doc comment. Bound here, not in
+ * GetHomePageUseCase itself, so that use-case's own `BestSellingVariantsReader`
+ * interface stays unchanged and admin's own caller (unchanged, still
+ * `getBestSellingVariantQuantitiesUseCase.execute(limit)`) is unaffected.
+ */
+const deliveredOnlyBestSellingVariantsReader = {
+  execute: (limit: number) => getBestSellingVariantQuantitiesUseCase.execute(limit, ["DELIVERED"]),
+};
+
+/**
+ * Every product id with at least one currently in-stock, active variant —
+ * composed from the same two building blocks `resolveBestSellers` already
+ * uses for the sales aggregate (`inventory`'s in-stock variant ids,
+ * `products`' variant→product resolver), not a new inventory query.
+ */
+const inStockProductIdsProvider = {
+  execute: async (): Promise<Set<string>> => {
+    const inStockVariantIds = await findInStockVariantIdsUseCase.execute();
+    const productIdByVariant = await resolveProductIdsForVariantsUseCase.execute(inStockVariantIds);
+    return new Set(productIdByVariant.values());
+  },
+};
+
 const realGetHomePageUseCase = new GetHomePageUseCase(
   listProductsUseCase,
-  getBestSellingVariantQuantitiesUseCase,
+  deliveredOnlyBestSellingVariantsReader,
   resolveProductIdsForVariantsUseCase,
   getProductsByIdsUseCase,
   listCollectionsUseCase,
@@ -33,6 +62,8 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   getCategoryImagesUseCase,
   listVisibleBannersUseCase,
   listProductsUseCase,
+  inStockProductIdsProvider,
+  countActiveProductsBySizeUseCase,
 );
 
 const HOME_TTL_SECONDS = 60;

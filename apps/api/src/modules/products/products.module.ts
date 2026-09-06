@@ -28,6 +28,7 @@ import { SetProductActiveUseCase } from "./application/use-cases/admin/set-produ
 import { SetProductVariantActiveUseCase } from "./application/use-cases/admin/set-product-variant-active.use-case";
 import { UpdateProductUseCase } from "./application/use-cases/admin/update-product.use-case";
 import { UpdateProductVariantUseCase } from "./application/use-cases/admin/update-product-variant.use-case";
+import { CountActiveProductsBySizeUseCase } from "./application/use-cases/count-active-products-by-size.use-case";
 import { GetCategoryImagesUseCase } from "./application/use-cases/get-category-images.use-case";
 import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-slug.use-case";
 import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
@@ -86,6 +87,8 @@ export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productReposi
 export const resolveProductIdsForVariantsUseCase = new ResolveProductIdsForVariantsUseCase(productRepository);
 /** Exported for cross-module use (redesign O-3) — `home` composes this into the category-rail payload. */
 export const getCategoryImagesUseCase = new GetCategoryImagesUseCase(productRepository);
+/** Exported for cross-module use (merchandising logic corrections, 2026-09-06) — `home`'s "Shop your size" rail. */
+export const countActiveProductsBySizeUseCase = new CountActiveProductsBySizeUseCase(productRepository);
 
 /** Exported for `admin`'s HTTP layer (ADR-025) — Week 2 Day 7 admin product management. */
 export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepository);

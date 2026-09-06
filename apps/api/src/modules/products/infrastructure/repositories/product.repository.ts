@@ -380,6 +380,16 @@ export class ProductRepository implements ProductRepositoryPort {
     return new Map(rows.flatMap((row) => (row.images[0] ? [[row.categoryId, row.images[0].url] as [string, string]] : [])));
   }
 
+  async countActiveProductsBySize(sizes: string[]): Promise<Map<string, number>> {
+    if (sizes.length === 0) return new Map();
+    const rows = await prisma.productVariant.groupBy({
+      by: ["size"],
+      where: { size: { in: sizes }, isActive: true, product: { isActive: true } },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((row) => [row.size, row._count._all]));
+  }
+
   // ── Week 2 Day 7 admin surface (week2 (1).md §16) ──
 
   async findAllForAdmin(filter: ListProductsAdminFilter): Promise<ListProductsAdminResult> {

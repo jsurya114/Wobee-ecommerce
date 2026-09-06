@@ -199,6 +199,20 @@ export interface ProductRepositoryPort {
    * category; a category with no such product is simply absent from the map.
    */
   findPrimaryImageUrlByCategoryIds(categoryIds: string[]): Promise<Map<string, string>>;
+  /**
+   * Homepage "Shop your size" rail (merchandising logic corrections,
+   * 2026-09-06) — a variant-level count per curated size value, restricted
+   * to `sizes` (the caller passes the same small curated clothing-size list
+   * the PLP's own `SIZE_OPTIONS` uses), `isActive` variants of `isActive`
+   * products only. A size absent from `sizes` (e.g. a footwear/jewelry
+   * numeric size like "37" or "2.4") is never counted here — this
+   * deliberately does NOT attempt to be a general size taxonomy; it only
+   * answers "how many live variants exist at each of our known clothing
+   * sizes," which is exactly what the homepage rail needs. A size with zero
+   * matching variants is simply absent from the returned map (not a zero
+   * entry) — callers should treat a missing key as 0.
+   */
+  countActiveProductsBySize(sizes: string[]): Promise<Map<string, number>>;
 
   // ── Week 2 Day 7 admin surface (week2 (1).md §16) ──
   findAllForAdmin(filter: ListProductsAdminFilter): Promise<ListProductsAdminResult>;
