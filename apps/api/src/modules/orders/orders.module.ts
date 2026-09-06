@@ -41,7 +41,9 @@ import { GetOrderUseCase } from "./application/use-cases/get-order.use-case";
 import { HasPurchasedProductUseCase } from "./application/use-cases/has-purchased-product.use-case";
 import { ListMyOrdersUseCase } from "./application/use-cases/list-my-orders.use-case";
 import { ListOrdersUseCase } from "./application/use-cases/list-orders.use-case";
+import { MarkOrderPackedUseCase } from "./application/use-cases/mark-order-packed.use-case";
 import { MarkOrderPaymentFailedUseCase } from "./application/use-cases/mark-order-payment-failed.use-case";
+import { MarkOrderReturnedToOriginUseCase } from "./application/use-cases/mark-order-returned-to-origin.use-case";
 import { NotifyOrderEventUseCase } from "./application/use-cases/notify-order-event.use-case";
 import { SetOrderHasActiveReturnUseCase } from "./application/use-cases/set-order-has-active-return.use-case";
 import { ShipOrderUseCase } from "./application/use-cases/ship-order.use-case";
@@ -129,8 +131,17 @@ export const notifyOrderEventUseCase = new NotifyOrderEventUseCase(orderReposito
 
 /** Exported for cross-module use — `admin`'s HTTP layer (ADR-025) calls these directly, same pattern as payments' Day 5 exports above. */
 export const startProcessingOrderUseCase = new StartProcessingOrderUseCase(orderRepository, auditLogger, transactionRunner);
+/** 2026-09-06 order-processing audit — the PACKED checkpoint between PROCESSING and SHIPPED. */
+export const markOrderPackedUseCase = new MarkOrderPackedUseCase(orderRepository, auditLogger, transactionRunner);
 export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner, shipmentCreator, notifyOrderEventUseCase);
 export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner, notifyOrderEventUseCase);
+/**
+ * 2026-09-06 order-processing audit, finding I-1 — a courier-refused/
+ * undeliverable parcel's only path forward from SHIPPED. Self-contained
+ * (unlike cancellation, never needs composing with `refunds` in `admin` —
+ * see the use-case's own doc comment for why).
+ */
+export const markOrderReturnedToOriginUseCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transactionRunner);
 /**
  * Status transition + inventory restock ONLY. The refund and the
  * `ORDER_CANCELLED` audit entry that a cancellation also implies are

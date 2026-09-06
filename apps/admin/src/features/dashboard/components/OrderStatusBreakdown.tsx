@@ -2,7 +2,17 @@ import { Card, SectionHeader } from "@woobe/ui";
 import type { OrderStatusCount } from "../api/dashboard.client";
 
 /** plan.md §4's own lifecycle order — not the arbitrary order a SQL GROUP BY returns. */
-const STATUS_ORDER = ["PENDING_PAYMENT", "CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "PAYMENT_FAILED"] as const;
+const STATUS_ORDER = [
+  "PENDING_PAYMENT",
+  "CONFIRMED",
+  "PROCESSING",
+  "PACKED",
+  "SHIPPED",
+  "RETURNED_TO_ORIGIN",
+  "DELIVERED",
+  "CANCELLED",
+  "PAYMENT_FAILED",
+] as const;
 
 /**
  * Order counts by status, one period — a bar-per-category chart where

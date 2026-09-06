@@ -145,6 +145,8 @@ async function checkoutRazorpayOrder(agent: ReturnType<typeof request.agent>, va
 async function deliverOrder(orderId: string, adminAuth: string): Promise<void> {
   const auth = { Authorization: `Bearer ${adminAuth}` };
   expect((await request(app).post(`/api/v1/admin/orders/${orderId}/processing`).set(auth)).status).toBe(200);
+  // 2026-09-06 order-processing audit — PACKED is now required before SHIPPED.
+  expect((await request(app).post(`/api/v1/admin/orders/${orderId}/packed`).set(auth)).status).toBe(200);
   expect((await request(app).post(`/api/v1/admin/orders/${orderId}/ship`).set(auth).send({ trackingNumber: "TRK1", carrier: "BlueDart" })).status).toBe(200);
   expect((await request(app).post(`/api/v1/admin/orders/${orderId}/deliver`).set(auth)).status).toBe(200);
 }
@@ -310,6 +312,82 @@ describe("returns: admin review + refund (COD — manual completion path)", () =
 
     const second = await agent.post("/api/v1/returns").send({ orderId: order.id, reason: "actually wrong colour", items: [{ orderItemId: order.items[0]!.id, quantity: 1 }] });
     expect(second.status).toBe(201);
+  });
+});
+
+describe("returns: multiple separate returns on one order (2026-09-06 audit, acceptance criterion #12)", () => {
+  it("two independent returns for two different quantities of the same order both get their own refund", async () => {
+    const { agent } = await createTestCustomer();
+    const { variantId } = await createTestVariant(5);
+    const order = await checkoutCodOrder(agent, variantId, 3); // ordered quantity 3
+    const adminAuth = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${adminAuth}` };
+    await deliverOrder(order.id, adminAuth);
+
+    // First return: 1 unit, fully resolved end to end.
+    const firstReturn = await agent.post("/api/v1/returns").send({ orderId: order.id, reason: "wrong size", items: [{ orderItemId: order.items[0]!.id, quantity: 1 }] });
+    expect(firstReturn.status).toBe(201);
+    await request(app).post(`/api/v1/admin/returns/${firstReturn.body.id}/approve`).set(auth);
+    await request(app).post(`/api/v1/admin/returns/${firstReturn.body.id}/refund`).set(auth);
+    await request(app).post(`/api/v1/admin/returns/${firstReturn.body.id}/mark-refunded`).set(auth);
+
+    // Second, separate return: another 1 unit of the SAME order/item — allowed because 1 (first) + 1 (this) = 2 <= ordered quantity 3.
+    const secondReturn = await agent.post("/api/v1/returns").send({ orderId: order.id, reason: "changed my mind", items: [{ orderItemId: order.items[0]!.id, quantity: 1 }] });
+    expect(secondReturn.status).toBe(201);
+    const secondApprove = await request(app).post(`/api/v1/admin/returns/${secondReturn.body.id}/approve`).set(auth);
+    expect(secondApprove.status).toBe(200);
+    const secondRefund = await request(app).post(`/api/v1/admin/returns/${secondReturn.body.id}/refund`).set(auth);
+    expect(secondRefund.status).toBe(200);
+    const secondMarkRefunded = await request(app).post(`/api/v1/admin/returns/${secondReturn.body.id}/mark-refunded`).set(auth);
+    expect(secondMarkRefunded.status).toBe(200);
+
+    // Each return has exactly its own Refund row — the @@unique([returnId]) constraint doesn't block a second, DIFFERENT return on the same order.
+    const refunds = await prisma.refund.findMany({ where: { orderId: order.id } });
+    expect(refunds).toHaveLength(2);
+    expect(new Set(refunds.map((r) => r.returnId))).toEqual(new Set([firstReturn.body.id, secondReturn.body.id]));
+    expect(refunds.every((r) => r.status === "COMPLETED")).toBe(true);
+  });
+});
+
+describe("returns: Refund.returnId DB-level uniqueness (2026-09-06 audit finding I-2)", () => {
+  it("the database itself rejects a second Refund row for the same returnId", async () => {
+    const { agent } = await createTestCustomer();
+    const { variantId } = await createTestVariant();
+    const order = await checkoutCodOrder(agent, variantId);
+    const adminAuth = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${adminAuth}` };
+    await deliverOrder(order.id, adminAuth);
+
+    const created = await agent.post("/api/v1/returns").send({ orderId: order.id, reason: "wrong size", items: [{ orderItemId: order.items[0]!.id, quantity: 1 }] });
+    const returnId = created.body.id as string;
+    await request(app).post(`/api/v1/admin/returns/${returnId}/approve`).set(auth);
+    await request(app).post(`/api/v1/admin/returns/${returnId}/refund`).set(auth); // creates the one legitimate Refund row for this return
+
+    // Bypassing the application's own guarded call path entirely — this is a
+    // direct test of the SCHEMA constraint itself (finding I-2), not of any
+    // use-case (which already correctly refuses to reach this point, per the
+    // "returns: admin review + refund" describe block's own 409 assertion).
+    await expect(
+      prisma.refund.create({ data: { orderId: order.id, returnId, provider: "COD", status: "INITIATED", amountPaise: 100 } }),
+    ).rejects.toThrow(/Unique constraint/i);
+  });
+
+  it("cancellation-refund behavior is unaffected — Refund.returnId stays nullable for the admin-cancellation path", async () => {
+    const { agent } = await createTestCustomer();
+    const { variantId } = await createTestVariant();
+    const order = await checkoutRazorpayOrder(agent, variantId);
+    const adminAuth = await loginAdmin("orders@woobe.in", "Staff@12345");
+
+    const cancelRes = await request(app)
+      .post(`/api/v1/admin/orders/${order.id}/cancel`)
+      .set("Authorization", `Bearer ${adminAuth}`)
+      .send({ reason: "test" });
+    expect(cancelRes.status).toBe(200);
+
+    // Razorpay is unconfigured in this test env, so this is a FAILED refund attempt — the row still exists with returnId: null.
+    const refund = await prisma.refund.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(refund.returnId).toBeNull();
+    expect(refund.status).toBe("FAILED");
   });
 });
 

@@ -14,9 +14,11 @@ export function createAdminOrdersRouter(controller: AdminOrdersController): Rout
   router.get("/", validate(listOrdersQuerySchema, "query"), asyncHandler((req, res) => controller.list(req, res)));
   router.get("/:id", asyncHandler((req, res) => controller.getOne(req, res)));
   router.post("/:id/processing", asyncHandler((req, res) => controller.startProcessing(req, res)));
+  router.post("/:id/packed", asyncHandler((req, res) => controller.markPacked(req, res)));
   router.post("/:id/ship", validate(shipOrderSchema), asyncHandler((req, res) => controller.ship(req, res)));
   router.post("/:id/deliver", asyncHandler((req, res) => controller.deliver(req, res)));
   router.post("/:id/cancel", validate(cancelOrderSchema), asyncHandler((req, res) => controller.cancel(req, res)));
+  router.post("/:id/return-to-origin", asyncHandler((req, res) => controller.returnToOrigin(req, res)));
 
   return router;
 }

@@ -31,6 +31,14 @@ export function useAdminOrder(orderId: string) {
     },
   });
 
+  const markPackedMutation = useMutation({
+    mutationFn: () => withFreshToken((token) => ordersApi.markPacked(orderId, token)),
+    onSuccess: (order) => {
+      queryClient.setQueryData(orderQueryKey(orderId), order);
+      invalidate();
+    },
+  });
+
   const shipMutation = useMutation({
     mutationFn: (input: ShipOrderInput) => withFreshToken((token) => ordersApi.ship(orderId, input, token)),
     onSuccess: (order) => {
@@ -55,6 +63,14 @@ export function useAdminOrder(orderId: string) {
     },
   });
 
+  const returnToOriginMutation = useMutation({
+    mutationFn: () => withFreshToken((token) => ordersApi.returnToOrigin(orderId, token)),
+    onSuccess: (order) => {
+      queryClient.setQueryData(orderQueryKey(orderId), order);
+      invalidate();
+    },
+  });
+
   return {
     order: query.data ?? null,
     loading: query.isPending,
@@ -64,6 +80,9 @@ export function useAdminOrder(orderId: string) {
     startProcessing: async () => {
       await startProcessingMutation.mutateAsync();
     },
+    markPacked: async () => {
+      await markPackedMutation.mutateAsync();
+    },
     ship: async (input: ShipOrderInput) => {
       await shipMutation.mutateAsync(input);
     },
@@ -72,6 +91,9 @@ export function useAdminOrder(orderId: string) {
     },
     cancel: async (input: CancelOrderInput) => {
       await cancelMutation.mutateAsync(input);
+    },
+    returnToOrigin: async () => {
+      await returnToOriginMutation.mutateAsync();
     },
   };
 }

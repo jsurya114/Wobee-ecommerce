@@ -8,12 +8,19 @@
  * the source of truth to reconcile against.
  */
 
+/// Extended 2026-09-06 (order-processing audit) with PACKED (between
+/// PROCESSING and SHIPPED — the missing "picked/verified/packed" checkpoint)
+/// and RETURNED_TO_ORIGIN (reachable only from SHIPPED — a courier-refused/
+/// undeliverable parcel coming back to Woobe's own warehouse). See
+/// schema.prisma's own OrderStatus doc comment for the full reasoning.
 export const ORDER_STATUS = [
   "PENDING_PAYMENT",
   "CONFIRMED",
   "PAYMENT_FAILED",
   "PROCESSING",
+  "PACKED",
   "SHIPPED",
+  "RETURNED_TO_ORIGIN",
   "DELIVERED",
   "CANCELLED",
 ] as const;

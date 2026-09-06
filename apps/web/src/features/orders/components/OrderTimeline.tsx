@@ -40,11 +40,26 @@ export function OrderTimeline({ order }: { order: OrderView }) {
       </div>
     );
   }
+  // RETURNED_TO_ORIGIN (2026-09-06) — the shipment didn't reach the customer
+  // (refused, or the courier couldn't deliver it) and is coming back to
+  // Woobe. Its own terminal branch, same shape as CANCELLED/PAYMENT_FAILED
+  // above — the happy-path steps below stop being the right story once this
+  // has happened.
+  if (order.status === "RETURNED_TO_ORIGIN") {
+    return (
+      <div className="flex flex-col gap-2">
+        <Step label="Placed" at={order.placedAt} done />
+        <Step label={order.carrier ? `Shipped via ${order.carrier}` : "Shipped"} at={order.shippedAt} done />
+        <Step label="Delivery failed — returning to seller" at={null} done failed />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2">
       <Step label="Placed" at={order.placedAt} done />
       <Step label="Confirmed" at={null} done={order.status !== "PENDING_PAYMENT"} />
-      <Step label="Processing" at={null} done={["PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status)} />
+      <Step label="Processing" at={null} done={["PROCESSING", "PACKED", "SHIPPED", "DELIVERED"].includes(order.status)} />
+      <Step label="Packed and ready to ship" at={null} done={["PACKED", "SHIPPED", "DELIVERED"].includes(order.status)} />
       <Step label={order.carrier ? `Shipped via ${order.carrier}` : "Shipped"} at={order.shippedAt} done={["SHIPPED", "DELIVERED"].includes(order.status)} />
       <Step label="Delivered" at={order.deliveredAt} done={order.status === "DELIVERED"} />
     </div>

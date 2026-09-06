@@ -151,6 +151,8 @@ describe("admin analytics: COD payment-status fix reflected in collected-vs-pend
     const staffToken = await loginAdmin("orders@woobe.in", "Staff@12345");
     const auth = { Authorization: `Bearer ${staffToken}` };
     await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    // 2026-09-06 order-processing audit — PACKED is now required before SHIPPED.
+    await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
     await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "TRK1", carrier: "BlueDart" });
     await request(app).post(`/api/v1/admin/orders/${order.id}/deliver`).set(auth);
 

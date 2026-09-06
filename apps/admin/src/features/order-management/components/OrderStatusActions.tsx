@@ -11,17 +11,20 @@ import type { AdminOrderView } from "../api/admin-orders.client";
 interface Props {
   order: AdminOrderView;
   onStartProcessing: () => Promise<void>;
+  onMarkPacked: () => Promise<void>;
   onShip: (input: { trackingNumber: string; carrier: string }) => Promise<void>;
   onDeliver: () => Promise<void>;
   onCancel: (input: { reason?: string }) => Promise<void>;
+  onReturnToOrigin: () => Promise<void>;
   lastRefundIssued: boolean | null;
 }
 
-export function OrderStatusActions({ order, onStartProcessing, onShip, onDeliver, onCancel, lastRefundIssued }: Props) {
+export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onDeliver, onCancel, onReturnToOrigin, lastRefundIssued }: Props) {
   const { user } = useAdminAuth();
   const [busy, setBusy] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [confirmingRto, setConfirmingRto] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrier, setCarrier] = useState("");
   const [reason, setReason] = useState("");
@@ -37,6 +40,7 @@ export function OrderStatusActions({ order, onStartProcessing, onShip, onDeliver
       toast.success(successMessage);
       setShipping(false);
       setCancelling(false);
+      setConfirmingRto(false);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "That didn't work.");
     } finally {
@@ -73,14 +77,29 @@ export function OrderStatusActions({ order, onStartProcessing, onShip, onDeliver
   if (order.status === "PROCESSING") {
     return (
       <div className="flex flex-col gap-3">
-        <div className="flex gap-2">
-          <Button onClick={() => setShipping(true)} disabled={busy}>
-            Mark as shipped
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void run(onMarkPacked, "Order marked as packed")} isLoading={busy}>
+            Mark packed
           </Button>
           <Button variant="secondary" onClick={() => setCancelling(true)} disabled={busy}>
             Cancel order
           </Button>
         </div>
+        {cancelling ? renderCancelForm() : null}
+      </div>
+    );
+  }
+
+  // 2026-09-06 order-processing audit — the PACKED checkpoint. Shipping
+  // (tracking/carrier capture) now only happens from here, never straight
+  // from PROCESSING (ShipOrderUseCase itself rejects that server-side; this
+  // branch just means the button to attempt it doesn't exist before PACKED).
+  if (order.status === "PACKED") {
+    return (
+      <div className="flex flex-col gap-3">
+        <Button onClick={() => setShipping(true)} disabled={busy}>
+          Mark as shipped
+        </Button>
         {shipping ? (
           <div className="flex flex-col gap-2 rounded-md border border-border p-3">
             <Input placeholder="Tracking number" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
@@ -94,16 +113,37 @@ export function OrderStatusActions({ order, onStartProcessing, onShip, onDeliver
             </Button>
           </div>
         ) : null}
-        {cancelling ? renderCancelForm() : null}
       </div>
     );
   }
 
   if (order.status === "SHIPPED") {
     return (
-      <Button onClick={() => void run(onDeliver, "Order marked as delivered")} isLoading={busy}>
-        Mark as delivered
-      </Button>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void run(onDeliver, "Order marked as delivered")} isLoading={busy}>
+            Mark as delivered
+          </Button>
+          <Button variant="secondary" onClick={() => setConfirmingRto(true)} disabled={busy}>
+            Mark delivery failed / RTO
+          </Button>
+        </div>
+        {confirmingRto ? (
+          <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+            <p className="font-body text-sm text-text-secondary">
+              The shipment could not be delivered and is being returned to Woobe. This restocks the item(s) and — for a cash-on-delivery order —
+              leaves the payment as pending, since Woobe never collected it.
+            </p>
+            <Button
+              variant="secondary"
+              onClick={() => void run(onReturnToOrigin, "Order marked as returned to origin")}
+              isLoading={busy}
+            >
+              Confirm — mark delivery failed
+            </Button>
+          </div>
+        ) : null}
+      </div>
     );
   }
 

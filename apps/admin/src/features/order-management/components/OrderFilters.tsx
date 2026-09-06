@@ -3,7 +3,17 @@
 import type { OrderStatus } from "@woobe/types";
 import { Input } from "@woobe/ui";
 
-const STATUSES: OrderStatus[] = ["PENDING_PAYMENT", "CONFIRMED", "PAYMENT_FAILED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"];
+const STATUSES: OrderStatus[] = [
+  "PENDING_PAYMENT",
+  "CONFIRMED",
+  "PAYMENT_FAILED",
+  "PROCESSING",
+  "PACKED",
+  "SHIPPED",
+  "RETURNED_TO_ORIGIN",
+  "DELIVERED",
+  "CANCELLED",
+];
 
 export function OrderFilters({
   status,

@@ -12,8 +12,10 @@ export interface ShipOrderInput {
 }
 
 /**
- * `PROCESSING -> SHIPPED` (architecture.md §4) — captures tracking info in
- * the same conditional write as the status change.
+ * `PACKED -> SHIPPED` (architecture.md §4; guard tightened 2026-09-06 —
+ * previously `PROCESSING -> SHIPPED`, now requires the PACKED checkpoint in
+ * between, see MarkOrderPackedUseCase's own doc comment) — captures tracking
+ * info in the same conditional write as the status change.
  *
  * Week 2 Day 5: routes the admin-entered tracking number/carrier through
  * `ShippingService.createShipment()` (shipping module, week2 (1).md §10)
@@ -41,7 +43,7 @@ export class ShipOrderUseCase {
     if (existing.status === "SHIPPED") {
       return { changed: false, order: existing };
     }
-    if (existing.status !== "PROCESSING") {
+    if (existing.status !== "PACKED") {
       throw new ConflictError(`Cannot ship an order in status ${existing.status}`);
     }
 
@@ -52,7 +54,7 @@ export class ShipOrderUseCase {
     });
 
     const result = await this.transaction.run(async (tx) => {
-      const transitioned = await this.orderRepository.transitionStatus(orderId, "PROCESSING", "SHIPPED", tx, {
+      const transitioned = await this.orderRepository.transitionStatus(orderId, "PACKED", "SHIPPED", tx, {
         trackingNumber: shipment.trackingNumber,
         carrier: shipment.carrier,
         shippedAt: new Date(),

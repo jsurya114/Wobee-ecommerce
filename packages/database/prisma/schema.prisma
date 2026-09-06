@@ -63,13 +63,30 @@ enum AuthMethod {
   GOOGLE
 }
 
-/// Order.status lifecycle — plan.md §4. Unchanged from the original brief.
+/// Order.status lifecycle — plan.md §4, extended 2026-09-06 (order-processing
+/// audit) with two additive checkpoints, both reachable from exactly one
+/// prior state via the same guarded/atomic/idempotent transition pattern
+/// every other value here already uses:
+///  - PACKED sits between PROCESSING and SHIPPED — distinguishes "staff has
+///    picked/verified/packed the parcel" from "processing started" and from
+///    "handed to courier", closing the gap the order-processing audit found
+///    (PROCESSING alone silently covered both picking AND packing with no
+///    checkpoint in between).
+///  - RETURNED_TO_ORIGIN is reachable only from SHIPPED — represents a
+///    courier-refused/undeliverable parcel coming back to Woobe's own
+///    warehouse (no 3PL, no RTO carrier workflow — this is purely Woobe
+///    recording "the courier could not deliver this"). Restocks inventory
+///    exactly once; leaves Payment untouched (a COD parcel that was never
+///    delivered was never paid for, so there's nothing to capture or
+///    refund — see MarkOrderReturnedToOriginUseCase's own doc comment).
 enum OrderStatus {
   PENDING_PAYMENT
   CONFIRMED
   PAYMENT_FAILED
   PROCESSING
+  PACKED
   SHIPPED
+  RETURNED_TO_ORIGIN
   DELIVERED
   CANCELLED
 }
@@ -1011,7 +1028,20 @@ model ReturnItem {
 /// "ship a manual/admin-only refund path" if Week 3 runs long).
 model Refund {
   id               String        @id @default(uuid())
-  returnId         String?
+  /// @unique, not just indexed (2026-09-06 audit finding I-2) — at most one
+  /// Refund row per Return, ever. Nullable for the admin-cancellation path
+  /// (returnId is null there; Postgres unique indexes permit any number of
+  /// NULLs, so this constraint is a no-op for cancellation refunds and
+  /// doesn't need its own separate uniqueness — one cancelled order is
+  /// already guarded by CancelOrderUseCase's own atomic status transition,
+  /// the real reason a second cancellation-refund attempt can't happen).
+  /// This constraint is a database-level backstop for the return-refund
+  /// path, which was previously safe only by convention (every caller
+  /// happens to go through Return's own guarded status transition first,
+  /// not because anything stopped a second `Refund` row from being created
+  /// for the same return if a future code path ever called the issuing
+  /// use-case directly).
+  returnId         String?       @unique
   orderId          String
   provider         PaymentMethod
   status           RefundStatus  @default(INITIATED)

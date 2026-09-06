@@ -65,6 +65,8 @@ import {
   getOrderForAdminUseCase,
   listMyOrdersUseCase,
   listOrdersUseCase,
+  markOrderPackedUseCase,
+  markOrderReturnedToOriginUseCase,
   shipOrderUseCase,
   startProcessingOrderUseCase,
 } from "../orders/orders.module";
@@ -169,9 +171,11 @@ const adminOrdersController = new AdminOrdersController(
   listOrdersUseCase,
   getOrderDetailForAdminUseCase,
   startProcessingOrderUseCase,
+  markOrderPackedUseCase,
   shipOrderUseCase,
   deliverOrderAndCapturePaymentUseCase,
   cancelOrderWithRefundUseCase,
+  markOrderReturnedToOriginUseCase,
 );
 const adminCollectionsController = new AdminCollectionsController(
   listCollectionsAdminUseCase,

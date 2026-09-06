@@ -204,7 +204,7 @@ describe("admin orders RBAC", () => {
 });
 
 describe("order lifecycle + audit log", () => {
-  it("walks CONFIRMED -> PROCESSING -> SHIPPED -> DELIVERED as order_processing_staff, logging each transition", async () => {
+  it("walks CONFIRMED -> PROCESSING -> PACKED -> SHIPPED -> DELIVERED as order_processing_staff, logging each transition", async () => {
     const { variantId } = await createTestVariant(3);
     const order = await createConfirmedCodOrder(variantId);
     const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
@@ -213,6 +213,11 @@ describe("order lifecycle + audit log", () => {
     const processing = await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
     expect(processing.status).toBe(200);
     expect(processing.body.status).toBe("PROCESSING");
+
+    // 2026-09-06 order-processing audit — PACKED is now required before SHIPPED.
+    const packed = await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
+    expect(packed.status).toBe(200);
+    expect(packed.body.status).toBe("PACKED");
 
     const shipped = await request(app)
       .post(`/api/v1/admin/orders/${order.id}/ship`)
@@ -239,7 +244,7 @@ describe("order lifecycle + audit log", () => {
     expect(paymentAfterDelivery.id).toBe(paymentBeforeDelivery.id); // same row, not a second Payment created
 
     const auditLogs = await prisma.adminAuditLog.findMany({ where: { entityId: order.id }, orderBy: { createdAt: "asc" } });
-    expect(auditLogs.map((log) => log.action)).toEqual(["ORDER_PROCESSING_STARTED", "ORDER_SHIPPED", "ORDER_DELIVERED"]);
+    expect(auditLogs.map((log) => log.action)).toEqual(["ORDER_PROCESSING_STARTED", "ORDER_PACKED", "ORDER_SHIPPED", "ORDER_DELIVERED"]);
   });
 
   it("delivering a RAZORPAY order leaves its already-CAPTURED payment untouched (no-op for a non-COD payment)", async () => {
@@ -249,6 +254,7 @@ describe("order lifecycle + audit log", () => {
     const auth = { Authorization: `Bearer ${accessToken}` };
 
     await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
     await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "TRK1", carrier: "BlueDart" });
     const delivered = await request(app).post(`/api/v1/admin/orders/${order.id}/deliver`).set(auth);
     expect(delivered.status).toBe(200);
@@ -256,6 +262,155 @@ describe("order lifecycle + audit log", () => {
     const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
     expect(payment.provider).toBe("RAZORPAY");
     expect(payment.status).toBe("CAPTURED"); // was already CAPTURED via the webhook path; untouched by delivery
+  });
+
+  it("rejects shipping a PACKED order twice — the second attempt is an idempotent no-op, not a duplicate shipment", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
+    const first = await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "TRK1", carrier: "BlueDart" });
+    expect(first.status).toBe(200);
+
+    // A second "ship" with different tracking data must NOT overwrite the first — the order is already SHIPPED.
+    const second = await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "TRK-DIFFERENT", carrier: "Ekart" });
+    expect(second.status).toBe(200);
+    expect(second.body.trackingNumber).toBe("TRK1"); // unchanged — the no-op returns the existing order, not a re-written one
+  });
+
+  it("rejects shipping directly from PROCESSING — PACKED is required first", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    const res = await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "T", carrier: "C" });
+    expect(res.status).toBe(409);
+  });
+
+  it("concurrent 'mark packed' requests transition exactly once", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+
+    const [first, second] = await Promise.all([
+      request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth),
+      request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth),
+    ]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const auditLogs = await prisma.adminAuditLog.findMany({ where: { entityId: order.id, action: "ORDER_PACKED" } });
+    expect(auditLogs).toHaveLength(1); // only the winner audits; the loser's changed:false skips it
+  });
+});
+
+describe("returned to origin (RTO) — 2026-09-06 order-processing audit, finding I-1", () => {
+  it("walks SHIPPED -> RETURNED_TO_ORIGIN for a COD order: restocks inventory exactly once, leaves Payment PENDING, creates no refund, is idempotent, and audits it", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "TRK-RTO", carrier: "DTDC" });
+
+    const beforeInventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(beforeInventory.quantityAvailable).toBe(2); // 3 seeded - 1 sold (finalized at COD confirm)
+
+    const rto = await request(app).post(`/api/v1/admin/orders/${order.id}/return-to-origin`).set(auth);
+    expect(rto.status).toBe(200);
+    expect(rto.body.status).toBe("RETURNED_TO_ORIGIN");
+
+    const afterInventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(afterInventory.quantityAvailable).toBe(3); // restocked
+
+    // The courier never delivered it, so Woobe never collected the COD cash — Payment stays exactly where ConfirmCodOrderUseCase left it.
+    const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(payment.status).toBe("PENDING");
+
+    const refund = await prisma.refund.findFirst({ where: { orderId: order.id } });
+    expect(refund).toBeNull();
+
+    const auditLog = await prisma.adminAuditLog.findFirstOrThrow({ where: { entityId: order.id, action: "ORDER_RETURNED_TO_ORIGIN" } });
+    expect(auditLog.actorRole).toBe("ORDER_PROCESSING_STAFF");
+
+    // Idempotent — repeating the action must not double-restock or double-audit.
+    const secondRto = await request(app).post(`/api/v1/admin/orders/${order.id}/return-to-origin`).set(auth);
+    expect(secondRto.status).toBe(200);
+    expect(secondRto.body.status).toBe("RETURNED_TO_ORIGIN");
+    const afterSecondRto = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(afterSecondRto.quantityAvailable).toBe(3); // NOT 4
+
+    const auditLogs = await prisma.adminAuditLog.findMany({ where: { entityId: order.id, action: "ORDER_RETURNED_TO_ORIGIN" } });
+    expect(auditLogs).toHaveLength(1);
+  });
+
+  it("rejects RTO on an order that hasn't shipped yet", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId); // still CONFIRMED
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const res = await request(app).post(`/api/v1/admin/orders/${order.id}/return-to-origin`).set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(409);
+  });
+
+  it("403s a product_management_staff attempting RTO", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId);
+    const staffToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${staffToken}` };
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "T", carrier: "C" });
+
+    const wrongToken = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const res = await request(app).post(`/api/v1/admin/orders/${order.id}/return-to-origin`).set("Authorization", `Bearer ${wrongToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("a prepaid (RAZORPAY) order's RTO leaves the captured payment untouched — a refund for an undelivered prepaid order is a separate, explicit decision", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedRazorpayOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "T", carrier: "C" });
+
+    const rto = await request(app).post(`/api/v1/admin/orders/${order.id}/return-to-origin`).set(auth);
+    expect(rto.status).toBe(200);
+
+    const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(payment.status).toBe("CAPTURED"); // untouched — RTO never touches Payment for either payment method
+    const refund = await prisma.refund.findFirst({ where: { orderId: order.id } });
+    expect(refund).toBeNull(); // no automatic refund
+  });
+
+  it("concurrent RTO attempts restock inventory exactly once", async () => {
+    const { variantId } = await createTestVariant(3);
+    const order = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    await request(app).post(`/api/v1/admin/orders/${order.id}/processing`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/packed`).set(auth);
+    await request(app).post(`/api/v1/admin/orders/${order.id}/ship`).set(auth).send({ trackingNumber: "T", carrier: "C" });
+
+    const [first, second] = await Promise.all([
+      request(app).post(`/api/v1/admin/orders/${order.id}/return-to-origin`).set(auth),
+      request(app).post(`/api/v1/admin/orders/${order.id}/return-to-origin`).set(auth),
+    ]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const inventory = await prisma.inventory.findFirstOrThrow({ where: { variantId } });
+    expect(inventory.quantityAvailable).toBe(3); // NOT 4 — restocked exactly once despite two concurrent requests
   });
 });
 
