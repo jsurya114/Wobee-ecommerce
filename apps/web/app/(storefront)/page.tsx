@@ -2,11 +2,11 @@ import { getHomePage } from "@/features/home/api/home.client";
 import { CategoryRail } from "@/features/home/components/CategoryRail";
 import { CustomerReviewsSection } from "@/features/home/components/CustomerReviewsSection";
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
-import { HomeGridSection } from "@/features/home/components/HomeGridSection";
 import { CompactSearchBar } from "@/features/catalog/components/CompactSearchBar";
 import { ProductRail } from "@/features/home/components/ProductRail";
 import { PromoCarousel } from "@/features/home/components/PromoCarousel";
 import { ShopByBudget } from "@/features/home/components/ShopByBudget";
+import { ShopYourSize } from "@/features/home/components/ShopYourSize";
 import { ProductCard } from "@/features/catalog/components/ProductCard";
 import type { ProductSummary } from "@/features/catalog/api/products.client";
 
@@ -20,9 +20,21 @@ function railItem(product: ProductSummary) {
 }
 /**
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
- * every section: the category rail, a New Arrivals rail, a real "Fresh
- * picks" product grid, Shop by Budget, Best Sellers, Featured Collections,
- * Customer Reviews, and a thin trust line above the footer.
+ * every section: the category rail, Shop your size, a New Arrivals rail,
+ * Shop by Budget, Loved by Customers, Curated Collections, Customer
+ * Reviews, and a thin trust line above the footer.
+ *
+ * Merchandising logic corrections (2026-09-06, homepage audit): "Fresh
+ * picks" is gone — it was never a distinct query, just `newArrivals`
+ * re-sliced under a second label (audit finding C), so New Arrivals is now
+ * the single freshness rail. "Best sellers" is relabeled "Loved by
+ * Customers" and "Featured collections" is relabeled "Curated Collections"
+ * — both are label-only changes here; the corrected underlying logic
+ * (DELIVERED-only + stock-aware ranking, honest "manually curated" framing)
+ * lives in `GetHomePageUseCase`. Section order also moves "Shop your size"
+ * right after category discovery — a scarce, mostly single-unit catalogue
+ * makes "does my size exist at all" a first-screen question, not a PLP-only
+ * filter (audit finding E).
  *
  * Search: `HeaderSearch` (in `SiteHeader`, every page) is the one search
  * entry point on desktop. `CompactSearchBar` below is additional and
@@ -38,19 +50,18 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const home = await getHomePage();
-  const freshPicks = home.newArrivals.slice(0, 6);
 
   return (
     <main>
       <CompactSearchBar />
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
+      <ShopYourSize sizes={home.sizeAvailability} />
       <ProductRail title="New arrivals" seeAllHref="/products?sort=newest">
         {home.newArrivals.map(railItem)}
       </ProductRail>
-      <HomeGridSection title="Fresh picks" products={freshPicks} seeAllHref="/products?sort=newest" />
       <ShopByBudget tiles={home.budgetTiles} />
-      <ProductRail title="Best sellers">{home.bestSellers.map(railItem)}</ProductRail>
+      <ProductRail title="Loved by customers">{home.bestSellers.map(railItem)}</ProductRail>
       <FeaturedCollections collections={home.featuredCollections} />
       <CustomerReviewsSection reviews={home.customerReviews} />
     </main>

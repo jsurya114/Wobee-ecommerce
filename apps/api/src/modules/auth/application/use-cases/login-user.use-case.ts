@@ -43,6 +43,12 @@ export class LoginUserUseCase {
       throw new ForbiddenError("This account has been deactivated");
     }
 
+    // Only a genuinely successful login reaches here — never a failed
+    // attempt, never a token refresh (see AuthRepositoryPort.updateLastLoginAt's
+    // own comment). Fire-and-forget-adjacent but still awaited: this must not
+    // fail the login if it errors, so it's deliberately best-effort.
+    await this.authRepository.updateLastLoginAt(record.user.id).catch(() => undefined);
+
     const tokens = await issueTokenPair(record.user, {
       authRepository: this.authRepository,
       jwtService: this.jwtService,

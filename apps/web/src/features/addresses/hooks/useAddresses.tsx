@@ -108,3 +108,17 @@ export function useAddresses(): AddressesContextValue {
   }
   return ctx;
 }
+
+/**
+ * Non-throwing variant for callers that may render outside `<AddressesProvider>`
+ * — namely `AddressCard` when reused in checkout's `selectable` mode (Week 4
+ * addition, `CheckoutAddressPicker`), which reads a caller-supplied address
+ * list directly (checkout's own `listAddresses` call, see `CheckoutForm.tsx`)
+ * and has nothing to mutate through this Context. Returns `null` instead of
+ * throwing when there's no provider, rather than changing `useAddresses`
+ * itself and risking masking a real "forgot to wrap in the provider" bug on
+ * the address-book page.
+ */
+export function useAddressesOptional(): AddressesContextValue | null {
+  return useContext(AddressesContext);
+}

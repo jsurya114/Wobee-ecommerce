@@ -15,5 +15,6 @@ export * from "./returns.schema";
 export * from "./reviews.schema";
 export * from "./shared";
 export * from "./shipping.schema";
+export * from "./staff.schema";
 export * from "./users.schema";
 export * from "./wishlist.schema";

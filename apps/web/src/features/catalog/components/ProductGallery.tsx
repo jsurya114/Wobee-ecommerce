@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import type { ProductImage } from "../api/products.client";
 import { useSelectedVariant } from "../hooks/useSelectedVariant";
+import { ShareProductButton } from "./ShareProductButton";
 
 /**
  * PDP image gallery (redesign spec §F) — one Embla instance drives both the
@@ -12,7 +13,17 @@ import { useSelectedVariant } from "../hooks/useSelectedVariant";
  * first image is eager + `fetchPriority="high"` (it's the page's LCP
  * element); the rest lazy.
  */
-export function ProductGallery({ images, productId, productName }: { images: ProductImage[]; productId: string; productName: string }) {
+export function ProductGallery({
+  images,
+  productId,
+  productSlug,
+  productName,
+}: {
+  images: ProductImage[];
+  productId: string;
+  productSlug: string;
+  productName: string;
+}) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ align: "start", containScroll: "trimSnaps" });
   const [selected, setSelected] = useState(0);
   const { selectedVariantId } = useSelectedVariant();
@@ -74,7 +85,10 @@ export function ProductGallery({ images, productId, productName }: { images: Pro
           </div>
         </div>
 
-        <WishlistButton productId={productId} variantId={selectedVariantId} className="absolute right-3 top-3" />
+        <div className="absolute right-3 top-3 flex flex-col items-end gap-2">
+          <WishlistButton productId={productId} variantId={selectedVariantId} />
+          <ShareProductButton slug={productSlug} name={productName} />
+        </div>
 
         {images.length > 1 ? (
           <div className="mt-2 flex justify-center gap-1.5 md:hidden">

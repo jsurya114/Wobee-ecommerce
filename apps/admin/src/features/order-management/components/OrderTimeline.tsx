@@ -21,11 +21,21 @@ export function OrderTimeline({ order }: { order: AdminOrderView }) {
       </div>
     );
   }
+  if (order.status === "RETURNED_TO_ORIGIN") {
+    return (
+      <div className="flex flex-col gap-2">
+        <Step label="Placed" at={order.placedAt} done />
+        <Step label={order.carrier ? `Shipped via ${order.carrier}` : "Shipped"} at={order.shippedAt} done />
+        <Step label="Returned to origin — delivery failed" at={null} done failed />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2">
       <Step label="Placed" at={order.placedAt} done />
       <Step label="Confirmed" at={null} done={order.status !== "PENDING_PAYMENT" && order.status !== "PAYMENT_FAILED"} />
-      <Step label="Processing" at={null} done={["PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status)} />
+      <Step label="Processing" at={null} done={["PROCESSING", "PACKED", "SHIPPED", "DELIVERED"].includes(order.status)} />
+      <Step label="Packed" at={null} done={["PACKED", "SHIPPED", "DELIVERED"].includes(order.status)} />
       <Step label={order.carrier ? `Shipped via ${order.carrier}` : "Shipped"} at={order.shippedAt} done={["SHIPPED", "DELIVERED"].includes(order.status)} />
       <Step label="Delivered" at={order.deliveredAt} done={order.status === "DELIVERED"} />
     </div>

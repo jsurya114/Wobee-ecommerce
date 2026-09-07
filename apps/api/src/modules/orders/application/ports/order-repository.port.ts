@@ -1,4 +1,4 @@
-import type { PricingMode } from "@woobe/types";
+import type { OrderStatus, PricingMode } from "@woobe/types";
 import type { OrderEntity, OrderSummaryEntity, AdminOrderSummaryEntity } from "../../domain/entities/order.entity";
 
 export interface CreateOrderItemInput {
@@ -55,7 +55,7 @@ export interface ListOrdersResult {
   total: number;
 }
 
-/** Week 2 Day 8 Part 2 (week2 (1).md §12's "Best Sellers") — one variant's total units sold, "sold" meaning the same real-purchase status set hasUserPurchasedProduct already uses below. */
+/** Week 2 Day 8 Part 2 (week2 (1).md §12's "Best Sellers") — one variant's total units sold, "sold" meaning whichever status set the caller asked for (see `findBestSellingVariantQuantities`'s own doc comment). */
 export interface VariantSaleQuantity {
   variantId: string;
   quantitySold: number;
@@ -145,14 +145,22 @@ export interface OrderRepositoryPort {
   /**
    * Week 2 Day 8 Part 2 (week2 (1).md §12) — top variants by units sold,
    * across every order in a real-purchase status (same set
-   * hasUserPurchasedProduct uses), highest quantity first. Grouped at the
-   * variant level (this module's own grain — OrderItem has no productId of
-   * its own) because collapsing to product-level requires `products`' own
-   * variant→product mapping, which lives one layer up in the `home` module's
-   * composition, not here (ADR-010: orders never reaches into
-   * product_variants for anything beyond its own foreign key).
+   * hasUserPurchasedProduct uses) by default, highest quantity first.
+   * Grouped at the variant level (this module's own grain — OrderItem has
+   * no productId of its own) because collapsing to product-level requires
+   * `products`' own variant→product mapping, which lives one layer up in
+   * the `home` module's composition, not here (ADR-010: orders never
+   * reaches into product_variants for anything beyond its own foreign key).
+   *
+   * `statuses` (merchandising logic corrections, 2026-09-06) lets a caller
+   * narrow the "sold" definition — `home`'s "Loved by Customers" rail passes
+   * `["DELIVERED"]` so a not-yet-delivered COD order (payment not even
+   * collected yet) can't inflate a customer-facing popularity signal.
+   * Defaults to the same real-purchase status set as before when omitted,
+   * so the admin analytics dashboard's existing "Best Sellers (all time)"
+   * panel is unaffected by this change.
    */
-  findBestSellingVariantQuantities(limit: number): Promise<VariantSaleQuantity[]>;
+  findBestSellingVariantQuantities(limit: number, statuses?: OrderStatus[]): Promise<VariantSaleQuantity[]>;
   /** Admin analytics dashboard (2026-09-03) — revenue/order-count/status breakdown for one date range. */
   getOrderAnalytics(range: AnalyticsDateRange): Promise<OrderAnalyticsSummary>;
 }

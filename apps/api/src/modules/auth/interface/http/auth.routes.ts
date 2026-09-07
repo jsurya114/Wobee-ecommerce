@@ -1,5 +1,6 @@
 import {
   forgotPasswordSchema,
+  googleAuthSchema,
   loginSchema,
   registerSchema,
   registerStartSchema,
@@ -104,6 +105,20 @@ export function createAuthRouter(controller: AuthController): Router {
     rateLimit({ keyPrefix: "auth:login", ...AUTH_RATE_LIMIT }),
     validate(loginSchema),
     asyncHandler((req, res) => controller.login(req, res)),
+  );
+  // "Continue with Google" (2026-09-05) — same rate-limit budget as /login.
+  router.post(
+    "/google",
+    rateLimit({ keyPrefix: "auth:google", ...AUTH_RATE_LIMIT }),
+    validate(googleAuthSchema),
+    asyncHandler((req, res) => controller.authenticateWithGoogle(req, res)),
+  );
+  router.post(
+    "/google/link",
+    rateLimit({ keyPrefix: "auth:google-link", ...AUTH_RATE_LIMIT }),
+    authGuard,
+    validate(googleAuthSchema),
+    asyncHandler((req, res) => controller.linkGoogleAccount(req, res)),
   );
   router.post(
     "/refresh",

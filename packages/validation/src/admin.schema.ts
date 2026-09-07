@@ -20,7 +20,9 @@ export const rejectReturnSchema = z.object({
 export type RejectReturnInput = z.infer<typeof rejectReturnSchema>;
 
 export const listOrdersQuerySchema = z.object({
-  status: z.enum(["PENDING_PAYMENT", "CONFIRMED", "PAYMENT_FAILED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]).optional(),
+  status: z
+    .enum(["PENDING_PAYMENT", "CONFIRMED", "PAYMENT_FAILED", "PROCESSING", "PACKED", "SHIPPED", "RETURNED_TO_ORIGIN", "DELIVERED", "CANCELLED"])
+    .optional(),
   search: z.string().trim().min(1).optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),

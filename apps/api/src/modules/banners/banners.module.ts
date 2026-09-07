@@ -11,11 +11,20 @@ import { UpdateBannerUseCase } from "./application/use-cases/admin/update-banner
 import { SetBannerActiveUseCase } from "./application/use-cases/admin/set-banner-active.use-case";
 import { DeleteBannerUseCase } from "./application/use-cases/admin/delete-banner.use-case";
 import { ReorderBannersUseCase } from "./application/use-cases/admin/reorder-banners.use-case";
+import type { BannerRepositoryPort } from "./application/ports/banner-repository.port";
+import { CachedBannerRepository } from "./infrastructure/repositories/cached-banner-repository";
 import { BannerRepository } from "./infrastructure/repositories/banner.repository";
 import { BannersController } from "./interface/http/banners.controller";
 import { createBannersRouter } from "./interface/http/banners.routes";
+import { env } from "../../config/env";
 
-const bannerRepository = new BannerRepository();
+// ADR-017 (Caching Strategy) — see CachedBannerRepository's own doc comment
+// for what's cached (findVisible only) vs. left live (every admin method).
+// Skipped under `pnpm test` — see products.module.ts's own comment on this
+// same pattern for why.
+const realBannerRepository = new BannerRepository();
+const bannerRepository: BannerRepositoryPort =
+  env.NODE_ENV === "test" ? realBannerRepository : new CachedBannerRepository(realBannerRepository);
 
 /** Exported for cross-module use — `home` composes this into its homepage payload (no extra request). */
 export const listVisibleBannersUseCase = new ListVisibleBannersUseCase(bannerRepository);

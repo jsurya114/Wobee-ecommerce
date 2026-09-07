@@ -20,7 +20,7 @@ const ACCOUNT_LINKS: { href: string; label: string; icon: ComponentType<SVGProps
   { href: "/account/addresses", label: "Your addresses", icon: MapPin },
   { href: "/account/orders", label: "My orders", icon: Package },
   { href: "/wishlist", label: "Wishlist", icon: Heart },
-  { href: "mailto:hello@woobe.in", label: "Help & Support", icon: HelpCircle },
+  { href: "/account/help", label: "Help & Support", icon: HelpCircle },
 ];
 
 /**

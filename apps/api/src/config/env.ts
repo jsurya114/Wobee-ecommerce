@@ -77,9 +77,36 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().default("Woobe <no-reply@woobe.local>"),
+
+  // "Continue with Google" (2026-09-05) — Google Identity Services' ID-token
+  // flow: the frontend obtains a signed Google ID token and hands it to the
+  // API, which verifies it server-side (google-auth-library's verifyIdToken).
+  // No client secret is needed for this flow — we never exchange an auth
+  // code, only verify a JWT that's already signed by Google. Optional in
+  // dev/test (POST /auth/google fails safely with 503 SERVICE_UNAVAILABLE
+  // when unset); required in production, enforced by the superRefine below.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+
+  // Staff Management System (2026-09-06) — an invitation email can sit
+  // unread far longer than a live password-reset flow (weekend, someone
+  // out of office), so it gets its own, longer, explicitly configurable TTL
+  // rather than silently reusing forgot-password's 5-minute window (see
+  // staff-invitation.policy.ts). 72h (3 days) is a starting default, not a
+  // measured requirement — tune per how onboarding actually plays out.
+  STAFF_INVITATION_TTL_HOURS: z.coerce.number().int().positive().default(72),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const envSchemaWithRefinements = envSchema.superRefine((data, ctx) => {
+  if (data.NODE_ENV === "production" && !data.GOOGLE_CLIENT_ID) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["GOOGLE_CLIENT_ID"],
+      message: "GOOGLE_CLIENT_ID is required when NODE_ENV=production",
+    });
+  }
+});
+
+const parsed = envSchemaWithRefinements.safeParse(process.env);
 
 if (!parsed.success) {
   // Deliberately not using the shared logger here — this runs before it exists.

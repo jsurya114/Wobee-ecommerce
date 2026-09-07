@@ -11,8 +11,13 @@ import { useCart } from "./useCart";
  * above it; `/order-confirmation` is a completed-order page, not a
  * still-shopping one. `/products` itself (the PLP) is deliberately NOT
  * excluded — only the trailing-slash PDP shape is.
+ *
+ * `/login` and `/register` (bugfix, 2026-09-05): these are pure
+ * authentication surfaces (`AuthShell`) — a cart-weight nudge has no business
+ * fighting for attention there, same reasoning `WhatsAppButton`'s own
+ * `HIDDEN_ON_PATHS` already applies to this exact pair of routes.
  */
-const HIDDEN_ROUTE_PREFIXES = ["/cart", "/checkout", "/products/", "/order-confirmation"];
+const HIDDEN_ROUTE_PREFIXES = ["/cart", "/checkout", "/products/", "/order-confirmation", "/login", "/register"];
 
 /**
  * Shared by `FloatingCartWeightIndicator` (to decide whether to render) and

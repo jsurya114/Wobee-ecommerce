@@ -21,11 +21,23 @@ import { RemoveCollectionProductUseCase } from "./application/use-cases/admin/re
 import { ReorderCollectionProductsUseCase } from "./application/use-cases/admin/reorder-collection-products.use-case";
 import { SetCollectionActiveUseCase } from "./application/use-cases/admin/set-collection-active.use-case";
 import { UpdateCollectionUseCase } from "./application/use-cases/admin/update-collection.use-case";
+import type { CollectionRepositoryPort } from "./application/ports/collection-repository.port";
+import { CacheInvalidatingCollectionRepository } from "./infrastructure/repositories/cache-invalidating-collection-repository";
 import { CollectionRepository } from "./infrastructure/repositories/collection.repository";
 import { CollectionsController } from "./interface/http/collections.controller";
 import { createCollectionsRouter } from "./interface/http/collections.routes";
+import { env } from "../../config/env";
 
-const collectionRepository = new CollectionRepository();
+// ADR-017 (Caching Strategy) — collections have no dedicated cache entry of
+// their own; this only busts the shared catalog cache version on a write,
+// so Home's cached aggregate and products' cached `?collection=` listing
+// stay correct. See CacheInvalidatingCollectionRepository's own doc
+// comment. Skipped under `pnpm test` — see products.module.ts's own
+// comment on this same pattern for why (a no-op here in test env either
+// way, since nothing else is caching for it to invalidate).
+const realCollectionRepository = new CollectionRepository();
+const collectionRepository: CollectionRepositoryPort =
+  env.NODE_ENV === "test" ? realCollectionRepository : new CacheInvalidatingCollectionRepository(realCollectionRepository);
 
 /** Exported for cross-module use — `home`'s Featured Collections rail (Week 2 Day 8 Part 2, week2 (1).md §12) calls this directly instead of duplicating the active-collections query. */
 export const listCollectionsUseCase = new ListCollectionsUseCase(collectionRepository);

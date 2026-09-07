@@ -8,21 +8,52 @@
 import { listVisibleBannersUseCase } from "../banners/banners.module";
 import { listCategoriesUseCase } from "../categories/categories.module";
 import { listCollectionsUseCase } from "../collections/collections.module";
+import { findInStockVariantIdsUseCase } from "../inventory/inventory.module";
 import { getBestSellingVariantQuantitiesUseCase } from "../orders/orders.module";
 import {
+  countActiveProductsBySizeUseCase,
   getCategoryImagesUseCase,
   getProductsByIdsUseCase,
   listProductsUseCase,
   resolveProductIdsForVariantsUseCase,
 } from "../products/products.module";
 import { listTopApprovedReviewsUseCase } from "../reviews/reviews.module";
-import { GetHomePageUseCase } from "./application/use-cases/get-homepage.use-case";
+import { cacheAside } from "../../shared/cache/catalog-cache";
+import { env } from "../../config/env";
+import { GetHomePageUseCase, type HomePageView } from "./application/use-cases/get-homepage.use-case";
 import { HomeController } from "./interface/http/home.controller";
 import { createHomeRouter } from "./interface/http/home.routes";
 
-const getHomePageUseCase = new GetHomePageUseCase(
+/**
+ * "Loved by Customers" now reads a stricter "sold" definition than the
+ * admin dashboard's own Best Sellers panel (merchandising logic
+ * corrections, 2026-09-06) — DELIVERED only, see
+ * `findBestSellingVariantQuantities`'s own doc comment. Bound here, not in
+ * GetHomePageUseCase itself, so that use-case's own `BestSellingVariantsReader`
+ * interface stays unchanged and admin's own caller (unchanged, still
+ * `getBestSellingVariantQuantitiesUseCase.execute(limit)`) is unaffected.
+ */
+const deliveredOnlyBestSellingVariantsReader = {
+  execute: (limit: number) => getBestSellingVariantQuantitiesUseCase.execute(limit, ["DELIVERED"]),
+};
+
+/**
+ * Every product id with at least one currently in-stock, active variant —
+ * composed from the same two building blocks `resolveBestSellers` already
+ * uses for the sales aggregate (`inventory`'s in-stock variant ids,
+ * `products`' variant→product resolver), not a new inventory query.
+ */
+const inStockProductIdsProvider = {
+  execute: async (): Promise<Set<string>> => {
+    const inStockVariantIds = await findInStockVariantIdsUseCase.execute();
+    const productIdByVariant = await resolveProductIdsForVariantsUseCase.execute(inStockVariantIds);
+    return new Set(productIdByVariant.values());
+  },
+};
+
+const realGetHomePageUseCase = new GetHomePageUseCase(
   listProductsUseCase,
-  getBestSellingVariantQuantitiesUseCase,
+  deliveredOnlyBestSellingVariantsReader,
   resolveProductIdsForVariantsUseCase,
   getProductsByIdsUseCase,
   listCollectionsUseCase,
@@ -31,7 +62,41 @@ const getHomePageUseCase = new GetHomePageUseCase(
   getCategoryImagesUseCase,
   listVisibleBannersUseCase,
   listProductsUseCase,
+  inStockProductIdsProvider,
+  countActiveProductsBySizeUseCase,
 );
+
+const HOME_TTL_SECONDS = 60;
+
+/**
+ * ADR-017 (Caching Strategy) — the whole aggregate cached as one unit,
+ * on top of (not instead of) `listProductsUseCase`/`listCategoriesUseCase`/
+ * `listVisibleBannersUseCase` already being individually cached above: this
+ * collapses the full 7-way fan-out (`GetHomePageUseCase`'s own doc comment)
+ * into one Redis GET on a warm cache, which is faster than even a
+ * warm-but-still-parallel set of separate calls, and is what the Home-
+ * navigation-latency investigation actually traced the reported stutter to
+ * (every Home visit re-running this whole use-case live, with zero caching
+ * anywhere in the request path — see journal.md, 2026-09-05). Composed as a
+ * plain object here (same pattern every other cross-module port in this
+ * codebase already uses), not inside `get-homepage.use-case.ts` itself —
+ * caching is a cross-cutting infrastructure concern, not this use-case's
+ * own business logic, so that file stays untouched and independently
+ * testable exactly as it is today.
+ *
+ * Skipped under `pnpm test` (falls back to calling the real use-case
+ * directly, no caching at all) — `home.integration.test.ts` creates a
+ * fresh product/order/review fixture per test via raw Prisma and asserts
+ * `GET /api/v1/home` reflects it immediately after; a live cache here would
+ * make several of those tests fail deterministically. See
+ * products.module.ts's own comment on this same pattern for the general
+ * reasoning, and catalog-cache.test.ts for where the cache helper's own
+ * behavior is actually verified.
+ */
+export const getHomePageUseCase = {
+  execute: (): Promise<HomePageView> =>
+    env.NODE_ENV === "test" ? realGetHomePageUseCase.execute() : cacheAside("home:page", HOME_TTL_SECONDS, () => realGetHomePageUseCase.execute()),
+};
 
 const homeController = new HomeController(getHomePageUseCase);
 

@@ -1,9 +1,8 @@
 "use client";
 
-import { buttonVariants, cn } from "@woobe/ui";
-import { toast } from "sonner";
+import { GoogleAuthButton } from "./GoogleAuthButton";
 
-function GoogleGlyph() {
+export function GoogleGlyph() {
   return (
     <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.27-4.74 3.27-8.09Z" />
@@ -15,14 +14,13 @@ function GoogleGlyph() {
 }
 
 /**
- * Visual parity with the design mock. Federated sign-in isn't wired yet, so
- * a click is honest about that rather than dead or fake-redirecting — swap
- * the handlers for the real OAuth start URLs when the provider exists.
+ * Google sign-in is real: `GoogleAuthButton` runs the official Google
+ * Identity Services flow and hands the resulting ID token to the backend,
+ * which verifies it server-side and returns a normal session — the same
+ * in-memory-access-token/httpOnly-refresh-cookie architecture every other
+ * auth entry point already uses.
  */
 export function SocialAuthButtons() {
-  const notReady = () => toast.info("Social sign-in is coming soon.");
-  const base = cn(buttonVariants({ variant: "secondary" }), "w-full");
-
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3" aria-hidden="true">
@@ -30,10 +28,7 @@ export function SocialAuthButtons() {
         <span className="font-body text-xs text-text-secondary">or continue with</span>
         <span className="h-px flex-1 bg-border" />
       </div>
-      <button type="button" onClick={notReady} className={base}>
-        <GoogleGlyph />
-        Continue with Google
-      </button>
+      <GoogleAuthButton />
     </div>
   );
 }

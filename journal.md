@@ -2739,3 +2739,390 @@ Also confirmed already-correct along the way (no changes needed): unknown-paymen
 **Follow-ups / known gaps:**
 - Real CI (GitHub Actions) can only be confirmed once `week4` is merged to `main` or a PR is opened against it — same as Week 3.
 - Not yet merged to `main` — awaiting the user's explicit instruction, per this session's own established pattern.
+
+---
+
+## 2026-09-05 — Bugfix: cart weight-progress pill on auth pages + Home navigation stutter (2 real root causes, 2 files)
+
+**Branch:** `woobe-ui/bug-fixes`. `apps/web` only — no schema/API-contract/cart/wishlist/auth-behavior changes.
+
+### Issue 1 — cart weight-progress pill visible on `/login` and `/register`
+
+**Root cause:** `FloatingCartWeightIndicator` (the mobile ambient "Xg more to checkout" pill) is mounted once in the shared `(storefront)/layout.tsx` — the only layout in this app, since auth pages have no separate route group (the 2026-08-30 login/register redesign entry already noted the "don't touch architecture" constraint rules out a route-group split). Visibility is gated by `useCartWeightBarVisibility`'s own `HIDDEN_ROUTE_PREFIXES` allowlist-by-exclusion — already used to correctly hide the pill on `/cart`, `/checkout`, PDP, and `/order-confirmation` — but `/login`/`/register` were never added to it, even though the sibling `WhatsAppButton` component already hides itself on exactly these two routes (plus `/forgot-password`) for the identical reason (Week 4 Day 8 entry, above).
+
+**Fix:** added `"/login"` and `"/register"` to `HIDDEN_ROUTE_PREFIXES` in `useCartWeightBarVisibility.ts` — one line, reusing the existing, already-shared visibility hook (also consumed by `useWhatsAppBottomOffset`) rather than adding a new pathname check anywhere else. No component was hidden globally; the pill still renders correctly on Home/Shop/Wishlist/Account/PDP-adjacent pages.
+
+### Issue 2 — Home navigation stutter (Account/Wishlist/Cart → Home)
+
+**Root cause, confirmed by inspection + a real production build + live browser traces (Chrome DevTools MCP), not guessed:**
+- `next build` shows `/account`, `/cart`, and `/wishlist` as `○ Static` (prerendered once, zero backend round trip ever) — they're thin Server Component shells; all their real data comes from client-side contexts (`useCart`/`useWishlist`/`useAuth`, mounted once at the root, not per-page).
+- `/` is `ƒ Dynamic` (`force-dynamic`, ADR-026) — by design, since homepage pricing must never be frozen at build time. But this also means **every single navigation to Home re-runs `GetHomePageUseCase.execute()`'s full 7-way parallel query fan-out against Postgres, with zero caching**, unlike its "smooth" siblings which pay no backend cost at all on navigation.
+- A production build + click-through trace confirmed the resulting gap directly: Account LCP ~55-72ms vs. Home LCP ~355-390ms on this machine's local Postgres (near-zero network latency); the same redundant round trip, done at Postgres-over-a-real-network latency (the reported environment), is exactly the kind of cost that compounds into the reported 1-2 seconds.
+- Server-side instrumentation (a temporary log line in `HomeController`, removed after use) confirmed: before the fix, every Home visit hit the database again; there was no caching layer at all for this specific fetch, anywhere in the request path.
+- ADR-026 itself already named the fix: *"a `revalidate`-based ISR compromise can be revisited later if homepage traffic ever makes it one — a straightforward change from this same starting point, not a rewrite."*
+
+**Fix:** `getHomePage()` (`features/home/api/home.client.ts`) now passes `{ next: { revalidate: 60 } }` on its one `fetch` to `GET /api/v1/home`. This uses Next's **Data Cache** (per-fetch), not the Full Route Cache — deliberately *not* touching the page's own `dynamic = "force-dynamic"` export, so `next build` still never needs a live API (verified: killed the API entirely, `rm -rf .next`, rebuilt clean — ADR-026's original guarantee holds). `GET /api/v1/home` is public/unauthenticated (`HomeController`'s own doc comment) and every figure it returns is already documented elsewhere as a display-only cache (`minPricePaiseCache` etc. — checkout/cart always recompute live, `DEVELOPMENT_RULES.md` #1), so a bounded 60s staleness window on homepage browse content doesn't touch that guarantee.
+
+**Verified:** repeat Home navigations within the 60s window no longer reach Postgres (confirmed via the temporary controller log, then reverted). `pnpm -r run lint` / `typecheck` / `boundaries:check` (553 modules, 0 violations) / `test` (88 files, 641 tests — unchanged from Week 4's own baseline) all clean. `pnpm -r run build` clean for all three apps, including the zero-live-services build-independence check. Live-browser regression sweep: guest → `/login`/`/register` with items in cart → pill absent; Home/Cart/PDP → pill still shows and still calculates correctly; Home ⇄ Account/Wishlist/Cart/Shop/PDP navigation cycled repeatedly with no console errors and no new/duplicate network requests introduced.
+
+**Follow-ups / known gaps:**
+- The remaining ~350ms client-side LCP on Home (even fully cached) is React's cost of committing a much bigger tree than Account/Cart/Wishlist (dozens of product cards/images vs. a near-empty page) — inherent to Home being a richer page, not a bug; not touched, per this task's explicit scope.
+- Did not extend the auth-page pill exclusion to `/forgot-password` (unlike `WhatsAppButton`, which already hides there too) — the reported issue named only Login/Register; flagging the inconsistency here in case a future session wants parity.
+
+
+---
+
+## 2026-09-05 — Redis read-through caching for the public catalog surface (ADR-017, finally implemented)
+
+**Branch:** `woobe-ui/bug-fixes`. `apps/api` only (plus this entry) — no schema migration, no API contract change, no `apps/web`/`apps/admin` change.
+
+Implements ADR-017 (`project_planning/plan.md`, written Week 1, never built): "Redis (read-through) — session tokens, rate-limit counters, inventory reservation TTL locks, and the admin ₹/kg default rate + per-product rate overrides for DISPLAY purposes. Short TTL (30–60s) as a backstop; explicit bust on write is the primary mechanism." Triggered by the same "revisit later" clause the previous entry's Home-latency fix already cited.
+
+**Investigation before writing anything (per the task's own explicit "show the plan first" instruction):**
+- Confirmed exactly which repository reads are safe to cache by reading the actual Prisma queries: `ProductRepository.findMany`/`findBySlug`/`findRelatedProducts` return zero live price/stock — weight, `ratePerKgOverridePaise`, `fixedPricePaise`, `minPricePaiseCache` are admin-set catalog attributes; live price (`pricingReader.calculateMany`) and live stock (`inventoryReader.getAvailableQuantities`) are computed separately, one layer up, in each use-case, and stay completely outside the cache — checkout/PDP price and stock are exactly as live as before this change, on every single request.
+- Found and deliberately excluded the one genuinely live-dependent shape: `ListProductsUseCase`'s `inStockOnly=true` path feeds a live, constantly-changing variant-id set into the query — caching that would be both the closest thing here to caching inventory and a near-zero-hit-rate key anyway. `CachedProductRepository.findMany` bypasses the cache whenever `filter.inStockVariantIds` is set, verified live (see below).
+- **A real, pre-implementation blocker found by reading the tests, not assumed:** every `*.integration.test.ts` in this repo (confirmed in `home.integration.test.ts`, `products.integration.test.ts`) seeds fixtures via raw `prisma.*.create()` — bypassing any repository-level cache's own invalidation — then immediately asserts on a `GET` of the same resource. A cache active in `pnpm test` would have made several of `home.integration.test.ts`'s own tests fail deterministically (stale cached response from an earlier test in the same file). Fix: each `*.module.ts` composition root only constructs the `Cached*`/`CacheInvalidatingCollectionRepository` wrapper when `env.NODE_ENV !== "test"` — in test, the plain, always-live repository is wired instead, so all 605 existing tests exercise the exact same code path they always have. The cache helper's own correctness (hit/miss/error-fallback/version-bump) is proven directly by a new `catalog-cache.test.ts`, independent of the HTTP integration suite (the helper itself has no env-based self-disabling — that decision lives one layer up, at each composition root, not baked into the primitive).
+
+**Architecture — decorator, at the infrastructure layer, one shared Redis client:**
+- **New:** `apps/api/src/shared/cache/catalog-cache.ts` — `cacheAside(key, ttlSeconds, load)` (GET → miss → `load()` → `SET EX`, every Redis call individually try/caught, fails open to `load()` on any error or malformed JSON — same posture `middleware/rate-limit.ts` already established) + `getCatalogCacheVersion()`/`bumpCatalogCacheVersion()`, one shared `INCR`-based counter prefixed into every cache key. Reuses the one `redis` client from `config/redis.ts` — no second connection.
+- **New:** `CachedProductRepository`, `CachedCategoryRepository`, `CachedBannerRepository` (each `implements` its module's existing `*RepositoryPort`, delegating every method except the ones below straight through to the real repository — zero use-case/controller/domain changes anywhere) and `CacheInvalidatingCollectionRepository` (delegates every read, only exists to bump the shared version on a collection write, since Home's cached aggregate and products' cached `?collection=` filter both embed collection data with no dedicated cache entry of their own).
+- **`home.module.ts`:** the whole `GetHomePageUseCase.execute()` result cached as one unit (on top of, not instead of, `listProductsUseCase`/`listCategoriesUseCase`/`listVisibleBannersUseCase` already being individually cached) — composed as a plain `{ execute() }` object at the composition root, the same pattern this codebase already uses for every other cross-module port; `get-homepage.use-case.ts` itself is untouched. Needed a one-line type change in `home.controller.ts` (concrete `GetHomePageUseCase` class param → a narrow structural `HomePageReader` interface) since TypeScript's nominal-ish typing for classes with private fields would otherwise reject the plain-object wrapper — compile-time only, zero runtime behavior change.
+
+**What's cached, TTL, key, invalidation:**
+
+| Resource | Cached call | TTL | Invalidated by |
+|---|---|---|---|
+| Home aggregate | `GetHomePageUseCase.execute()` | 60s | any product/variant/category/banner/collection admin write |
+| Product listing (skipped when `inStockOnly`) | `ProductRepository.findMany` | 60s | product/variant create/update/activate/image change |
+| Product detail | `ProductRepository.findBySlug` | 120s | same |
+| Related products | `ProductRepository.findRelatedProducts` | 120s | same |
+| Categories list | `CategoryRepository.findActiveCategories` | 300s | category create/update/activate/reorder |
+| Visible banners | `BannerRepository.findVisible` (param excluded from key — see below) | 60s | banner create/update/delete/activate/reorder |
+
+Deliberate choice, confirmed with the user before implementing: **one shared `cache:catalog:version` counter**, not per-entity `DEL` — editing one product also expires other unrelated products' still-valid cached detail pages, in exchange for a provably-correct, single-`INCR` invalidation with no `SCAN`/pattern-matching and no risk of ever serving stale-past-a-write data. `BannerRepository.findVisible(now)` takes a live timestamp excluded from the key (a per-millisecond key would never hit) — the 60s TTL is what bounds how late/early a scheduled banner's start/end can appear, same "short TTL as backstop" trade-off ADR-017 already accepts. `products/suggestions` (search typeahead) was investigated and deliberately left uncached, per the user's own explicit call — already `pg_trgm`-indexed and fast, smaller win than the rest, kept the diff smaller.
+
+**Not cached, and why:** admin read/write use-cases (an admin must see their own edit immediately), `resolveFromPricing`'s live rate calc, `GetProductBySlugUseCase`'s live price/stock composition, `findByIds` (shared by Home *and* Wishlist — skipping it keeps Wishlist's request path completely untouched, at zero cost since Home's own top-level cache already prevents that call from re-running on repeat Home visits), and everything explicitly out of scope: cart, wishlist, orders, checkout, payments, coupons, auth/sessions, inventory reservations.
+
+**Verified live against the real dev fleet (not just the test suite):**
+- `GET /api/v1/home`: 43ms (cold) → 7-8ms (warm), Redis keys confirmed present (`home:page`, `products:list:*` ×4 for the budget tiles, `banners:visible`, `categories:list`).
+- `GET /api/v1/products?category=tops` vs `?category=dresses`: separate cache keys, both independently cached (23ms/12ms → 10ms warm; 12ms cold for the second, different category).
+- `GET /api/v1/products?inStock=true`: confirmed zero new cache key written (bypass working as designed).
+- Real admin `PATCH /api/v1/admin/products/:id` rename → `cache:catalog:version` 0→1 → the very next `GET /api/v1/products/:slug` immediately showed the new name, not the cached old one. Same proven for a category rename (0→1 further bump; also incidentally surfaced that `categories:list`'s cached snapshot had been serving an already-stale sort order from earlier in the session — exactly the behavior caching is supposed to have, and confirmation the bump forces a genuinely fresh read, not a coincidence). Both test edits reverted afterward.
+- Redis stopped entirely (`docker stop woobe-redis`): `GET /api/v1/home`, `/products`, `/products/:slug`, `/categories`, `/banners` all still returned `200` — confirmed fail-open, zero request failures, only a logged `[catalog-cache] ... failed` line per call. Restarted Redis, confirmed clean recovery and cache re-population.
+
+**Full workspace gate, all clean:** `pnpm -r run lint`, `typecheck`, `boundaries:check` (558 modules / 1,729 dependencies, 0 violations — this pass's new decorator files added no cross-module edges), `pnpm --filter @woobe/api run test` — **85 files, 614 tests** (605 pre-existing + 9 new in `catalog-cache.test.ts`), zero regressions. `pnpm -r run build` — all three apps clean.
+
+**Follow-ups / known gaps:**
+- Review moderation (approve/reject) does NOT bump the catalog cache version — Home's customer-reviews section can lag up to its own 60s TTL after a moderation action. Not in the task's named scope (products/categories/banners/collections); flagging for a future session if it matters.
+- `CategoryRepository.findIdBySlug` (a single-row indexed lookup, used internally by the listing's category filter) stays uncached — trivial to answer live already, kept the diff smaller.
+- The shared-version-counter trade-off (coarse invalidation, confirmed with the user before building) means a burst of unrelated admin edits in quick succession causes more cache misses than a per-entity scheme would — acceptable at this catalogue's scale, revisit only with real evidence it isn't.
+
+
+## 2026-09-05 — Persistent customer addresses at checkout — 7-agent coordinated build (backend, frontend, security, regression, architecture, E2E, final gate)
+
+**Branch:** `woobe-ui/bug-fixes`. Follows the Week 3 multi-agent audit-and-verify pattern: independent agents investigate/implement/review non-overlapping scopes, findings get reconciled centrally before anything is called done.
+
+### Root cause of the "repeated address" problem
+
+Not what it first looked like. Week 3 Day 2's own entry ("saved-address checkout gap closed") already fixed the READ side: `CheckoutForm` fetches saved addresses, auto-selects the default, and offers "Use a different address" — this was still working correctly. The actual gap was the WRITE side: nothing ever persisted a freshly-typed checkout address back to the customer's account. A returning customer with zero prior `/account/addresses` activity would type the same address every single checkout, forever, because checkout only ever *read* the address book, never *wrote* to it.
+
+### What already existed (confirmed by direct inspection, not assumed)
+
+- `users` module: full `Address` CRUD since Week 2 Day 3 — `AddressRepositoryPort` (every method `userId`-scoped at the Prisma `where`-clause level, already IDOR-safe by construction), `CreateAddressUseCase` (already auto-promotes a customer's first address to default), `list/update/delete/set-default` use-cases, `/api/v1/users/me/addresses*` routes (`authGuard`-mounted, `req.user!.id` only, never a client id).
+- `orders` module: `CheckoutUseCase` takes `PlaceOrderInput.userId?: string` (undefined = guest — the existing, unchanged guest signal) and `address: CheckoutAddressInput` (full field values — structurally identical to `AddressFields`). Checkout has never accepted or trusted an address ID from the client; the address is always a full snapshot, stored immutably on `Order.shippingSnapshot`, completely decoupled from the `Address` table.
+
+### What was reused (nothing rebuilt)
+
+`CreateAddressUseCase`'s own first-address-is-default logic (called as-is, not reimplemented), `AddressRepositoryPort.findAllForUser` (for the dedup check), the existing `AddressCard` component (extended with optional `selectable`/`selected`/`onSelect` props, defaulting to off — zero behavior change for `/account/addresses`'s own existing usage), and the `Sheet` primitive already used by cart's "Change size" (reused for checkout's "Change address," no new UI primitive introduced).
+
+### What was changed
+
+**Backend** (`apps/api`): new `AddressSaverPort` (`orders/application/ports/`, narrow single-method interface — orders depends on an abstraction, not on `users` directly, per ADR-010/DIP) + new `SaveCheckoutAddressUseCase` (`users/application/use-cases/`) — given a `userId` + address fields, dedups by trimmed/case-insensitive comparison across all 7 fields (`line2` null/undefined/empty treated as equivalent) against the customer's existing addresses, no-ops on a match, otherwise delegates to `CreateAddressUseCase`. Wired via `users.module.ts`'s new `saveCheckoutAddressUseCase` export and an object-literal adapter in `orders.module.ts` (the same cross-module wiring pattern every other port in that file already uses). `CheckoutUseCase.execute()` calls `this.addressSaver.saveIfNew(input.userId, input.address)` strictly AFTER `this.transaction.run(...)` resolves (never inside the order's own transaction — a failed save can never roll back a successful order), gated on `input.userId` being present, wrapped in try/catch that only logs (never rethrows). A guest (`input.userId` undefined) can never reach this call under any code path, including retries — confirmed by reading the full `execute()` method, not just the new lines.
+
+**Frontend** (`apps/web`): new `CheckoutAddressPicker.tsx` — shows the selected saved address as a summary card with an explicit "Change address" button opening a `Sheet` listing every saved address (name/phone/lines/city/state/pincode/Default badge, per-address "Select"), plus "Add a new address." `CheckoutForm.tsx` swaps its old bare radio-list for this picker; "Add a new address" clears the address-specific fields (keeping account name/phone prefilled) via a new `resetToFreshAddress()`. Checkout still always submits a full address snapshot — never an id — exactly as before.
+
+**No changes** to `checkoutSchema`, `PlaceOrderInput`'s shape, `OrderRepositoryPort`, `shippingSnapshot`, order totals, payment/inventory/coupon logic, or the `/account/addresses` page's own add/edit/delete/set-default behavior.
+
+### How each flow works now
+
+- **First-time authenticated checkout**: plain address form (identical to before — no picker renders with zero saved addresses), order placed, address auto-saved to the account as the new default (via the existing first-address rule).
+- **Returning customer**: saved address(es) shown, default pre-selected, no re-typing required; submitting with it as-is does not create a duplicate (dedup match).
+- **Add New Address**: from the "Change address" sheet, clears the form to a fresh entry; on order success, saved as a second (non-default) address if it doesn't already match one on file.
+- **Change Address**: an explicit button opens a sheet listing every saved address with full identifying detail and a default badge; selecting one repopulates the editable fields; the original default is never silently altered by adding or selecting another address.
+- **Guest checkout**: verified byte-for-byte unchanged — no saved-address UI, no "Change address," no account/login nudges, no `userId` ever reaches the address-saving code path (structurally unreachable, not just untested), no address book entry created for anyone.
+
+### Security/IDOR
+
+Traced end-to-end: `saveIfNew`'s `userId` always originates from `req.user?.id`, set only by `optionalAuthGuard`'s own JWT verification (never client-supplied); checkout's schema carries no id field of any kind (no address id, no user id) — the design is inherently IDOR-free because there is nothing for a client to substitute. New tests proved: customer A's checkout-saved address never appears for customer B even when both submit textually identical address text (independent rows, correctly scoped); a malformed/garbage `Authorization` header on checkout is treated as a guest, never attaches to any account. Every pre-existing address/order IDOR test (`users.integration.test.ts`, `orders.integration.test.ts`'s "no IDOR/BOLA" block) re-verified passing, unmodified.
+
+### Coordination (7 agents + orchestrator reconciliation)
+
+1. Backend implementer — the port/use-case/wiring above, 5 new integration tests, 5 new unit tests.
+2. Frontend implementer — the picker/sheet UI above, live-tested the core flow before handoff.
+3. Security/IDOR reviewer — independent trace of the full request path, added 2 more tests (cross-account, malformed-auth).
+4. Regression + coverage verifier — confirmed cart/coupons/shipping/tax/payments/order-state-machine/existing-address-CRUD all untouched and green; found and closed one real coverage gap (a direct-add-then-checkout-with-new-address default-address edge case) with 1 new test.
+5. Clean Architecture/SOLID reviewer — PASS on all 7 review points (port shape, use-case SRP, composition-root wiring, transaction placement, frontend backward-compatibility, no duplicated address logic, `boundaries:check`); verdict "ready to ship as-is."
+6. End-to-end browser verifier — two agent attempts hit a session rate limit mid-run; completed directly by the orchestrating session instead: registered a fresh account, walked all of first-checkout → address saved → returning-checkout (same address, no duplicate) → add-new-address (two addresses, first stays default) → change-address (both addresses shown, selection repopulates fields) → guest checkout (isolated browser context, confirmed plain form, zero saved-address chrome, `userId: null`, address count unchanged) — every step passed, zero console errors, confirmed clean at both desktop and 375px mobile widths (screenshotted).
+7. Final workspace gate — run directly by the orchestrating session after the rate-limit interruption: full `pnpm -r run typecheck/lint`, `boundaries:check`, `pnpm --filter @woobe/api run test`, `pnpm -r run build` — see Verified below.
+
+### Files changed
+
+`apps/api/src/modules/orders/application/ports/address-saver.port.ts` (new), `apps/api/src/modules/users/application/use-cases/save-checkout-address.use-case.ts` (new) + its test (new), `apps/api/src/modules/orders/application/use-cases/checkout.use-case.ts`, `apps/api/src/modules/orders/orders.module.ts`, `apps/api/src/modules/users/users.module.ts`, `apps/api/src/modules/orders/orders.integration.test.ts` (+8 tests total across 3 agents), `apps/web/src/features/checkout/components/CheckoutAddressPicker.tsx` (new), `apps/web/src/features/checkout/components/CheckoutForm.tsx`, `apps/web/src/features/addresses/components/AddressCard.tsx`, `apps/web/src/features/addresses/hooks/useAddresses.tsx`.
+
+### Migrations
+
+**None.** The `Address` model (Week 2 Day 3) already had every field checkout needed; no schema change was required.
+
+### Verified (final gate, run after all 7 agents' work reconciled)
+
+`pnpm -r run typecheck` — clean, all 9 projects. `pnpm -r run lint` — clean, all 9 projects (`--max-warnings=0`). `pnpm run boundaries:check` — `562 modules, 1744 dependencies, 0 violations` (confirms the one new `orders → users` edge is the only new cross-module dependency, one-directional). `pnpm --filter @woobe/api run test` — **86 files / 627 tests, all passing**, zero regressions from the 605-test pre-feature baseline (624 base + 3 net new from the security/regression agents, after one confirmed pre-existing intra-file flake self-resolved on rerun — documented in `vitest.config.ts`'s own comment on `fileParallelism`). `pnpm -r run build` — all three apps (`api`/`web`/`admin`) clean production builds.
+
+### Remaining limitations
+
+- Coupon/checkout/cart/payment/inventory logic — confirmed completely untouched (not modified, not reviewed for change, only re-verified still green).
+- Review-moderation actions don't interact with this feature at all (unrelated).
+- No pagination added to the address list (`findAllForUser` returns everything) — not a concern at today's realistic per-customer address counts; same posture the codebase already takes elsewhere (e.g. `ListMyOrdersUseCase`, flagged in Week 3 Day 3's own entry).
+- Agent 6 (E2E) and one duplicate Agent 5 (architecture) notification failed mid-run on a session rate limit (unrelated to any bug in the implementation — Agent 5's actual review had already completed and reconciled earlier); the E2E verification was completed directly by the orchestrating session with identical rigor (live browser, real accounts, real orders, screenshots), so coverage is complete despite the interruption.
+
+
+## 2026-09-05 — Two storefront state-sync fixes: stale cart after checkout, wishlist/cart cross-invalidation
+
+**Branch:** `woobe-ui/bug-fixes`. `apps/web` only — no backend, schema, or API-contract change.
+
+### Bug 1 — cart not updating after successful checkout
+
+**Investigated before changing anything:** confirmed the backend was already fully correct on both paths. `CheckoutUseCase.execute()` calls `this.cartWriter.markConverted(cartId, tx)` unconditionally, inside the same transaction as order creation, regardless of payment method (COD or Razorpay — the cart's job is done once the order exists; that's a separate concern from payment capture). Every cart route (`CartController.resolveCartId`) calls `GetOrCreateCartUseCase` first, which already reactivates a `CONVERTED` cart empty for a returning authenticated user (the Week 1 Day 5 correction, still in place) and creates a fresh cart for a guest with no cookie — `orders.controller.ts`'s checkout handler also clears the guest `cart_id` cookie on success. So a `GET /cart` immediately after checkout was ALREADY guaranteed to return an authoritative empty cart, for guest and logged-in alike — confirmed by reading the actual repository/use-case code, not assumed.
+
+**Root cause: frontend only.** `CartProvider` (`useCart.tsx`) is a root-mounted React context that fetches the cart once on mount and thereafter only updates its own state from the response of its OWN mutation methods (`addItem`/`updateItem`/`removeItem`/etc.). `CheckoutForm.tsx` calls `checkoutApi.checkout(...)` directly — a distinct API call, not one of `CartProvider`'s own mutations — so the context never saw the server's now-converted cart and kept serving its last-fetched pre-checkout snapshot in memory. Navigating to `/order-confirmation/[id]` doesn't remount the provider (mounted once at the app root), so the stale state persisted until a full page reload. Classic missing-invalidation-after-an-out-of-band-mutation bug, not a backend defect, not a Next.js Data Cache issue (this is a pure client React-state context, no Next fetch caching involved here).
+
+**Fix:** added `refresh(): Promise<void>` to `CartContextValue`/`CartProvider` — re-fetches via the same `cartApi.getCart()` every other page already uses and replaces local state, mirroring `WishlistProvider`'s own pre-existing `refresh` method exactly (same shape, same name, already an established pattern in this codebase — not invented). `CheckoutForm.tsx` calls `await refreshCart().catch(() => {})` immediately after a successful `checkoutApi.checkout(...)`, before navigating to the confirmation page — errors are swallowed so a transient refresh failure can never block navigating to an order that already placed successfully. No `setCart([])` anywhere — the fix always asks the backend for its authoritative state, per the task's own explicit instruction.
+
+### Bug 2 — wishlist/cart predictability
+
+**Investigated first:** `MoveWishlistItemToCartUseCase` (backend, built Week 2 Day 2) already does exactly the required move semantics — adds to cart, then removes the wishlist item, using the wishlist line's own `variantId` (422s if none selected, never substitutes another variant) and re-checking live stock at click time. The frontend (`WishlistLineItem.tsx`) already calls this via `useWishlist().moveToCart()`, unchanged. Grepped every add-to-cart entry point (`QuickAddToBagButton` for Shop/Home, `ProductPurchasePanel` for the PDP) — neither imports or touches `useWishlist` at all, confirming part B ("adding to cart must never silently remove a wishlist item") was already correctly true by construction; nothing needed to change there.
+
+**Real gap found:** `useWishlist().moveToCart()` calls the wishlist API then refetches the wishlist (`await load()`) — correct for the wishlist side — but never told `CartProvider` anything changed, so the exact same class of bug as Bug 1 applied here too: after "Move to bag," the cart's own item just added on the server was invisible in the nav badge/cart page until a reload, even though the wishlist correctly emptied. Same root cause, same fix shape.
+
+**Fix:** `WishlistLineItem.tsx`'s `handleMoveToCart()` now also calls `useCart().refresh()` (aliased `refreshCart`) immediately after `moveToCart()` resolves — reuses the exact same new capability Bug 1 added, rather than inventing a second mechanism. No business logic duplicated in either component; both still just call their own context's existing use-case-backed mutation and then ask for a resync.
+
+### Verified live (Chrome DevTools MCP, real dev servers, real Postgres — not asserted from code)
+
+- **Guest checkout:** added Silk Scarf to bag as a genuine logged-out visitor (isolated browser context), placed a COD order — the persistent nav's "Bag" link dropped from `Bag (1)` to plain `Bag` on the confirmation page itself, no reload; `/cart` immediately showed the empty state.
+- **Logged-in checkout:** same result — BottomNav's Bag tab dropped from `3` to no-count on the confirmation page, immediately.
+- **Wishlist → Move to Cart, with a specific variant:** saved "Embroidered Top" at size M (not the default S) to the wishlist; added the SAME product to the bag from its own PDP first (confirmed the wishlist entry survived that — part B) and again from the Shop grid quick-add on a different product (confirmed again — wishlist count stayed at 1, `Save to wishlist` heart never flipped). Then, from `/wishlist`, clicked "Move to bag": the wishlist emptied immediately, the nav Bag badge went from `1` to `2` in the same render (no reload), and `/cart` showed exactly "Embroidered Top · White · M" — the exact variant selected, not a substitute (merged quantity-2 with the earlier PDP add of the identical variant, correct cart-merge-same-line behavior, untouched by this change).
+- **Remove from wishlist:** confirmed still works normally (heart toggles back to "Save to wishlist", badge clears) after the refresh-wiring changes.
+- Zero console errors at any point across the whole sequence.
+
+### Files changed
+
+`apps/web/src/features/cart/hooks/useCart.tsx` (new `refresh` method), `apps/web/src/features/checkout/components/CheckoutForm.tsx` (calls it post-checkout), `apps/web/src/features/wishlist/components/WishlistLineItem.tsx` (calls it post-move-to-cart). No backend file touched; `checkoutSchema`, order totals, payment flow, coupon logic, and inventory logic are all unmodified.
+
+### Verified (full workspace gate)
+
+`pnpm -r run typecheck` / `lint` — clean, all 9 projects. `pnpm run boundaries:check` — clean, 562 modules / 0 violations (no backend edge changed — sanity re-confirmation, not expected to move). `pnpm --filter @woobe/api run test` — **86 files / 627 tests**, clean on a repeat run (one run hit 2 failures in files this session never touched — `admin` collections reorder and a wishlist stock-check test — confirmed pre-existing intra-suite flakiness via an immediate clean rerun, not a regression from this change). `pnpm --filter @woobe/web run build` — clean production build.
+
+### Follow-ups / known gaps
+
+- `MoveWishlistItemToCartUseCase`'s own non-atomic cart-add-then-wishlist-remove (flagged repeatedly in earlier entries, e.g. Week 2 Day 2's independent review) remains untouched — out of scope for this pass, unrelated to the state-sync bug fixed here.
+- No other call site reads a stale cart/wishlist snapshot after an out-of-band mutation that this pass's grep found — but the general shape ("a component calls an API outside its owning context's mutation methods, so that context never resyncs") is now a known pattern to watch for if a similar report surfaces elsewhere.
+
+
+## 2026-09-05 — Fix: uncaught crash on access-token expiry (client had no silent-refresh-and-retry)
+
+**Branch:** `woobe-ui/bug-fixes`. `apps/web` only. Surfaced live, not reported as a spec'd task — a user hit a Next.js dev error overlay ("Runtime ApiError — Invalid or expired access token", thrown from `apiFetch`, `api-client.ts:60`) mid-session.
+
+**Root cause:** access tokens are short-lived by design (`JWT_ACCESS_TOKEN_TTL="15m"`), live only in memory, and are fetched exactly once — on `AuthProvider`'s mount. There was no mechanism anywhere to silently re-refresh one after that, even though the httpOnly refresh cookie is valid for `JWT_REFRESH_TOKEN_TTL="30d"` (the user's own question — "but a user can get it for 3 days" — was the right instinct: whatever the exact number, the intended login lifetime is measured in days, so a 15-minute hard crash on any tab left open is a real, user-facing defect, not an edge case). Any authenticated call made after 15 minutes 401'd, and — depending on the call site — either surfaced as a toast (where a `try/catch` already existed) or as an **unhandled promise rejection** (`CartProvider`'s and `WishlistProvider`'s background fetch-on-mount effects call their loader via `void load()` with no `.catch`), which is exactly what a Next.js dev error overlay reports.
+
+**The naive fix (catch-and-refresh-and-retry at the point of failure) would have reintroduced an already-known, already-flagged, more severe bug:** this codebase's refresh token is opaque, single-use, and **rotates with reuse-detection** (`RefreshTokenUseCase`) — presenting an already-rotated-out refresh cookie a second time is treated as theft and **revokes every session for that user**. The exact risk of two concurrent `/auth/refresh` calls was already identified for `AuthProvider`'s own mount effect (journal.md, 2026-08-30 "Reconciliation" entry) and explicitly left unfixed at the time ("flagged to the user directly; not fixed here since it wasn't the reported bug"). A naive per-call-site refresh-and-retry would make this MUCH more likely to trigger in practice (multiple contexts independently 401ing around the same moment, e.g. cart and wishlist both fetching on the same stale token) — an accidental full logout would be a strictly worse outcome than today's crash-and-reload.
+
+**Fix — one shared, de-duplicated refresh coordinator, used everywhere a refresh can be triggered:**
+- **New** `apps/web/src/features/auth/api/refresh-coordinator.ts` — `refreshAccessToken()`, a module-level single-in-flight-promise wrapper around `authApi.refresh()`. Every caller within the same window gets the exact same Promise instead of starting a second real network call — makes "two concurrent refreshes" structurally impossible, closing the previously-flagged mount-effect risk too, for free, as the same mechanism.
+- **`apps/web/src/lib/api-client.ts`** — `apiFetch` now retries exactly once on a 401 from a request that carried an `accessToken` (never for a guest call, never for a genuine login/wrong-password 401 — neither carries one) and isn't already a retry itself (a private `isRetryAfterRefresh` marker prevents any loop). The actual refresh call is injected via a small `setUnauthorizedHandler` DI slot rather than an import — this file stays generic/auth-agnostic, no new dependency edge onto `features/auth`.
+- **`apps/web/src/features/auth/hooks/useAuth.tsx`** — the mount effect now goes through the shared coordinator instead of calling `authApi.refresh()` directly; a second effect registers the `apiFetch` handler once, on mount: success updates `accessToken` in context (so the rest of the UI sees the fresh token too, not just the one retried request) and returns it for the retry; failure (the refresh token itself is invalid/expired/revoked — a genuine logged-out state) clears the session and returns `null`, letting the original 401 surface exactly as it would for an actually-logged-out visitor.
+
+**Verified live under real expiry conditions, not simulated:** restarted `apps/api` with `JWT_ACCESS_TOKEN_TTL=5s` (env override, not a permanent change), logged in for real, waited past it, then clicked "Save to wishlist." Network trace confirmed the exact designed sequence: `POST /wishlist/items [401]` → `POST /auth/refresh [200]` → `POST /wishlist/items [201]` (silent, no toast, no crash — the wishlist badge just updated). A second, independent 401 moments later (a different context's own re-fetch racing the token-state update) was handled the same way — two *sequential* refreshes, confirmed never concurrent, and the user stayed logged in throughout (no reuse-detection ever tripped). Restored the normal TTL afterward.
+
+**Files changed:** `apps/web/src/features/auth/api/refresh-coordinator.ts` (new), `apps/web/src/lib/api-client.ts`, `apps/web/src/features/auth/hooks/useAuth.tsx`.
+
+**Verified:** `pnpm -r run typecheck`/`lint` clean (9/9). `pnpm run boundaries:check` clean (562 modules, 0 violations — no backend touched). `pnpm --filter @woobe/api run test` clean (86 files / 627 tests — no backend touched, sanity re-confirmation). `pnpm --filter @woobe/web run build` clean.
+
+**Follow-ups / known gaps:**
+- Did not add a UI-level "you were logged out, please sign in again" prompt for the genuine-refresh-failure path — it already degrades to the same behavior an actually-logged-out visitor sees on that page today (guest-appropriate rendering / a login-gated action's own existing "log in" prompt), which is correct but not especially warm; a toast could be added later if that gap is ever reported directly.
+- Not investigated: whether any other client outside `apps/web` (e.g. a future mobile client) would need the same coordinator — out of scope, `apps/admin` has its own, separate staff-session cookie/token scheme (ADR-024/025) not touched here.
+
+## 2026-09-05 — "Continue with Google" customer authentication — 7-agent coordinated build (backend, frontend, security, architecture, regression, E2E, final gate)
+
+**Branch:** `woobe-ui/bug-fixes`. Same coordination pattern as the persistent-checkout-addresses feature above: the orchestrator investigated the full existing auth architecture first, wrote an exact shared spec (schema, ports, use-cases, endpoint contracts) from that investigation, then dispatched non-overlapping agents against it, then reconciled.
+
+### Root cause / gap
+
+There was no federated login — `SocialAuthButtons.tsx` already existed (visual parity with the design mock, rendered inside both `LoginForm` and `RegisterForm`) but its Google button was a `toast.info("Social sign-in is coming soon.")` no-op. Customers had only email+password and email-OTP registration.
+
+### Existing architecture reused (confirmed by direct inspection, not assumed)
+
+`AuthCredential` (ADR-018: credentials live in their own table keyed by `method`, never columns bolted onto `User`) already had exactly the shape a third auth method needed — `enum AuthMethod { PASSWORD OTP }`, unique on `[userId, method]`. `issueTokenPair()` (shared by register/login/refresh/OTP-verify) was reused verbatim — no second session system. The domain/application/infrastructure/interface layering, the `*Port` + composition-root (`auth.module.ts`) pattern, the `DomainError` hierarchy, `rateLimit()`, and `validate()` middleware were all reused as-is, matching every prior auth feature (OTP registration, forgot-password) in shape.
+
+### Google identity + account-linking strategy — the security-critical decision
+
+Google's `sub` claim (never email, never display name) is the ONLY identifier used to look up or link a Google account: `AuthCredential.providerSubject String? @unique` (new nullable column — Postgres unique indexes allow multiple NULLs, so PASSWORD/OTP rows are unaffected). `AuthMethod` gained one value, `GOOGLE`.
+
+`AuthenticateWithGoogleUseCase`: verify ID token → look up `AuthCredential` by `(GOOGLE, sub)` → found: log in (checking `isActive`) via `issueTokenPair` → not found: look up `User` by email → **an existing PASSWORD/OTP account with that email is refused (`GoogleAccountConflictError`, 409) — never silently linked or taken over** → no match: create a new customer + `GOOGLE` credential (verified email is treated as proof of ownership, same trust level this codebase already grants a verified OTP code — no password required, per the brief). A TOCTOU race between the email-existence check and the create is backstopped by `User.email @unique` (P2002 → `ConflictError`), exactly like `RegisterUserUseCase` already does. A second, authenticated-only `POST /auth/google/link` use-case/endpoint exists for explicit linking (`req.user!.id` only, never a body-supplied id) as the secure alternative to silent merging — no frontend UI calls it yet (flagged below, not needed for the brief's login/register flow).
+
+### Google ID-token verification
+
+`google-auth-library`'s `OAuth2Client.verifyIdToken({idToken, audience: GOOGLE_CLIENT_ID})` — signature, issuer, audience, and expiry are all checked by the library, none hand-rolled. Unverified-email Google accounts are rejected (`GoogleEmailUnverifiedError`). `GOOGLE_CLIENT_ID` optional in dev/test (an unset value wires `NotConfiguredGoogleVerifier`, which fails the route safely with 503 rather than skipping verification); `env.ts` gained a `.superRefine` that fails API boot immediately if `NODE_ENV=production` and it's unset. No `GOOGLE_CLIENT_SECRET` anywhere — this ID-token flow needs none.
+
+### Token/session architecture
+
+Unchanged. `issueTokenPair` (JWT access token + opaque sha256-hashed rotating `RefreshToken` row + httpOnly cookie) is called identically to login/register. Logout, `/me`, and refresh-reuse-detection needed zero code changes — a Google session is a normal `User` row + normal `RefreshToken` row + normal JWT, structurally indistinguishable from a password session at those endpoints.
+
+### Database
+
+Migration `20260905153737_add_google_auth_credential` — purely additive (`ALTER TYPE "AuthMethod" ADD VALUE 'GOOGLE'`, nullable `AuthCredential.providerSubject`, its unique index). No data loss, no existing row touched, applied cleanly to both `woobe_dev` and `woobe_test`. One accepted Postgres limitation for the record: an added enum value isn't trivially reversible in a single transaction (would need a type rebuild) — not a defect, just how Postgres enums work.
+
+### API
+
+`POST /api/v1/auth/google` (`{credential}` → `200`/`201` `{user, accessToken, isNewUser}` + refresh cookie, same shape as login/register) and `POST /api/v1/auth/google/link` (authenticated, 204). Both rate-limited on the same budget as `/login`.
+
+### Frontend
+
+`SocialAuthButtons.tsx`'s existing placeholder button replaced by a real `GoogleAuthButton.tsx` — no changes needed to `LoginForm.tsx`/`RegisterForm.tsx` (both already rendered `<SocialAuthButtons />`). Uses Google Identity Services (GIS) — never a hand-rolled redirect, never a client-assembled profile. GIS's real button renders into a genuinely-clickable off-screen container; the visibly Woobe-styled button proxies a real click into it (the standard technique for a custom-styled GIS button), so the actual user-initiated click still lands on Google's own UI. Loading/disabled/duplicate-click-prevention all gated on one `busy` flag that only flips on an actual credential callback (closing the Google popup without completing is silently a no-op, not an error). Renders nothing when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset. `useAuth`'s `authenticateWithGoogle` follows the exact `login`/`verifyRegistrationOtp` callback shape — no new state machine.
+
+### Security decisions (independently reviewed, see Coordination)
+
+No silent account takeover on email match (refused, not merged); provider-identity collisions structurally impossible (`providerSubject @unique`, checked by direct code + race tracing, not just by the doc comment); Google-created users get only `CUSTOMER` role (schema default, never set explicitly); `/auth/google/link`'s `userId` is always `req.user!.id`, never body-supplied (no IDOR surface exists — the request schema carries no id field at all); no raw Google token ever logged or persisted (only the opaque `sub`); frontend never decides validity, only forwards the opaque credential and reacts to the backend's typed errors. The Google conflict-disclosure ("this email already exists") was compared against this codebase's own existing `/register` duplicate-email 409 and found to be a **narrower** enumeration surface, not a new one — reaching it requires an attacker to already hold a Google-signed, email-verified ID token for the victim's address, not just type the address into a form.
+
+### Environment variables
+
+`GOOGLE_CLIENT_ID` (apps/api, optional in dev/test, required in production) and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (apps/web, public by design — not a secret). Both documented with placeholders in the respective `.env.example` files; no real credentials anywhere in the diff (grepped).
+
+### Tests
+
+14 new backend tests from the implementation pass (8 unit `AuthenticateWithGoogleUseCase`, 2 unit `LinkGoogleAccountUseCase`, 4 integration safe-fail/validation-order checks against the real `NotConfiguredGoogleVerifier` wiring) + 3 more from the regression pass closing real gaps (`google-auth-gaps.integration.test.ts`: a Google-only account's `/me` works with no PASSWORD row at all; a Google-only account's password-login attempt fails cleanly via the existing `!passwordHash` branch; `linkGoogleAccount`'s own cross-user `providerSubject` conflict, exercised against the real DB constraint, not just a mock). `apps/api` suite: 627 → **644 passing** (89 files), zero regressions, zero edits to any pre-existing test.
+
+### Coordination (7 agents + orchestrator reconciliation)
+
+1. Backend implementer — schema/migration, ports, use-cases, infra services, controller/routes/composition-root wiring, 10 new unit/integration tests, per an exact spec the orchestrator wrote from its own investigation of the existing auth module.
+2. Frontend implementer — `GoogleAuthButton`, `useAuth`/`auth.client.ts` additions, env docs — built in parallel against a fixed API contract, zero file overlap with Agent 1.
+3. Security/IDOR reviewer — 20-point checklist against the actual code (not doc comments), traced the email-conflict TOCTOU race explicitly, checked the enumeration-surface comparison above. Verdict: ship as-is, zero vulnerabilities found; one cosmetic (non-security) message-wording nit logged, not fixed.
+4. Regression + coverage verifier — full workspace suites re-run twice (one unrelated, undiffed `products.integration.test.ts` flake self-resolved on rerun, distinct from the previously-documented `returns.integration.test.ts` flake — both are pre-existing infra flakiness, neither caused by this feature), added the 3 tests above in a new, non-overlapping file.
+5. Clean Architecture/SOLID reviewer — 10/10 PASS (port narrowness, use-case SRP, composition-root-only wiring, controller thinness, zero Prisma-outside-infrastructure, zero new cross-module edges — confirmed `boundaries:check` and grepped `google-auth-library`'s one import site directly). Flagged the off-screen-button click-proxy technique for Security's awareness (not an architecture defect); Security reviewed it and raised no objection.
+6. End-to-end browser verifier — live Chrome session: full register→logout→login→hard-reload-still-logged-in→logout regression pass (screenshotted, zero console errors); confirmed the no-Google-Client-ID graceful-degradation path (button absent, zero `accounts.google.com` requests) at both desktop and 375px; ran a synthetic fake-Client-ID check proving the button renders/loads correctly when configured, and left the environment restored exactly as found.
+7. Final workspace gate — run directly by the orchestrating session: see Verified below.
+
+### Files changed
+
+`apps/api`: `src/config/env.ts`, `src/shared/errors/domain-error.ts` (+`ServiceUnavailableError`), `src/modules/auth/{application/ports/auth-repository.port.ts, application/ports/google-id-token-verifier.port.ts (new), application/use-cases/authenticate-with-google.use-case.ts (+test, new), application/use-cases/link-google-account.use-case.ts (+test, new), domain/errors/google-auth.errors.ts (new), infrastructure/repositories/auth.repository.ts, infrastructure/services/google-id-token-verifier.service.ts (new), infrastructure/services/not-configured-google-verifier.ts (new), interface/http/auth.controller.ts, interface/http/auth.routes.ts, auth.module.ts, auth.integration.test.ts, google-auth-gaps.integration.test.ts (new)}`, `package.json` (+`google-auth-library`). `apps/web`: `src/features/auth/{api/auth.client.ts, components/SocialAuthButtons.tsx, components/GoogleAuthButton.tsx (new), hooks/useAuth.tsx}`, `.env.example`. `packages/database/prisma/schema.prisma`. `packages/validation/src/auth.schema.ts`. Root `.env.example`. `apps/admin`: **zero changes** (confirmed via `git diff --stat`).
+
+### Migrations
+
+`20260905153737_add_google_auth_credential` — see Database above.
+
+### Verified (final gate, run after all 7 agents' work reconciled)
+
+`pnpm -r run typecheck` — clean, all 9 projects. `pnpm -r run lint` — clean, all 9 projects (`--max-warnings=0`). `pnpm run boundaries:check` — `571 modules, 1781 dependencies, 0 violations`. `pnpm --filter @woobe/api run test` — **89 files / 644 tests, all passing**. `pnpm --filter @woobe/validation run test` — 13/13 passing. `pnpm -r run build` — all three apps (`api`/`web`/`admin`) clean production builds. `pnpm run check:migrations` — reports "no new migrations on this branch" (the script diffs committed history against `origin/main`; the migration file is untracked pending a commit decision) — manually confirmed the SQL contains no `DROP TABLE`/`DROP COLUMN`/`TRUNCATE`/`ALTER COLUMN...TYPE` pattern, so it will pass this same check once committed.
+
+### Remaining limitations
+
+- **No frontend UI for `/auth/google/link`** yet — a customer whose Google sign-in hits the email-conflict path is told to log in with their password; the secure authenticated-linking endpoint exists server-side but isn't wired to any account-settings button. Follow-up if self-service linking is wanted.
+- **A genuinely misconfigured/revoked `GOOGLE_CLIENT_ID` in production fails without an on-page toast** — Google's own OAuth server rejects an invalid client ID inside the popup itself (a cross-origin document our code cannot inspect), rather than through GIS's `error_callback`; the user sees an orphaned Google-hosted error page, not a Woobe toast. Confirmed live with a synthetic fake client ID during E2E verification. This only manifests from a deployment-time misconfiguration, never for a normal user against a correctly-configured client ID, and there's no safe way to intercept cross-origin popup content — documented rather than worked around.
+- **Live, real Google-account authentication was not exercised end-to-end** — no real Google Cloud OAuth Client ID is available in this environment. Everything reachable without one (unit-level account-linking logic via a fake verifier port, the safe-fail/validation wiring, and the button's absent/rendered/error-recovery states in a live browser) was verified for real; a developer with real Google Cloud credentials still needs to set `GOOGLE_CLIENT_ID`/`NEXT_PUBLIC_GOOGLE_CLIENT_ID` and click through a real consent screen once before shipping to confirm the last mile.
+- Row cleanup / pruning of old data, IP-based limiter false-sharing, etc. — all pre-existing, documented gaps elsewhere in this journal, untouched and unaffected by this feature.
+
+## 2026-09-05 — Google Sign-In configured with real credentials, live end-to-end verified, one real remount bug found and fixed
+
+**Branch:** `woobe-ui/bug-fixes`. Follow-up to the same day's "Continue with Google" build — no rearchitecture, per explicit instruction; this closes the "not yet configured/tested live" limitation from that entry.
+
+### Configuration
+
+Real Google Cloud OAuth Client ID (Web application type, no client secret used — this flow never needs one) obtained by the user and set in both places the implementation already expected: root `.env` (`GOOGLE_CLIENT_ID`, apps/api) and `apps/web/.env.local` (`NEXT_PUBLIC_GOOGLE_CLIENT_ID`), same value in both, both dev servers restarted. Both `.env.example` files already documented these variables correctly from the original build — zero doc changes needed.
+
+**Found and fixed during setup:** the root `.env` had picked up two stray lines from a manual edit outside this session — a duplicate `GOOGLE_CLIENT_ID` and, more importantly, `NEXT_PUBLIC_GOOGLE_CLIENT_ID` set to the **client secret** value. Inert in practice (apps/api's zod schema silently ignores unknown keys; apps/web never reads the root `.env`, only its own `.env.local`, which was already correct), but a secret living under a `NEXT_PUBLIC_`-shaped name is exactly the pattern that leaks client-side if anyone later wires it up — removed immediately rather than left as "harmless."
+
+### Live end-to-end verification (real Google account, not simulated)
+
+Confirmed directly against the database after the user's own real Google sign-in: one `AuthCredential` row, `method: GOOGLE`, real non-null `providerSubject`, linked to a `User` row with `role: CUSTOMER`, `isActive: true`, name populated from the verified Google profile — and **no** `PASSWORD` credential on that same row (confirms "no password for a Google-created account" worked exactly as designed). A real, non-revoked `RefreshToken` row exists for that user, issued in the same instant as account creation — proof `issueTokenPair` (the same helper login/register use) fired for real, not a new session mechanism.
+
+### Bug found: Google button stuck disabled after logout, needed a full page reload
+
+**Root cause:** `GoogleAuthButton` only renders on `/login`/`/register`, so it unmounts on navigation away (e.g. after a successful login) and remounts on the way back (e.g. after logout). The Google Identity Services script itself only loads once per page lifetime; `next/script`'s `onLoad` prop fires only for that first-ever load and is **not** re-fired for a later remount of a component using the same `src` — so the remounted instance's `google.accounts.id.initialize()`/`renderButton()` never ran, `scriptReady` stayed `false` forever, and the visible button stayed disabled until a hard reload forced everything to re-run from scratch.
+
+**Fix — one line**, `apps/web/src/features/auth/components/GoogleAuthButton.tsx`: swapped `<Script onLoad={handleScriptLoad}>` for `<Script onReady={handleScriptLoad}>` — `next/script`'s prop built for exactly this (fires on every mount, immediately if the script is already loaded, not just on the original network load).
+
+**Verified live, not just by reading the code:** reproduced the exact failure first (client-side nav away from `/login` and back, no full reload — confirmed the pre-fix code left the button disabled), then reproduced the fix working across **two independent remount cycles** (Home→Account, Products→Account), button enabled immediately both times, zero reloads. One expected, benign console warning noted and deliberately left alone — GIS's own `initialize() is called multiple times... only the last initialized instance will be used`, which is precisely the correct behavior here (each remount's popup callback must point at *that* mount's own `busy`-state setter, not a dead previous instance's — "fixing" this away would have reintroduced a real stuck-loading-state bug to silence a harmless log line).
+
+### Files changed
+
+`apps/web/src/features/auth/components/GoogleAuthButton.tsx` (one prop, `onLoad` → `onReady`, plus a doc comment). No other file touched — no backend change, no other frontend file, no test file (this is a client-only script-lifecycle fix with no new business logic to unit-test; covered by the live reproduction above instead).
+
+### Verified
+
+`pnpm --filter @woobe/web run typecheck`/`lint` clean. `pnpm --filter @woobe/web run build` clean. Live browser (chrome-devtools MCP): bug reproduced pre-fix, fix confirmed across two remount cycles post-fix, zero console errors beyond the two already-documented benign ones (the GIS multi-init warning above, and this environment's own stale Google-origin-propagation delay from the Cloud Console change, unrelated to this bug and already resolved in the user's own browser). Real `pnpm --filter @woobe/api run test` full-suite rerun during this session: 644/644 (one transient, unrelated `reviews.integration.test.ts` full-suite-parallelism flake self-resolved on rerun and in isolation — same pre-existing flake class as `products`/`returns`, not caused by anything in this session).
+
+### Remaining limitations
+
+- The "misconfigured/revoked Client ID fails silently in an orphaned popup" limitation from the original build entry stands as documented — unrelated to and unaffected by this session's fix.
+- Google Cloud Console origin-registration propagation delay is inherent to Google's own infrastructure, not this codebase; already resolved for the user's real testing browser by the time of this entry.
+
+## 2026-09-06 — Product Share action across the storefront (one reusable component, no backend endpoint)
+
+**Branch:** `woobe-ui/bug-fixes`. Pushed as `7b3eed8`.
+
+Adds a "Share product" affordance next to the wishlist heart on every product-display surface — homepage rails, Shop/PLP grid, category listings, related products, wishlist grid (all through the one canonical `ProductCard`), and the PDP gallery — always sharing the canonical `/products/<slug>` URL, never the current listing/category/filtered URL a card happened to render inside.
+
+### Design
+
+One isolated browser-API util, `apps/web/src/features/catalog/lib/share-product.ts` — feature-detects `navigator.share` (native OS share sheet) and falls back to `navigator.clipboard.writeText` + a "Product link copied" toast when unavailable; zero React/UI concerns in the util itself. One reusable component, `ShareProductButton.tsx`, styled identically to the existing `WishlistButton` (same icon-button shape/sizes/`stopPropagation` pattern so a click on a card's share icon never bubbles into the card's own navigation or triggers add-to-cart/wishlist). Wired into `ProductCard.tsx`, `ProductGallery.tsx`, and `ProductDetail.tsx` — no per-page duplication, no new `packages/ui` primitive needed.
+
+### Verified live (chrome-devtools, not just read)
+
+Renders correctly on Home/Shop/Category/PDP at 375/768/1024/1440px. Click-through confirmed the share icon never triggers the card's own link navigation and never fires wishlist/add-to-cart on the same card. Clipboard-fallback path confirmed with the exact "Product link copied" toast text. Native Web Share path confirmed correctly invoked (feature-detected, not assumed). Keyboard-accessible (`aria-label`, focusable, activates on Enter/Space like any button). `pnpm --filter @woobe/web run typecheck`/`lint`/`build` all clean; `boundaries:check` unaffected (frontend-only change, no backend endpoint added or needed).
+
+### Files changed
+
+`apps/web/src/features/catalog/{lib/share-product.ts (new), components/ShareProductButton.tsx (new), components/ProductCard.tsx, components/ProductGallery.tsx, components/ProductDetail.tsx}`.
+
+## 2026-09-07 — Help & Support module for the customer storefront (order queries, returns/refunds policy, contact — zero new backend endpoints)
+
+**Branch:** `woobe-ui/bug-fixes`. Built per an explicit, detailed brief: reuse existing order/return/refund functionality rather than inventing new backend surface, ground all policy copy in real rules (flag anything unconfirmed rather than presenting a guess as settled), and replace `AccountView`'s direct `mailto:` Help & Support link with a real page without removing the email option.
+
+### Investigation first — the data model doesn't have per-item status
+
+The brief's own example ("Ribbed Knit Sweater: Shipped / Woven Tote Bag: Processing" within one order) implied per-item status. `schema.prisma` confirms `Order.status` is order-level (`OrderStatus`: `PENDING_PAYMENT, CONFIRMED, PAYMENT_FAILED, PROCESSING, SHIPPED, DELIVERED, CANCELLED`) — `OrderItem` carries no status column at all; `Return`/`ReturnItem` is the real item-level entity, and it's a separate concept (a return request, not a shipment state). Decided to adapt rather than invent a fake per-item status system: the order-detail view lists every product individually (name/color/size/qty, for identifying which product in a multi-item order) separately from the one real order-level `OrderTimeline`, and says so explicitly in a doc comment rather than silently deviating from the brief's example.
+
+### What's reused, not duplicated
+
+`ordersApi.listMyOrders`/`ordersApi.getOrder` (same calls `/account/orders` already makes), `OrderTimeline`/`OrderStatusBadge` (same components `/account/orders/[id]` already renders), `whatsapp.ts`'s existing `buildWhatsAppHref` + the existing `hello@woobe.in` mailto address, and `@woobe/ui`'s `EmptyState`/`Card`/`Skeleton`/`Badge`/`Button`. Return **submission** itself is not duplicated — the order-detail sub-screen links to the real `/account/orders/[id]` page, which already has `RequestReturnForm`; Help & Support only decides *when to show* that link (`order.status === "DELIVERED"`), it never runs eligibility logic itself. Followed the existing `RegisterForm`/`ForgotPasswordForm` convention of internal `useState` screen-switching rather than a route per topic.
+
+### Guest security — no id-only lookup built
+
+Read `returns.routes.ts` (`router.use(authGuard)` on the whole router — no guest path at all) and `can-claim-guest-order.ts` (guest-order-claim is an *authenticated* action proving email match, not a general lookup) before writing any guest-facing code. Confirmed no secure generic guest-order-lookup mechanism exists anywhere in this codebase, so the guest branch is a login prompt only (`EmptyState` "Log in to see your orders") — deliberately not building the weaker id-only lookup the brief explicitly warned against.
+
+### Policy content — grounded, with explicit pending-confirmation flags
+
+Refund copy sourced from `calculate-return-refund-amount.ts` (refunds `unitShare − discountShare + taxShare`, shipping explicitly excluded; COD has no gateway to auto-refund, stays `REFUND_INITIATED` for manual staff resolution). Returns copy sourced from `resolve-return-eligibility.ts` (`DELIVERED`-only, 7-day window). The 7-day window and both processing timelines are flagged in-app via a dashed-border `PendingConfirmationNote` rather than stated as settled policy, since the 7-day figure is itself commented in its own source file as an unconfirmed placeholder (`DECISIONS_PENDING.md #5`). "Cancel an order" was investigated (`orders.routes.ts` vs `admin-orders.routes.ts`) and confirmed admin-only with no customer-facing endpoint — kept as informational text pointing to Contact Support, not built as a working self-serve button that doesn't exist server-side.
+
+### New files — zero new backend endpoints
+
+`apps/web/app/(storefront)/account/help/page.tsx`, `apps/web/src/features/support/components/{HelpSupportPage.tsx, HelpOrderQueries.tsx, HelpTopicContent.tsx, ContactSupportSection.tsx}`. `AccountView.tsx`'s "Help & Support" link changed from `mailto:hello@woobe.in` to `/account/help` (email preserved, one tap deeper as a "Contact Support" option, not removed). `boundaries:check` confirms zero backend files touched (571 modules, 0 violations).
+
+### Live verification (chrome-devtools, real accounts, real order — not simulated)
+
+Registered a real test account through the actual OTP-verification flow (dev-mode `devCode` echoed in the API response, no SMTP configured), placed a real 3-item COD order (Ribbed Knit Sweater, Woven Tote Bag, Denim Jacket — deliberately the brief's own example products) through real checkout. Confirmed: in-progress orders (`CONFIRMED`/`PROCESSING`/`SHIPPED`) show by default; flipping the order to `DELIVERED` (direct status update, substituting for the admin-only status-change capability — no customer-facing cancel/status-change endpoint exists to drive this any other way) correctly removed it from the default list and it only reappeared under "Show all orders"; the order-detail sub-screen correctly listed all 3 products individually with color/size/qty; "Request a return for this order →" appeared only once the order was `DELIVERED` and linked to the real `/account/orders/[id]` page. All 6 topic screens (Orders/Returns/Refunds/Payments/Account/Contact), the search filter (match + no-match empty state), and the guest-vs-authenticated Orders branch were clicked through live at 375/768/1280px — no horizontal overflow anywhere. `AccountView`'s real nav link was clicked (not just direct URL navigation) and landed correctly. One live a11y issue found and fixed: the search `<input>` had `aria-label` but no `id`/`name` — added both.
+
+### IDOR/BOLA verification — actually exercised against a second real account, not just reasoned about
+
+Registered a second, independent test account (no orders) and, while authenticated as it, both navigated to the first account's real order URL in the browser and inspected the resulting network request directly: `GET /api/v1/orders/<other user's real order id>` → **404** `{"code":"NOT_FOUND","message":"Order not found"}` (generic message, no existence-revealing 403, no order data in the payload) and `GET /api/v1/returns?orderId=<...>` → **200** `{"returns":[]}` (correctly scoped to the caller, not the queried order — proof the endpoint filters by the caller's own id server-side rather than trusting the query param). Confirmed at the source level too: `orders.controller.ts`'s `listMyOrders`/`getOrder` use `req.user!.id`/`req.user?.id` from the verified JWT exclusively, never a client-supplied id.
+
+### Tests / gate
+
+`pnpm --filter @woobe/web run typecheck`/`lint` clean. `pnpm run boundaries:check` clean (571 modules, 0 violations). `pnpm --filter @woobe/web run build` clean, `/account/help` a real static route. `pnpm --filter @woobe/api run test`: 643/644 — the one failure (`auth: google … fails safely with 503`, got 401) is pre-existing and unrelated: a real `GOOGLE_CLIENT_ID` set in the shared root `.env` during the earlier Google Sign-In work means `auth.module.ts` now wires the real verifier instead of `NotConfiguredGoogleVerifier`, so the test's bogus credential now genuinely fails Google verification (401) instead of hitting the "not configured" 503 path it was written to expect — not caused by, or in scope for, this feature; not fixed here. `apps/web` has no component test runner configured yet in this repo (pre-existing, unrelated).
+
+### Remaining — business policy still pending real confirmation
+
+The 7-day return window and both refund/return processing timelines are current code defaults, not confirmed business rules — flagged in-app via `PendingConfirmationNote` rather than presented as settled, consistent with this repo's own `DECISIONS_PENDING.md` convention.
+
+### Rebase onto a teammate's concurrent push — two real staleness bugs caught before pushing
+
+`git push` was rejected (non-fast-forward): a teammate had pushed `e082e76` (staff management system), `c9e99b0` (order `PACKED`/`RETURNED_TO_ORIGIN` checkpoints + `Refund.returnId` uniqueness), and `e32d67f` (Home rail logic fix) to this same branch first. `git pull --rebase` replayed this commit on top cleanly, but the new `OrderStatus` values exposed two real bugs in the just-written Help & Support code, caught by re-checking the already-updated `OrderTimeline`/`OrderStatusBadge` rather than assuming the old enum still matched: (1) `IN_PROGRESS_STATUSES` (`HelpOrderQueries.tsx`) didn't include `PACKED` — an order genuinely in progress would have silently vanished from the default "in progress" view into the "delivered/cancelled" bucket; added `PACKED` (a normal happy-path step, confirmed against `OrderTimeline`'s own `["PACKED","SHIPPED","DELIVERED"]` array) and `RETURNED_TO_ORIGIN` (confirmed against `OrderStatusBadge`'s `variant="error"` treatment — a failed delivery is exactly the kind of thing Help & Support should surface, not hide alongside successfully completed orders). (2) The order-list row rendered its own inline `Badge variant="neutral">{status.replace(...).toLowerCase()}` instead of reusing `OrderStatusBadge` — harmless before this teammate's change, but would have shown a broken raw label ("packed"/"returned to origin") instead of the shared component's human-friendly, correctly-colored wording ("Packed and ready to ship", red "Delivery failed — returning to seller") the moment either new status appeared; switched to `<OrderStatusBadge status={order.status} />`, removing the now-dead `Badge` import. Also had to `prisma generate` + `prisma migrate deploy` against both `woobe_dev` and `woobe_test` (the two new migrations the teammate's push carried weren't applied locally yet — surfaced immediately as a hard Prisma validation error on the dev DB, and as a full-suite 243-test cascade of 500s on the test DB, both from the same root cause, not two separate problems) before either fix could be verified live or the full test suite could pass again. Re-verified live in the browser (flipped the same real test order through `PACKED` then `RETURNED_TO_ORIGIN`, confirmed both the in-progress list and the shared badge wording) and re-ran the full gate: typecheck/lint clean, `boundaries:check` clean (598 modules post-merge, 0 violations), `pnpm --filter @woobe/api run test` 693/694 (same single pre-existing, unrelated Google-auth failure as before — nothing newly broken by the merge).
+

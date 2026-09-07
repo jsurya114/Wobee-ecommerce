@@ -91,6 +91,10 @@ export function startProcessing(id: string, accessToken: string): Promise<AdminO
   return apiFetch(`/api/v1/admin/orders/${id}/processing`, { method: "POST", accessToken });
 }
 
+export function markPacked(id: string, accessToken: string): Promise<AdminOrderView> {
+  return apiFetch(`/api/v1/admin/orders/${id}/packed`, { method: "POST", accessToken });
+}
+
 export function ship(id: string, input: ShipOrderInput, accessToken: string): Promise<AdminOrderView> {
   return apiFetch(`/api/v1/admin/orders/${id}/ship`, { method: "POST", body: input, accessToken });
 }
@@ -101,4 +105,9 @@ export function deliver(id: string, accessToken: string): Promise<AdminOrderView
 
 export function cancel(id: string, input: CancelOrderInput, accessToken: string): Promise<{ order: AdminOrderView; refundIssued: boolean }> {
   return apiFetch(`/api/v1/admin/orders/${id}/cancel`, { method: "POST", body: input, accessToken });
+}
+
+/** 2026-09-06 order-processing audit, finding I-1 — a courier-refused/undeliverable parcel coming back to Woobe. Never a "Cancel" — the shipment already happened; this records that delivery failed. */
+export function returnToOrigin(id: string, accessToken: string): Promise<AdminOrderView> {
+  return apiFetch(`/api/v1/admin/orders/${id}/return-to-origin`, { method: "POST", accessToken });
 }

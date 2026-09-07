@@ -5,6 +5,8 @@ import type { CancelOrderWithRefundUseCase } from "../../application/use-cases/c
 import type { DeliverOrderAndCapturePaymentUseCase } from "../../application/use-cases/deliver-order-and-capture-payment.use-case";
 import type { GetOrderDetailForAdminUseCase } from "../../application/use-cases/get-order-detail-for-admin.use-case";
 import type { ListOrdersUseCase } from "../../../orders/application/use-cases/list-orders.use-case";
+import type { MarkOrderPackedUseCase } from "../../../orders/application/use-cases/mark-order-packed.use-case";
+import type { MarkOrderReturnedToOriginUseCase } from "../../../orders/application/use-cases/mark-order-returned-to-origin.use-case";
 import type { ShipOrderUseCase } from "../../../orders/application/use-cases/ship-order.use-case";
 import type { StartProcessingOrderUseCase } from "../../../orders/application/use-cases/start-processing-order.use-case";
 
@@ -13,9 +15,11 @@ export class AdminOrdersController {
     private readonly listOrdersUseCase: ListOrdersUseCase,
     private readonly getOrderDetailForAdminUseCase: GetOrderDetailForAdminUseCase,
     private readonly startProcessingOrderUseCase: StartProcessingOrderUseCase,
+    private readonly markOrderPackedUseCase: MarkOrderPackedUseCase,
     private readonly shipOrderUseCase: ShipOrderUseCase,
     private readonly deliverOrderUseCase: DeliverOrderAndCapturePaymentUseCase,
     private readonly cancelOrderUseCase: CancelOrderWithRefundUseCase,
+    private readonly markOrderReturnedToOriginUseCase: MarkOrderReturnedToOriginUseCase,
   ) {}
 
   async list(req: Request, res: Response): Promise<void> {
@@ -33,6 +37,12 @@ export class AdminOrdersController {
   async startProcessing(req: Request, res: Response): Promise<void> {
     const orderId = requireOrderId(req);
     const result = await this.startProcessingOrderUseCase.execute(orderId, req.user!);
+    res.status(200).json(result.order);
+  }
+
+  async markPacked(req: Request, res: Response): Promise<void> {
+    const orderId = requireOrderId(req);
+    const result = await this.markOrderPackedUseCase.execute(orderId, req.user!);
     res.status(200).json(result.order);
   }
 
@@ -54,6 +64,12 @@ export class AdminOrdersController {
     const input = req.body as CancelOrderInput;
     const result = await this.cancelOrderUseCase.execute(orderId, req.user!, input.reason);
     res.status(200).json({ order: result.order, refundIssued: result.refundIssued });
+  }
+
+  async returnToOrigin(req: Request, res: Response): Promise<void> {
+    const orderId = requireOrderId(req);
+    const result = await this.markOrderReturnedToOriginUseCase.execute(orderId, req.user!);
+    res.status(200).json(result.order);
   }
 }
 

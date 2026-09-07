@@ -1,5 +1,6 @@
 import type {
   ForgotPasswordInput,
+  GoogleAuthInput,
   LoginInput,
   RegisterInput,
   RegisterStartInput,
@@ -11,8 +12,10 @@ import type {
 } from "@woobe/validation";
 import type { Request, Response } from "express";
 import { UnauthorizedError } from "../../../../shared/errors";
+import type { AuthenticateWithGoogleUseCase } from "../../application/use-cases/authenticate-with-google.use-case";
 import type { ForgotPasswordUseCase } from "../../application/use-cases/forgot-password.use-case";
 import type { GetCurrentUserUseCase } from "../../application/use-cases/get-current-user.use-case";
+import type { LinkGoogleAccountUseCase } from "../../application/use-cases/link-google-account.use-case";
 import type { LoginUserUseCase } from "../../application/use-cases/login-user.use-case";
 import type { LogoutUserUseCase } from "../../application/use-cases/logout-user.use-case";
 import type { RefreshTokenUseCase } from "../../application/use-cases/refresh-token.use-case";
@@ -40,6 +43,8 @@ export class AuthController {
     private readonly verifyResetPasswordOtpUseCase: VerifyResetPasswordOtpUseCase,
     private readonly resetPasswordUseCase: ResetPasswordUseCase,
     private readonly resendPasswordResetOtpUseCase: ResendPasswordResetOtpUseCase,
+    private readonly authenticateWithGoogleUseCase: AuthenticateWithGoogleUseCase,
+    private readonly linkGoogleAccountUseCase: LinkGoogleAccountUseCase,
   ) {}
 
   async register(req: Request, res: Response): Promise<void> {
@@ -149,6 +154,22 @@ export class AuthController {
     // req.user is guaranteed by authGuard (mounted before this handler in auth.routes.ts).
     const user = await this.getCurrentUserUseCase.execute(req.user!.id);
     res.status(200).json({ user: toPublicUser(user) });
+  }
+
+  /** "Continue with Google" — logs in an existing linked account or creates a new one; verifies server-side (never trusts client-supplied profile data). Same response shape as login/register, plus isNewUser so the frontend can vary its toast copy. */
+  async authenticateWithGoogle(req: Request, res: Response): Promise<void> {
+    const input = req.body as GoogleAuthInput;
+    const { user, accessToken, refreshToken, refreshTokenExpiresAt, isNewUser } =
+      await this.authenticateWithGoogleUseCase.execute(input.credential);
+    setRefreshTokenCookie(res, refreshToken, refreshTokenExpiresAt);
+    res.status(isNewUser ? 201 : 200).json({ user: toPublicUser(user), accessToken, isNewUser });
+  }
+
+  /** Authenticated account-linking — see LinkGoogleAccountUseCase's own doc comment. */
+  async linkGoogleAccount(req: Request, res: Response): Promise<void> {
+    const input = req.body as GoogleAuthInput;
+    await this.linkGoogleAccountUseCase.execute(req.user!.id, input.credential);
+    res.status(204).send();
   }
 }
 

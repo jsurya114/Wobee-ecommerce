@@ -2,10 +2,12 @@
 // to routes (ARCHITECTURE.md §3.2). This is the one place that constructs
 // concrete infrastructure and hands it to the application layer as its
 // port interfaces.
+import { AuthenticateWithGoogleUseCase } from "./application/use-cases/authenticate-with-google.use-case";
 import { ForgotPasswordUseCase } from "./application/use-cases/forgot-password.use-case";
 import { GetCurrentUserUseCase } from "./application/use-cases/get-current-user.use-case";
 import { GetCustomerForAdminUseCase } from "./application/use-cases/get-customer-for-admin.use-case";
 import { ListCustomersAdminUseCase } from "./application/use-cases/list-customers-admin.use-case";
+import { LinkGoogleAccountUseCase } from "./application/use-cases/link-google-account.use-case";
 import { LoginUserUseCase } from "./application/use-cases/login-user.use-case";
 import { LogoutUserUseCase } from "./application/use-cases/logout-user.use-case";
 import { RefreshTokenUseCase } from "./application/use-cases/refresh-token.use-case";
@@ -23,19 +25,23 @@ import { AuthRepository } from "./infrastructure/repositories/auth.repository";
 import { BcryptService } from "./infrastructure/services/bcrypt.service";
 import { DevOtpNotifier } from "./infrastructure/services/dev-otp-notifier";
 import { DevPasswordResetNotifier } from "./infrastructure/services/dev-password-reset-notifier";
+import { GoogleIdTokenVerifierService } from "./infrastructure/services/google-id-token-verifier.service";
 import { JwtService } from "./infrastructure/services/jwt.service";
+import { NotConfiguredGoogleVerifier } from "./infrastructure/services/not-configured-google-verifier";
 import { OtpCodeService } from "./infrastructure/services/otp-code.service";
 import { RefreshTokenService } from "./infrastructure/services/refresh-token.service";
 import { SmtpOtpNotifier } from "./infrastructure/services/smtp-otp-notifier";
 import { SmtpPasswordResetNotifier } from "./infrastructure/services/smtp-password-reset-notifier";
+export { createSmtpTransport } from "./infrastructure/services/smtp-transport";
 import { AuthController } from "./interface/http/auth.controller";
 import { createAuthRouter } from "./interface/http/auth.routes";
 
-const authRepository = new AuthRepository();
-const bcryptService = new BcryptService();
+/** Exported for cross-module use — the Staff module (2026-09-06) composes staff CRUD directly on top of this, same "sibling module imports auth's exports" shape `users` already uses for profile edits. */
+export const authRepository = new AuthRepository();
+export const bcryptService = new BcryptService();
 const jwtService = new JwtService();
 const refreshTokenService = new RefreshTokenService();
-const otpCodeService = new OtpCodeService();
+export const otpCodeService = new OtpCodeService();
 // Real email when SMTP is configured, otherwise the dev stub (logs the code;
 // the API also returns it as `devCode` in non-prod). Both implement the same
 // OtpNotifierPort — see DECISIONS_PENDING.md #7.
@@ -87,6 +93,22 @@ export const resendPasswordResetOtpUseCase = new ResendPasswordResetOtpUseCase(
   passwordResetNotifier,
 );
 
+// "Continue with Google" (2026-09-05) — real verification when
+// GOOGLE_CLIENT_ID is configured, otherwise a verifier that fails the route
+// safely (503) instead of skipping verification or crashing boot. See
+// NotConfiguredGoogleVerifier's own doc comment.
+const googleIdTokenVerifier = env.GOOGLE_CLIENT_ID
+  ? new GoogleIdTokenVerifierService(env.GOOGLE_CLIENT_ID)
+  : new NotConfiguredGoogleVerifier();
+
+export const authenticateWithGoogleUseCase = new AuthenticateWithGoogleUseCase(
+  authRepository,
+  googleIdTokenVerifier,
+  jwtService,
+  refreshTokenService,
+);
+export const linkGoogleAccountUseCase = new LinkGoogleAccountUseCase(authRepository, googleIdTokenVerifier);
+
 const authController = new AuthController(
   registerUserUseCase,
   loginUserUseCase,
@@ -100,6 +122,8 @@ const authController = new AuthController(
   verifyResetPasswordOtpUseCase,
   resetPasswordUseCase,
   resendPasswordResetOtpUseCase,
+  authenticateWithGoogleUseCase,
+  linkGoogleAccountUseCase,
 );
 
 export const router = createAuthRouter(authController);

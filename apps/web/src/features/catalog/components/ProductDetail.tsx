@@ -28,7 +28,7 @@ export function ProductDetail({
     <div>
       <SelectedVariantProvider variants={product.variants}>
         <div className="grid gap-6 md:grid-cols-2 md:gap-10 lg:gap-12">
-          <ProductGallery images={product.images} productId={product.id} productName={product.name} />
+          <ProductGallery images={product.images} productId={product.id} productSlug={product.slug} productName={product.name} />
 
           {/* Tightened intro spacing (2026-09-04 PDP refinement) — category/title/description are
               one closely-related block (small gaps between them); the purchase panel below is a

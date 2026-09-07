@@ -8,7 +8,7 @@ import type { TransactionPort } from "../ports/transaction.port";
 
 function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
   return {
-    id: "order-1", orderNumber: "WOOBE-1", userId: null, status: "PROCESSING",
+    id: "order-1", orderNumber: "WOOBE-1", userId: null, status: "PACKED",
     contactName: "A", contactPhone: "1", contactEmail: "a@a.com",
     shippingSnapshot: { fullName: "A", phone: "1", line1: "L1", city: "C", state: "S", pincode: "1" },
     subtotalPaise: 100, discountPaise: 0, shippingFeePaise: 0, taxPaise: 0, totalPaise: 100, totalWeightGrams: 100,
@@ -23,11 +23,11 @@ function echoShipmentCreator(): ShipmentCreatorPort {
 }
 
 describe("ShipOrderUseCase", () => {
-  it("transitions PROCESSING -> SHIPPED with tracking info and writes an audit log entry", async () => {
-    const processing = order();
+  it("transitions PACKED -> SHIPPED with tracking info and writes an audit log entry", async () => {
+    const packed = order();
     const shipped = order({ status: "SHIPPED", trackingNumber: "TRK1", carrier: "BlueDart", shippedAt: new Date() });
     const orderRepository = {
-      findById: vi.fn().mockResolvedValue(processing),
+      findById: vi.fn().mockResolvedValue(packed),
       transitionStatus: vi.fn().mockResolvedValue({ changed: true, order: shipped }),
     } as unknown as OrderRepositoryPort;
     const auditLogger = { log: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLoggerPort;
@@ -44,7 +44,7 @@ describe("ShipOrderUseCase", () => {
     expect(result.changed).toBe(true);
     expect(shipmentCreator.createShipment).toHaveBeenCalledWith({ orderId: "order-1", trackingNumber: "TRK1", carrier: "BlueDart" });
     expect(orderRepository.transitionStatus).toHaveBeenCalledWith(
-      "order-1", "PROCESSING", "SHIPPED", "tx",
+      "order-1", "PACKED", "SHIPPED", "tx",
       expect.objectContaining({ trackingNumber: "TRK1", carrier: "BlueDart", shippedAt: expect.any(Date) }),
     );
     expect(auditLogger.log).toHaveBeenCalledWith(
@@ -54,7 +54,7 @@ describe("ShipOrderUseCase", () => {
     expect(notifyOrderEvent.execute).toHaveBeenCalledWith("order-1", "ORDER_SHIPPED");
   });
 
-  it("rejects shipping an order that isn't PROCESSING", async () => {
+  it("rejects shipping an order that isn't PACKED", async () => {
     const orderRepository = { findById: vi.fn().mockResolvedValue(order({ status: "CONFIRMED" })) } as unknown as OrderRepositoryPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
@@ -65,6 +65,20 @@ describe("ShipOrderUseCase", () => {
     await expect(
       useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "T", carrier: "C" }),
     ).rejects.toThrow("Cannot ship an order in status CONFIRMED");
+    expect(shipmentCreator.createShipment).not.toHaveBeenCalled();
+  });
+
+  it("rejects shipping a PROCESSING order — PACKED is now required first (2026-09-06 order-processing audit)", async () => {
+    const orderRepository = { findById: vi.fn().mockResolvedValue(order({ status: "PROCESSING" })) } as unknown as OrderRepositoryPort;
+    const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
+    const transaction: TransactionPort = { run: (fn) => fn("tx") };
+    const shipmentCreator = echoShipmentCreator();
+    const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, transaction, shipmentCreator, notifyOrderEvent);
+
+    await expect(
+      useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "T", carrier: "C" }),
+    ).rejects.toThrow("Cannot ship an order in status PROCESSING");
     expect(shipmentCreator.createShipment).not.toHaveBeenCalled();
   });
 
