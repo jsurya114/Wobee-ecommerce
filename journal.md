@@ -3064,3 +3064,65 @@ Confirmed directly against the database after the user's own real Google sign-in
 - The "misconfigured/revoked Client ID fails silently in an orphaned popup" limitation from the original build entry stands as documented — unrelated to and unaffected by this session's fix.
 - Google Cloud Console origin-registration propagation delay is inherent to Google's own infrastructure, not this codebase; already resolved for the user's real testing browser by the time of this entry.
 
+## 2026-09-06 — Product Share action across the storefront (one reusable component, no backend endpoint)
+
+**Branch:** `woobe-ui/bug-fixes`. Pushed as `7b3eed8`.
+
+Adds a "Share product" affordance next to the wishlist heart on every product-display surface — homepage rails, Shop/PLP grid, category listings, related products, wishlist grid (all through the one canonical `ProductCard`), and the PDP gallery — always sharing the canonical `/products/<slug>` URL, never the current listing/category/filtered URL a card happened to render inside.
+
+### Design
+
+One isolated browser-API util, `apps/web/src/features/catalog/lib/share-product.ts` — feature-detects `navigator.share` (native OS share sheet) and falls back to `navigator.clipboard.writeText` + a "Product link copied" toast when unavailable; zero React/UI concerns in the util itself. One reusable component, `ShareProductButton.tsx`, styled identically to the existing `WishlistButton` (same icon-button shape/sizes/`stopPropagation` pattern so a click on a card's share icon never bubbles into the card's own navigation or triggers add-to-cart/wishlist). Wired into `ProductCard.tsx`, `ProductGallery.tsx`, and `ProductDetail.tsx` — no per-page duplication, no new `packages/ui` primitive needed.
+
+### Verified live (chrome-devtools, not just read)
+
+Renders correctly on Home/Shop/Category/PDP at 375/768/1024/1440px. Click-through confirmed the share icon never triggers the card's own link navigation and never fires wishlist/add-to-cart on the same card. Clipboard-fallback path confirmed with the exact "Product link copied" toast text. Native Web Share path confirmed correctly invoked (feature-detected, not assumed). Keyboard-accessible (`aria-label`, focusable, activates on Enter/Space like any button). `pnpm --filter @woobe/web run typecheck`/`lint`/`build` all clean; `boundaries:check` unaffected (frontend-only change, no backend endpoint added or needed).
+
+### Files changed
+
+`apps/web/src/features/catalog/{lib/share-product.ts (new), components/ShareProductButton.tsx (new), components/ProductCard.tsx, components/ProductGallery.tsx, components/ProductDetail.tsx}`.
+
+## 2026-09-07 — Help & Support module for the customer storefront (order queries, returns/refunds policy, contact — zero new backend endpoints)
+
+**Branch:** `woobe-ui/bug-fixes`. Built per an explicit, detailed brief: reuse existing order/return/refund functionality rather than inventing new backend surface, ground all policy copy in real rules (flag anything unconfirmed rather than presenting a guess as settled), and replace `AccountView`'s direct `mailto:` Help & Support link with a real page without removing the email option.
+
+### Investigation first — the data model doesn't have per-item status
+
+The brief's own example ("Ribbed Knit Sweater: Shipped / Woven Tote Bag: Processing" within one order) implied per-item status. `schema.prisma` confirms `Order.status` is order-level (`OrderStatus`: `PENDING_PAYMENT, CONFIRMED, PAYMENT_FAILED, PROCESSING, SHIPPED, DELIVERED, CANCELLED`) — `OrderItem` carries no status column at all; `Return`/`ReturnItem` is the real item-level entity, and it's a separate concept (a return request, not a shipment state). Decided to adapt rather than invent a fake per-item status system: the order-detail view lists every product individually (name/color/size/qty, for identifying which product in a multi-item order) separately from the one real order-level `OrderTimeline`, and says so explicitly in a doc comment rather than silently deviating from the brief's example.
+
+### What's reused, not duplicated
+
+`ordersApi.listMyOrders`/`ordersApi.getOrder` (same calls `/account/orders` already makes), `OrderTimeline`/`OrderStatusBadge` (same components `/account/orders/[id]` already renders), `whatsapp.ts`'s existing `buildWhatsAppHref` + the existing `hello@woobe.in` mailto address, and `@woobe/ui`'s `EmptyState`/`Card`/`Skeleton`/`Badge`/`Button`. Return **submission** itself is not duplicated — the order-detail sub-screen links to the real `/account/orders/[id]` page, which already has `RequestReturnForm`; Help & Support only decides *when to show* that link (`order.status === "DELIVERED"`), it never runs eligibility logic itself. Followed the existing `RegisterForm`/`ForgotPasswordForm` convention of internal `useState` screen-switching rather than a route per topic.
+
+### Guest security — no id-only lookup built
+
+Read `returns.routes.ts` (`router.use(authGuard)` on the whole router — no guest path at all) and `can-claim-guest-order.ts` (guest-order-claim is an *authenticated* action proving email match, not a general lookup) before writing any guest-facing code. Confirmed no secure generic guest-order-lookup mechanism exists anywhere in this codebase, so the guest branch is a login prompt only (`EmptyState` "Log in to see your orders") — deliberately not building the weaker id-only lookup the brief explicitly warned against.
+
+### Policy content — grounded, with explicit pending-confirmation flags
+
+Refund copy sourced from `calculate-return-refund-amount.ts` (refunds `unitShare − discountShare + taxShare`, shipping explicitly excluded; COD has no gateway to auto-refund, stays `REFUND_INITIATED` for manual staff resolution). Returns copy sourced from `resolve-return-eligibility.ts` (`DELIVERED`-only, 7-day window). The 7-day window and both processing timelines are flagged in-app via a dashed-border `PendingConfirmationNote` rather than stated as settled policy, since the 7-day figure is itself commented in its own source file as an unconfirmed placeholder (`DECISIONS_PENDING.md #5`). "Cancel an order" was investigated (`orders.routes.ts` vs `admin-orders.routes.ts`) and confirmed admin-only with no customer-facing endpoint — kept as informational text pointing to Contact Support, not built as a working self-serve button that doesn't exist server-side.
+
+### New files — zero new backend endpoints
+
+`apps/web/app/(storefront)/account/help/page.tsx`, `apps/web/src/features/support/components/{HelpSupportPage.tsx, HelpOrderQueries.tsx, HelpTopicContent.tsx, ContactSupportSection.tsx}`. `AccountView.tsx`'s "Help & Support" link changed from `mailto:hello@woobe.in` to `/account/help` (email preserved, one tap deeper as a "Contact Support" option, not removed). `boundaries:check` confirms zero backend files touched (571 modules, 0 violations).
+
+### Live verification (chrome-devtools, real accounts, real order — not simulated)
+
+Registered a real test account through the actual OTP-verification flow (dev-mode `devCode` echoed in the API response, no SMTP configured), placed a real 3-item COD order (Ribbed Knit Sweater, Woven Tote Bag, Denim Jacket — deliberately the brief's own example products) through real checkout. Confirmed: in-progress orders (`CONFIRMED`/`PROCESSING`/`SHIPPED`) show by default; flipping the order to `DELIVERED` (direct status update, substituting for the admin-only status-change capability — no customer-facing cancel/status-change endpoint exists to drive this any other way) correctly removed it from the default list and it only reappeared under "Show all orders"; the order-detail sub-screen correctly listed all 3 products individually with color/size/qty; "Request a return for this order →" appeared only once the order was `DELIVERED` and linked to the real `/account/orders/[id]` page. All 6 topic screens (Orders/Returns/Refunds/Payments/Account/Contact), the search filter (match + no-match empty state), and the guest-vs-authenticated Orders branch were clicked through live at 375/768/1280px — no horizontal overflow anywhere. `AccountView`'s real nav link was clicked (not just direct URL navigation) and landed correctly. One live a11y issue found and fixed: the search `<input>` had `aria-label` but no `id`/`name` — added both.
+
+### IDOR/BOLA verification — actually exercised against a second real account, not just reasoned about
+
+Registered a second, independent test account (no orders) and, while authenticated as it, both navigated to the first account's real order URL in the browser and inspected the resulting network request directly: `GET /api/v1/orders/<other user's real order id>` → **404** `{"code":"NOT_FOUND","message":"Order not found"}` (generic message, no existence-revealing 403, no order data in the payload) and `GET /api/v1/returns?orderId=<...>` → **200** `{"returns":[]}` (correctly scoped to the caller, not the queried order — proof the endpoint filters by the caller's own id server-side rather than trusting the query param). Confirmed at the source level too: `orders.controller.ts`'s `listMyOrders`/`getOrder` use `req.user!.id`/`req.user?.id` from the verified JWT exclusively, never a client-supplied id.
+
+### Tests / gate
+
+`pnpm --filter @woobe/web run typecheck`/`lint` clean. `pnpm run boundaries:check` clean (571 modules, 0 violations). `pnpm --filter @woobe/web run build` clean, `/account/help` a real static route. `pnpm --filter @woobe/api run test`: 643/644 — the one failure (`auth: google … fails safely with 503`, got 401) is pre-existing and unrelated: a real `GOOGLE_CLIENT_ID` set in the shared root `.env` during the earlier Google Sign-In work means `auth.module.ts` now wires the real verifier instead of `NotConfiguredGoogleVerifier`, so the test's bogus credential now genuinely fails Google verification (401) instead of hitting the "not configured" 503 path it was written to expect — not caused by, or in scope for, this feature; not fixed here. `apps/web` has no component test runner configured yet in this repo (pre-existing, unrelated).
+
+### Remaining — business policy still pending real confirmation
+
+The 7-day return window and both refund/return processing timelines are current code defaults, not confirmed business rules — flagged in-app via `PendingConfirmationNote` rather than presented as settled, consistent with this repo's own `DECISIONS_PENDING.md` convention.
+
+### Rebase onto a teammate's concurrent push — two real staleness bugs caught before pushing
+
+`git push` was rejected (non-fast-forward): a teammate had pushed `e082e76` (staff management system), `c9e99b0` (order `PACKED`/`RETURNED_TO_ORIGIN` checkpoints + `Refund.returnId` uniqueness), and `e32d67f` (Home rail logic fix) to this same branch first. `git pull --rebase` replayed this commit on top cleanly, but the new `OrderStatus` values exposed two real bugs in the just-written Help & Support code, caught by re-checking the already-updated `OrderTimeline`/`OrderStatusBadge` rather than assuming the old enum still matched: (1) `IN_PROGRESS_STATUSES` (`HelpOrderQueries.tsx`) didn't include `PACKED` — an order genuinely in progress would have silently vanished from the default "in progress" view into the "delivered/cancelled" bucket; added `PACKED` (a normal happy-path step, confirmed against `OrderTimeline`'s own `["PACKED","SHIPPED","DELIVERED"]` array) and `RETURNED_TO_ORIGIN` (confirmed against `OrderStatusBadge`'s `variant="error"` treatment — a failed delivery is exactly the kind of thing Help & Support should surface, not hide alongside successfully completed orders). (2) The order-list row rendered its own inline `Badge variant="neutral">{status.replace(...).toLowerCase()}` instead of reusing `OrderStatusBadge` — harmless before this teammate's change, but would have shown a broken raw label ("packed"/"returned to origin") instead of the shared component's human-friendly, correctly-colored wording ("Packed and ready to ship", red "Delivery failed — returning to seller") the moment either new status appeared; switched to `<OrderStatusBadge status={order.status} />`, removing the now-dead `Badge` import. Also had to `prisma generate` + `prisma migrate deploy` against both `woobe_dev` and `woobe_test` (the two new migrations the teammate's push carried weren't applied locally yet — surfaced immediately as a hard Prisma validation error on the dev DB, and as a full-suite 243-test cascade of 500s on the test DB, both from the same root cause, not two separate problems) before either fix could be verified live or the full test suite could pass again. Re-verified live in the browser (flipped the same real test order through `PACKED` then `RETURNED_TO_ORIGIN`, confirmed both the in-progress list and the shared badge wording) and re-ran the full gate: typecheck/lint clean, `boundaries:check` clean (598 modules post-merge, 0 violations), `pnpm --filter @woobe/api run test` 693/694 (same single pre-existing, unrelated Google-auth failure as before — nothing newly broken by the merge).
+
