@@ -27,7 +27,13 @@ export interface AdjustInventoryResult {
 
 function toQuery(params: ListInventoryParams): string {
   const query = new URLSearchParams();
-  if (params.search) query.set("search", params.search);
+  // Trim before sending — a whitespace-only search otherwise reaches the
+  // server as a non-empty string that fails listInventoryAdminQuerySchema's
+  // own `.trim().min(1)` check (400), which the hook surfaces as "Couldn't
+  // load inventory," replacing the whole table for what should just be a
+  // no-op (same as leaving the box empty).
+  const trimmedSearch = params.search?.trim();
+  if (trimmedSearch) query.set("search", trimmedSearch);
   if (params.lowStockOnly) query.set("lowStockOnly", "true");
   if (params.outOfStockOnly) query.set("outOfStockOnly", "true");
   query.set("page", String(params.page ?? 1));

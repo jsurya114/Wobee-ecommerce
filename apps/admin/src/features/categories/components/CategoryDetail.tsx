@@ -4,12 +4,16 @@ import { LoadingState } from "@/features/shell/components/LoadingState";
 import { Badge, Button, Card } from "@woobe/ui";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminCategory } from "../hooks/useAdminCategory";
 import { CategoryForm } from "./CategoryForm";
 
 export function CategoryDetail({ categoryId }: { categoryId: string }) {
+  const saveAndRedirect = useSaveAndRedirect("/categories");
   const { category, loading, error, update, setActive } = useAdminCategory(categoryId);
   const [isTogglingActive, setIsTogglingActive] = useState(false);
+  // Bumped after every successful save — see the `key` comment on CategoryForm below.
+  const [saveGen, setSaveGen] = useState(0);
 
   if (loading) {
     return <LoadingState />;
@@ -50,13 +54,19 @@ export function CategoryDetail({ categoryId }: { categoryId: string }) {
         <CategoryForm
           // Next reuses this component instance across /categories/[id1] ->
           // [id2] navigation — same fix as ProductForm/CollectionForm.
-          key={categoryId}
+          // `saveGen` is folded in too: saving an edit to the SAME category
+          // doesn't change `categoryId`, so without it the form's local
+          // state would stay frozen at its pre-save values even though
+          // `category` (and the listing) already reflect the fresh save.
+          key={`${categoryId}:${saveGen}`}
           initialValues={{ name: category.name, slug: category.slug, imageUrl: category.imageUrl ?? "" }}
           submitLabel="Save changes"
-          onSubmit={async (payload) => {
-            await update(payload);
-            toast.success("Category updated");
-          }}
+          onSubmit={(payload) =>
+            saveAndRedirect(async () => {
+              await update(payload);
+              setSaveGen((g) => g + 1);
+            })
+          }
         />
       </Card>
     </div>

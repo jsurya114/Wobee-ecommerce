@@ -47,7 +47,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
     setIsSubmitting(true);
     try {
       await onAdjust(variantId, parsedDelta, reason.trim());
-      toast.success("Inventory adjusted");
+      toast.success("Saved successfully");
       setAdjustingId(null);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "That didn't work.");
