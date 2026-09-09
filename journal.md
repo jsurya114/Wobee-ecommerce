@@ -3274,3 +3274,88 @@ New: `apps/admin/src/lib/{use-form-error.ts, apply-backend-field-errors.ts}`. Mo
 - A field-less backend error (a `ConflictError`/404/500 with no structural `fieldErrors`) still renders as one inline banner rather than being attributed to a specific input — this is an honest reflection of what the backend itself reports, not a gap in the frontend; attributing it to a guessed field by parsing the message text would be fragile and was deliberately not done.
 - Not committed, pushed, or merged, per no explicit instruction to do so yet.
 
+## 2026-09-10 — Admin + User bug-fix sprint: inventory thresholds, checkout empty-cart flash, cancellation/returns audit, admin order filters — 4-agent parallel dispatch
+
+**Branch:** `woobe-ui/bug-fixes`. Five reported issues, dispatched as 4 parallel workstreams (Inventory, Checkout/Order Confirmation, Cancellation/Individual Returns, Admin Orders Filters) plus this lead/synthesis pass — all 4 completed cleanly this time, no rate-limit interruptions, zero file overlap between agents (confirmed via `git status` before any reconciliation was needed).
+
+### Workstream 1 — Inventory: two real bugs, one architectural cleanup
+
+**Root cause #1 (real, fixed):** `isLowStock` (`apps/api/src/modules/inventory/domain/validate-inventory-adjustment.ts`) was `sellable > 0 && sellable <= LOW_STOCK_THRESHOLD` — at *exactly* the threshold, this classified as LOW_STOCK. Spec requires the threshold value itself to be IN_STOCK. Fixed to `sellable < LOW_STOCK_THRESHOLD`. The identical off-by-one was independently re-implemented in the repository's `lowStockOnly` filter — fixed to call the same domain function instead of re-comparing inline, so a row's badge and its filter membership can no longer disagree with each other, which was the actual mechanism behind the user's "filtering doesn't behave correctly" report.
+
+**Root cause #2 (real, fixed):** `LOW_STOCK_THRESHOLD` was hand-duplicated as two independent constants — `5` in `apps/api`'s domain layer, a second `5` in `apps/admin/src/features/inventory/components/InventoryTable.tsx` (ADR-019: apps/admin can't import apps/api's internals) — two sources of truth that could silently drift, and per this same session's user instruction, must not. Moved to `packages/types/src/enums.ts` (`LOW_STOCK_THRESHOLD = 10`, `INVENTORY_STATUS`/`InventoryStatus`), the same established convention this codebase already uses for cross-app vocabulary (`PaymentMethod`/`PaymentStatus`/`PERMISSION`) — `apps/api` re-exports it so existing internal importers are unchanged, `apps/admin` imports it directly. `DECISIONS_PENDING.md #6` updated (still an unconfirmed placeholder, corrected from 5 → 10, "where it lives" corrected).
+
+**Went one step further than the minimum fix:** rather than just giving both apps a correct copy of the threshold, `AdminInventoryRow` now carries a backend-computed `status: InventoryStatus` field (`getInventoryStatus()`, one new domain function composing the existing `isLowStock`/`isOutOfStock`), computed once in `InventoryRepository.findAllForAdmin`. `InventoryTable.tsx` renders `row.status` directly and no longer re-derives anything from raw numbers — eliminating the entire "two independent copies of the same classification logic" bug *class*, not just today's instance of it.
+
+**Adjustment/concurrency protection:** re-verified unchanged and correct — `AdjustInventoryUseCase` → `InventoryRepository.adjustQuantity` still does `SELECT...FOR UPDATE` inside a transaction, validates the *resulting* quantity via the untouched `validateInventoryAdjustment`, rejects with 422. Live-verified: -100 from 10 available → rejected, no state change.
+
+**Live-verified boundaries** (super_admin, real variant): 9 (threshold-1) → LOW_STOCK, appears under "Low stock only"; 10 (exactly threshold) → IN_STOCK, does not; 0 → OUT_OF_STOCK, appears under "Out of stock only" only; "All" shows everything; hard reload shows the same server-authoritative values. Re-confirmed by the lead post-rebuild: `Denim Jacket Indigo/L` at 6 and `Ribbed Knit Sweater Oatmeal/S` at 1 both correctly show "low stock" against the new 10-unit threshold on a genuinely fresh production build + restart, not just hot-reloaded dev state.
+
+**Files:** `packages/types/src/enums.ts`; `apps/api/src/modules/inventory/{domain/validate-inventory-adjustment.ts(+.test.ts), infrastructure/repositories/inventory.repository.ts, application/ports/inventory-repository.port.ts}`; `apps/admin/src/features/inventory/{api/admin-inventory.client.ts, components/InventoryTable.tsx}`.
+
+### Workstream 2 — Checkout: the empty-cart flash was a real, provable race, not a guess
+
+**Root cause:** `CheckoutForm.tsx`'s success path (built by the 2026-09-05 stale-cart fix) is `await checkoutApi.checkout(...)` → `await refreshCart()` → `router.push('/order-confirmation/[id]')`. `refreshCart()` calls `setCart(...)` on the app-root `CartProvider` — and `CheckoutForm` is *still mounted* on `/checkout` at that instant, since `router.push` is async and hasn't swapped route content yet. The now-legitimately-emptied cart re-renders `CheckoutForm`, and `CheckoutForm`'s own `if (!cart || cart.items.length === 0) return <EmptyCart/>` guard fires for the beat between the refresh resolving and the route actually changing — the exact reported flash. `/order-confirmation/[id]` itself never reads cart state at all; the entire bug was this one component reacting to its own post-checkout side effect.
+
+**Fix:** one new component-local state flag, `orderPlaced`, set to `true` immediately after `checkoutApi.checkout()` succeeds (before `refreshCart()` runs). A new render guard checks `orderPlaced` *before* the empty-cart/weight guards and short-circuits them with a plain "Order placed! Redirecting…" message while checkout's own success path is between "order placed" and "navigation complete." `refreshCart()` → `router.push()` ordering is unchanged (preserving the 2026-09-05 fix's own intent — the nav badge is still correct by the time the confirmation page mounts). A genuine empty-cart visit to `/checkout` or `/cart` still shows the real empty-cart page (`orderPlaced` defaults `false`) — not globally disabled. A real checkout failure is unaffected (`orderPlaced` is never set on the `catch` path).
+
+**Live-verified:** tight ~25-40ms polling across the click→navigation window on a real COD checkout — `hasEmptyBag` was `false` at every sample, zero flash, across default/375px/1024px. Genuine empty cart still works (both `/cart` and a fresh `/checkout` visit). Real failure tested via true network-offline simulation — real error toast shown, cart/form state fully intact, retry after reconnecting succeeded normally. Responsive 375/768/1024/1440px checked on both checkout and confirmation.
+
+**Files:** `apps/web/src/features/checkout/components/CheckoutForm.tsx` only — no backend, no cart/orders module touched.
+
+### Workstream 3 — Cancellation + Individual Returns: architecture was already correct; one coverage gap closed, one product decision surfaced instead of invented
+
+**Confirmed, not assumed:** there is still no customer-facing cancel endpoint anywhere (`orders.routes.ts` has none) — cancellation remains `POST /admin/orders/:id/cancel`, staff-only, exactly as documented in the Week 3 Day 3 entry. `CancelOrderUseCase`'s guard is an **allow-list** (`=== CONFIRMED || === PROCESSING`), not an exclusion list, so it *already* correctly rejects PACKED (added later by the teammate's `c9e99b0` commit) with zero code change needed — the allow-list shape meant new states are excluded by construction, not by omission. The admin UI independently already never shows a Cancel button once PACKED. Only gap: no test had ever pinned this specific boundary, so it could have silently regressed later without anyone noticing — added one (`cancel-order.use-case.test.ts`, "rejects cancelling an order that is PACKED").
+
+**Individual returns were already fully built and correct** — `Return`/`ReturnItem` is item-level by schema design; `RequestReturnUseCase`/`RequestReturnForm.tsx` already let a customer pick a specific line + quantity within a multi-item delivered order, independent of the order's other lines. Live-verified end-to-end on a real 2-item order: returned 1 unit of one line, confirmed the untouched line's quantity/eligibility stayed fully independent, confirmed the refund amount matched the documented calc exactly (unit price + prorated tax, no shipping), confirmed `hasActiveReturn` correctly cleared after refund completion and a fresh return request on the *other* line was still offered.
+
+**Deliberately not built: full item-level order *cancellation*.** With no customer-facing cancel of any kind existing today, and `Order.status` having no per-item column at all, building partial-cancellation (per-item cancellable state, partial refund distinct from returns' own calc, partial restock, and a definition of what the order's own status even means mid-partial-cancel) would be a genuine domain/product decision, not a bug fix — surfaced as `DECISIONS_PENDING.md #8` rather than silently built or silently skipped, per this codebase's own established convention for exactly this situation.
+
+**Live-verified, real accounts/orders, not just source-read:** admin cancel on CONFIRMED → succeeds, inventory correctly restocked; direct-API cancel attempts on PACKED and on SHIPPED orders → both 409, backend-enforced independent of the UI; IDOR on orders (cross-account 404, "My Orders" correctly scoped) and on returns (cross-account 404 on both viewing and filing) both confirmed with two real accounts. All test data cleaned up afterward; inventory restored to baseline via the real admin adjust endpoint.
+
+**Files:** `apps/api/src/modules/orders/application/use-cases/cancel-order.use-case.test.ts` (one new test only) — no production code changed, because none needed to be.
+
+### Workstream 4 — Admin Orders Filters: all 9 statuses already correct; the real gap was test coverage and thin data, not a bug
+
+**Verdict:** every filter in `OrderFilters.tsx` → `useAdminOrders` → `admin-orders.client.ts` → `listOrdersQuerySchema` → `ListOrdersUseCase` → `OrderRepository.findAllPaginated`'s `where: { status: filter.status }` was already correct end-to-end, exactly as the lead's own static pass predicted before dispatch. Live-tested all 9 `OrderStatus` values individually against real orders (driven through real flows — real checkout, real admin fulfillment actions, and one real HMAC-signed webhook call to reach `PAYMENT_FAILED` without needing live Razorpay credentials) — each filter returned exactly and only orders in that status. `woobe_dev` genuinely had zero orders in 5 of the 9 statuses before this pass, which is why those filters may have looked broken when tried against the pre-existing seed data — not a code defect.
+
+**"Payment Failed" verdict:** `Order.status = PAYMENT_FAILED` is correct and authoritative, not a confusion with `Payment.status`. Traced every write of `Payment.status = "FAILED"` in the codebase to exactly one place (`handle-razorpay-webhook.use-case.ts`'s `payment.failed` branch), which sets both `Payment.status` and `Order.status` atomically in the same transaction — they cannot diverge by construction, so filtering by the order-level field is correct and there is no case it would miss.
+
+**RTO verdict:** `RETURNED_TO_ORIGIN` on `Order.status` is the only, correct representation — this schema deliberately has no separate `Shipment`/`ShipmentStatus` entity (Week 3 Day 7's own audit), the whole fulfillment lifecycle including RTO lives on `Order.status` by design.
+
+**Also verified:** search+status combine with AND semantics (not OR); clearing the filter restores the full unfiltered set; pagination math (`skip`/`take`) is correct even though no single status currently exceeds the 50-row page size in practice.
+
+**Files:** `apps/api/src/modules/admin/admin.integration.test.ts` only — two new integration tests (status-filter isolation, search+status AND-semantics) added to a previously-untested endpoint; no production code changed.
+
+### Lead synthesis (Agent 1)
+
+Reviewed all 4 diffs individually before running anything — zero file overlap, no conflicting changes, every domain-layer change reused the exact function the corresponding filter/UI layer already called (no duplicate logic introduced anywhere). Updated `DECISIONS_PENDING.md` (#6 corrected, new #8 added for the item-level-cancellation open question) and this entry — the only two files the lead touched directly.
+
+**Full gate, run after combining all 4 agents' work:**
+- `pnpm -r run typecheck` — clean, all 9 workspace projects.
+- `pnpm -r run lint` — clean, all 9 projects (`--max-warnings=0`).
+- `pnpm run boundaries:check` — clean, 598 modules / 1,918 dependencies, 0 violations.
+- `pnpm --filter @woobe/api exec vitest run src/modules/{inventory,orders,returns,admin}` — 34 files / **224/224 passing**.
+- Full suite `pnpm --filter @woobe/api run test` — **699/700** (the one failure is the same pre-existing, unrelated Google-auth env issue documented repeatedly earlier in this journal — not caused by, or affected by, any of this sprint's work).
+- `pnpm --filter @woobe/api run build` (plain `tsc`) — clean.
+- `pnpm --filter @woobe/web run build` / `pnpm --filter @woobe/admin run build` — both clean (dev servers stopped first, `.next` cleared, rebuilt, restarted — the established safe-build pattern); all routes compiled.
+- Post-rebuild spot-check (lead, fresh super_admin login, genuinely restarted dev servers): Inventory page renders backend-computed statuses correctly at the new threshold on real data, zero console errors.
+
+### Security/RBAC
+
+No new endpoints were added by this sprint (only new test files, one new domain function, one new frontend state flag). Every existing RBAC/IDOR protection this sprint's agents touched was independently re-verified live rather than assumed: inventory adjustment still requires `MANAGE_INVENTORY`; order cancellation (admin-only) still requires `MANAGE_ORDERS` and is enforced server-side independent of the UI; customer order/return ownership checks (cross-account 404s) re-confirmed with two real accounts.
+
+### Final status
+
+All 5 reported issues addressed: 2 were real, fixed bugs (inventory off-by-one + threshold duplication; checkout empty-cart flash). 2 were confirmed-already-correct architecture that only needed test coverage to prove it stays correct (cancellation's PACKED handling; all 9 admin order filters). 1 (item-level order cancellation) was investigated thoroughly and deliberately not built, surfaced as a product decision instead of an invented feature, per the task's own explicit instruction not to blindly change the state machine or invent policy. Storefront/checkout/payment/cart/wishlist/auth/order-state-machine/refund/Redis-cache behavior all confirmed unaffected outside the 10 files this sprint actually changed.
+
+### Remaining P2/P3 (not fixed, flagged only, all out of each agent's owned scope)
+
+- Returns approved+refunded do not restock inventory anywhere — already-documented gap (Week 2 Day 6), re-flagged, not fixed (inventory-module-adjacent product decision, not this sprint's remit).
+- Admin `OrdersTable.tsx`'s status-badge color map is incomplete (only 4 of 9 statuses get a distinct color; the rest fall back to neutral gray) — cosmetic, filtering/data unaffected.
+- Admin Orders page has no pagination UI despite fetching `total` — not currently user-visible (no status exceeds the 50-row page size today) but would silently hide results once one does.
+- Admin Orders search box has no debounce (one request per keystroke) — functionally correct, just chattier than the storefront's own 300ms-debounced search.
+- `apps/web`'s customer-facing PDP size selector has its own, separate, hardcoded low-stock threshold (3) for a different UX purpose — plausibly an intentionally different business rule from the admin dashboard's threshold, flagged for a future consolidation decision rather than conflated with `DECISIONS_PENDING.md #6`.
+- 375/768/1024/1440px responsive re-verification for the cancellation/returns customer UI relied on screenshots rather than exact `window.innerWidth` emulation (the shared multi-agent browser session made `resize_page` unreliable) — zero UI/CSS was changed in that workstream, and this exact page's responsiveness is already independently pinned at all four breakpoints multiple times elsewhere in this journal, so this was judged low-risk rather than re-chased.
+
+Not yet committed at the time this entry was written — the user's own instruction for this sprint was "push everything after done"; committed and pushed immediately after this entry, see the commit this entry ships in.
+

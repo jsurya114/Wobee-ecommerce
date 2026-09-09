@@ -88,3 +88,22 @@ export const PERMISSION = [
   "VIEW_ANALYTICS",
 ] as const;
 export type Permission = (typeof PERMISSION)[number];
+
+/// Not a Prisma enum (no InventoryStatus column exists — this is always
+/// computed from Inventory.quantityAvailable/quantityReserved, never
+/// stored), but shared the same way PERMISSION above is: apps/api's
+/// inventory domain (validate-inventory-adjustment.ts) is the single place
+/// that computes this from raw quantities and returns it on every admin
+/// inventory row; apps/admin only ever displays the value it's given.
+/// DECISIONS_PENDING.md #6 — LOW_STOCK_THRESHOLD (10 units) has no
+/// confirmed business rule behind it yet, a round-number default pending
+/// client confirmation. Spec: sellable >= LOW_STOCK_THRESHOLD -> IN_STOCK,
+/// 0 < sellable < LOW_STOCK_THRESHOLD -> LOW_STOCK, sellable <= 0 ->
+/// OUT_OF_STOCK. This is the ONE place the threshold is defined — apps/api's
+/// domain layer and apps/admin's inventory table both import it from here
+/// instead of each keeping their own copy (the two copies had drifted into
+/// inconsistent off-by-one comparisons before this fix).
+export const LOW_STOCK_THRESHOLD = 10;
+
+export const INVENTORY_STATUS = ["IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK"] as const;
+export type InventoryStatus = (typeof INVENTORY_STATUS)[number];

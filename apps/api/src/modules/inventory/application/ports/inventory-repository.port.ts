@@ -1,3 +1,5 @@
+import type { InventoryStatus } from "@woobe/types";
+
 export interface InsufficientStockLine {
   variantId: string;
   requestedQuantity: number;
@@ -20,7 +22,20 @@ export interface InventoryAdjustmentResult {
   quantityReserved: number;
 }
 
-/** One row of the admin inventory dashboard (week2 (1).md §15) — reaches through to `products`' own ProductVariant/Product for display fields via a plain Prisma relation, read-only, same established precedent as OrderRepository.hasUserPurchasedProduct's own relation filter into ProductVariant. */
+/**
+ * One row of the admin inventory dashboard (week2 (1).md §15) — reaches
+ * through to `products`' own ProductVariant/Product for display fields via
+ * a plain Prisma relation, read-only, same established precedent as
+ * OrderRepository.hasUserPurchasedProduct's own relation filter into
+ * ProductVariant.
+ *
+ * `status` is computed once here (via the domain's `getInventoryStatus`,
+ * `findAllForAdmin`'s own implementation) and shipped as-is over the wire
+ * — apps/admin renders it directly rather than re-deriving it from
+ * `quantityAvailable`/`quantityReserved` with its own copy of the
+ * threshold, which is what let the status badge and the low/out-of-stock
+ * filters disagree before this fix.
+ */
 export interface AdminInventoryRow {
   variantId: string;
   productId: string;
@@ -30,6 +45,7 @@ export interface AdminInventoryRow {
   size: string;
   quantityAvailable: number;
   quantityReserved: number;
+  status: InventoryStatus;
 }
 
 export interface ListInventoryAdminFilter {

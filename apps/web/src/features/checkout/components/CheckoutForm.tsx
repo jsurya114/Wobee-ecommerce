@@ -53,6 +53,24 @@ export function CheckoutForm() {
   // doc comment). Never blocks checkout; it's a courtesy heads-up.
   const [deliveryEstimate, setDeliveryEstimate] =
     useState<ShippingEstimate | null>(null);
+
+  // Bug fix (2026-09-09): checkout's own success path awaits `refreshCart()`
+  // before navigating (see onSubmit below) so the app-root nav badge is
+  // already correct by the time the confirmation page mounts — but that
+  // `setCart` happens while THIS component is still mounted on /checkout,
+  // and the render guards below ("Your bag is empty" / weight threshold)
+  // read that same cart state. Without this flag, the now-emptied cart
+  // makes this component render its own empty-bag branch for the beat
+  // between the refresh resolving and `router.push` completing the route
+  // change — a real race, not a guess: the order already placed
+  // successfully, the cart is *supposed* to be empty now, this component
+  // just shouldn't be the one reacting to that. `orderPlaced` scopes
+  // "ignore what cart state says, we know why it's empty" to this one
+  // component's own checkout flow, so the shared cart guards stay honest
+  // for every other case (a shopper who genuinely has an empty bag still
+  // sees them normally) — see journal.md 2026-09-05 for the refresh fix
+  // this complements.
+  const [orderPlaced, setOrderPlaced] = useState(false);
   const pincodeField = register("address.pincode");
   const checkPincode = async (pincode: string) => {
     if (!pincode.trim()) {
@@ -143,6 +161,11 @@ export function CheckoutForm() {
   const onSubmit = handleSubmit(async (data) => {
     try {
       const order = await checkoutApi.checkout(data, accessToken ?? undefined);
+      // Order already placed successfully server-side — from this point on,
+      // this component's own empty-cart/weight guards must stop reading
+      // cart state (see the flag's doc comment above) regardless of what
+      // `refreshCart` below is about to do to it.
+      setOrderPlaced(true);
       // CheckoutUseCase converts the cart server-side inside the same
       // transaction as order creation (unconditional — happens regardless
       // of payment method, since that's a separate concern from "is this
@@ -185,6 +208,19 @@ export function CheckoutForm() {
     return (
       <p className="py-16 text-center font-body text-sm text-text-secondary">
         Loading your bag…
+      </p>
+    );
+  }
+
+  // Order placed — the cart legitimately just went empty (or stale) as a
+  // side effect of `refreshCart()` above, on this very page, mid-navigation
+  // to the confirmation route. Render a transitional state instead of
+  // falling into the empty-bag/weight guards below, which would otherwise
+  // misread "checkout just succeeded" as "this shopper's bag is empty."
+  if (orderPlaced) {
+    return (
+      <p className="py-16 text-center font-body text-sm text-text-secondary">
+        Order placed! Redirecting…
       </p>
     );
   }

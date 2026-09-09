@@ -1,3 +1,4 @@
+import type { InventoryStatus } from "@woobe/types";
 import { apiFetch } from "@/lib/api-client";
 
 export interface AdminInventoryRow {
@@ -9,6 +10,8 @@ export interface AdminInventoryRow {
   size: string;
   quantityAvailable: number;
   quantityReserved: number;
+  /** Backend-authoritative — computed once by apps/api's inventory domain, never re-derived here. Keeps the status badge and the low/out-of-stock filters (also backend-side) from ever disagreeing about the same row. */
+  status: InventoryStatus;
 }
 
 export interface ListInventoryParams {
