@@ -3234,3 +3234,43 @@ The user asked directly: "where is the success message? in each pages" — a fai
 
 **Verified:** `pnpm --filter @woobe/admin run typecheck`/`lint` clean. Not committed, pushed, or merged.
 
+## 2026-09-09/10 — Admin forms: native HTML validation replaced with real backend errors shown inline, per field, everywhere
+
+**Branch:** `woobe-ui/bug-fixes`. User report: "while adding anything like product or categories or anything normal html error messages are showing but we need to show error message from backend not from html frontend in all pages" — then, once the naive fix (a toast with the backend's message) was in progress, redirected it explicitly: "use inline field error not a pop message inline error need to show in every field should follow SOLID and clean architecture and always update journal.md."
+
+### Root cause
+
+None of this app's 11 `<form>` elements set `noValidate`. Several fields carry native constraint attributes (`required`, `type="email"`, `type="number"` with `min`/`max`) purely as semantic/accessibility hints — every one of these forms already has its own JS-side validation and its own `catch` block that correctly unpacks `ApiError`/`fieldErrors` from a failed mutation. But the browser's own constraint-validation UI runs *before* any of that: on submit, it inspects every field with a native constraint, and if one fails, it cancels the submit event and shows its own generic tooltip ("Please fill out this field") — the form's `onSubmit` handler, and everything inside it, never runs at all. The backend was never reached, so "show the backend's message" was structurally impossible until this was fixed.
+
+### Fix, part 1 — stop the browser from intercepting submission
+
+Added `noValidate` to all 11 `<form>` elements across the admin app (`LoginForm`, `ActivateStaffForm`, `NewStaffForm`, `ProductForm`, `VariantForm`, `CategoryForm`, `CollectionForm`, `CouponForm`, `BannerForm`, `PricingSettingsForm`, `ProductPicker`'s search form) — every one of them already had a working `onSubmit` handler ready to take over; they just needed the browser to stop cutting it off first. (One real bug caught while doing this: a `{/* JSX comment */}` placed as the very first child right after `return (`, before any enclosing element, isn't valid JSX children position — 8 files briefly failed to parse; fixed by moving the explanatory comment to a plain `//` line above `return` instead.)
+
+### Fix, part 2 — the user's actual ask: inline per field, not a toast
+
+Getting past native validation only fixes half the complaint — the very next thing every one of these forms did with a real backend error was `toast.error(message)`, a popup, not "in every field." Two new shared utilities, reused by every form rather than reimplemented per-page (SOLID: one place owns "how do we turn a caught error into field messages," every form just consumes it):
+
+- **`apps/admin/src/lib/use-form-error.ts`** (`useFormError`) — for the manual-`useState` forms (Product/Category/Collection/Coupon/Banner/Variant/Settings). Parses a caught `ApiError`'s `fieldErrors` (real Zod validation, 400) into a `Record<field, message>` map handed straight to that field's own `FormField error=` prop; anything with no field to attach to (a field-less `ConflictError`/404/500 — e.g. "A coupon with code X already exists" is a `ConflictError`, not a Zod error) becomes the one `formError`, rendered as an inline alert paragraph directly above the submit button — still never a toast, just not attached to one specific input because the backend itself didn't attribute it to one. Also exposes `setFieldError(field, message)` so a form's own *client-side* pre-submit checks (e.g. "choose a category") land in the exact same inline slot as a real backend error, not a second, inconsistent mechanism.
+- **`apps/admin/src/lib/apply-backend-field-errors.ts`** (`applyBackendFieldErrors`) — the react-hook-form counterpart (Login/NewStaff/ActivateStaff already show *client-side* zod errors inline via `errors.x?.message`; this does the same for a *backend* field error caught in the submit handler, via RHF's own `setError`, returning `true`/`false` so the caller knows whether it still needs its own field-less fallback banner).
+
+Every manual form's `FormField`s (and the two hand-rolled non-`FormField` cases — Product's category `<select>`, Banner's image-upload slot — via a matching `role="alert"` paragraph in the same visual style) now receive `error={fieldErrors.<backendFieldName>}`, matched against the actual Zod schema field names (`packages/validation/src/{products,categories,coupons}.schema.ts`), not the form's own local state-variable names where those differ (e.g. Coupon's local `maxDiscountRupees` input shows `fieldErrors.maxDiscountPaise`, the real backend field). `toast` is now used in these forms only for two things that were never a "validation error a field can show" in the first place: a genuinely async, non-blocking success confirmation, and a media-upload failure (a distinct action, not the entity save).
+
+### Verified live — both the fallback-banner and true per-field paths, not just one
+
+**Field-less path:** edited `WELCOME10`'s code to `SCARF15` (an existing coupon's code) and saved — confirmed via the network tab the `PATCH` genuinely 409'd (`ConflictError`, no `fieldErrors`), confirmed the exact message `A coupon with code "SCARF15" already exists` rendered as an inline alert directly above "Save changes" (not a toast, not a native bubble), confirmed no redirect happened and the admin's typed "SCARF15" was still in the field, not reverted.
+
+**True per-field path:** Product's Name field has no client-side emptiness check (relied on `required` alone before this fix), so filling it with a whitespace-only value and saving reached the real backend `updateProductSchema` (`name: z.string().trim().min(1, "Name is required")`) — confirmed the `PATCH` returned 400, and confirmed the Name field itself (not a generic banner) showed `invalid="true"`, `aria-describedby` pointing at an inline `"Name is required"` alert directly under that one input — the backend's own message, attached to the exact field it's about. Reverted both test edits afterward and confirmed a legitimate save (name restored) still redirects to the listing correctly, per the earlier fix.
+
+### Files changed
+
+New: `apps/admin/src/lib/{use-form-error.ts, apply-backend-field-errors.ts}`. Modified: `apps/admin/src/features/{auth/components/LoginForm.tsx, staff/components/{NewStaffForm.tsx, ActivateStaffForm.tsx}, products/components/{ProductForm.tsx, VariantForm.tsx}, categories/components/CategoryForm.tsx, collections/components/{CollectionForm.tsx, ProductPicker.tsx}, coupons/components/CouponForm.tsx, banners/components/BannerForm.tsx, settings/components/PricingSettingsForm.tsx}`.
+
+### Tests / gate
+
+`pnpm --filter @woobe/admin run typecheck` — clean. `pnpm --filter @woobe/admin run lint` — clean (`--max-warnings=0`). `pnpm --filter @woobe/admin run build` — clean (dev server stopped, `.next` cleared, rebuilt, restarted — the established safe-build pattern); all 23 routes compiled. No backend files touched — every fix is frontend error-presentation only, no validation rule, business logic, or API contract changed anywhere.
+
+### Remaining limitations
+
+- A field-less backend error (a `ConflictError`/404/500 with no structural `fieldErrors`) still renders as one inline banner rather than being attributed to a specific input — this is an honest reflection of what the backend itself reports, not a gap in the frontend; attributing it to a guessed field by parsing the message text would be fragile and was deliberately not done.
+- Not committed, pushed, or merged, per no explicit instruction to do so yet.
+

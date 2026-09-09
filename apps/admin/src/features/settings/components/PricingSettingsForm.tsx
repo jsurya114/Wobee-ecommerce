@@ -5,7 +5,7 @@ import { Button, Card, FormField } from "@woobe/ui";
 import { paiseToRupees, rupeesToPaise } from "@woobe/utils";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
+import { useFormError } from "@/lib/use-form-error";
 import { useAdminPricingSetting } from "../hooks/useAdminPricingSetting";
 
 /**
@@ -19,17 +19,18 @@ import { useAdminPricingSetting } from "../hooks/useAdminPricingSetting";
 export function PricingSettingsForm() {
   const { setting, loading, error, updateRate, isSaving } = useAdminPricingSetting();
   const [draftRupees, setDraftRupees] = useState<string | null>(null);
-  const [fieldError, setFieldError] = useState<string | null>(null);
+  const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
 
   const currentRupees = setting ? paiseToRupees(setting.ratePerKgPaise) : null;
   const value = draftRupees ?? (currentRupees != null ? String(currentRupees) : "");
+  const fieldError = fieldErrors.ratePerKgPaise ?? formError ?? undefined;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFieldError(null);
+    clear();
     const rupees = Number(value);
     if (!value.trim() || !Number.isFinite(rupees) || rupees <= 0) {
-      setFieldError("Enter a positive rate in rupees per kg.");
+      setFieldError("ratePerKgPaise", "Enter a positive rate in rupees per kg.");
       return;
     }
     try {
@@ -37,11 +38,7 @@ export function PricingSettingsForm() {
       setDraftRupees(null);
       toast.success("Pricing rate updated");
     } catch (err) {
-      if (err instanceof ApiError && err.status === 400 && err.fieldErrors) {
-        setFieldError(Object.values(err.fieldErrors)[0]?.[0] ?? err.message);
-      } else {
-        toast.error(err instanceof ApiError ? err.message : "Couldn't save the rate. Try again.");
-      }
+      handle(err, "Couldn't save the rate. Try again.");
     }
   };
 
@@ -58,7 +55,10 @@ export function PricingSettingsForm() {
       <p className="mb-4 font-body text-sm text-text-secondary">
         Applies to every weight-priced product. Not a per-product or per-variant setting.
       </p>
-      <form onSubmit={onSubmit} className="flex flex-col gap-3">
+      {/* noValidate: onSubmit's own field check + ApiError/fieldErrors handling already
+          surface real messages — native HTML validation (this field's min={1}) was
+          intercepting submission before either ran. */}
+      <form onSubmit={onSubmit} className="flex flex-col gap-3" noValidate>
         <FormField
           label="₹ / kg"
           type="number"

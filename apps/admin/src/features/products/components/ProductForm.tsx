@@ -3,8 +3,7 @@
 import { Button, FormField, Textarea } from "@woobe/ui";
 import { slugify } from "@woobe/utils";
 import { useState } from "react";
-import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
+import { useFormError } from "@/lib/use-form-error";
 import type { CategoryOption } from "../api/admin-categories.client";
 import type { CreateProductPayload } from "../api/admin-products.client";
 
@@ -34,6 +33,7 @@ export function ProductForm({
 }) {
   const [values, setValues] = useState<ProductFormValues>({ ...EMPTY_VALUES, ...initialValues });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
   // An existing product's slug is never auto-changed by editing its name —
   // only a brand-new product's slug follows the name as it's typed, and
   // only until the admin edits the slug field themselves (then it stops
@@ -55,8 +55,9 @@ export function ProductForm({
 
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    clear();
     if (!values.categoryId) {
-      toast.error("Choose a category");
+      setFieldError("categoryId", "Choose a category");
       return;
     }
     setIsSubmitting(true);
@@ -71,21 +72,26 @@ export function ProductForm({
         metaDescription: values.metaDescription || undefined,
       });
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "That didn't work.");
+      handle(error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // noValidate: this form's own onFormSubmit already validates (category chosen, and the
+  // backend's own field errors on save) and surfaces a real message via toast/ApiError —
+  // native HTML validation was intercepting submission before any of that ran, showing the
+  // browser's own generic "Please fill out this field" bubble instead.
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-4" noValidate>
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Name" value={values.name} onChange={(e) => onNameChange(e.target.value)} required />
+        <FormField label="Name" value={values.name} onChange={(e) => onNameChange(e.target.value)} required error={fieldErrors.name} />
         <FormField
           label="Slug"
           value={values.slug}
           onChange={(e) => onSlugChange(e.target.value)}
           required
+          error={fieldErrors.slug}
           helperText={
             slugTouched
               ? "Custom URL — won't change automatically."
@@ -102,6 +108,7 @@ export function ProductForm({
           id="product-category"
           value={values.categoryId}
           onChange={(e) => set("categoryId", e.target.value)}
+          aria-invalid={Boolean(fieldErrors.categoryId)}
           className="h-11 rounded-control border border-border bg-surface px-4 font-body text-base text-text-primary"
         >
           <option value="">Select a category</option>
@@ -111,9 +118,19 @@ export function ProductForm({
             </option>
           ))}
         </select>
+        {fieldErrors.categoryId ? (
+          <p role="alert" className="font-body text-sm text-error">
+            {fieldErrors.categoryId}
+          </p>
+        ) : null}
       </div>
 
-      <FormField label="Brand (optional)" value={values.brand} onChange={(e) => set("brand", e.target.value)} />
+      <FormField
+        label="Brand (optional)"
+        value={values.brand}
+        onChange={(e) => set("brand", e.target.value)}
+        error={fieldErrors.brand}
+      />
 
       <div className="flex flex-col gap-1.5">
         <label className="font-body text-sm font-medium text-text-primary" htmlFor="product-description">
@@ -123,9 +140,25 @@ export function ProductForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="SEO title (optional)" value={values.metaTitle} onChange={(e) => set("metaTitle", e.target.value)} />
-        <FormField label="SEO description (optional)" value={values.metaDescription} onChange={(e) => set("metaDescription", e.target.value)} />
+        <FormField
+          label="SEO title (optional)"
+          value={values.metaTitle}
+          onChange={(e) => set("metaTitle", e.target.value)}
+          error={fieldErrors.metaTitle}
+        />
+        <FormField
+          label="SEO description (optional)"
+          value={values.metaDescription}
+          onChange={(e) => set("metaDescription", e.target.value)}
+          error={fieldErrors.metaDescription}
+        />
       </div>
+
+      {formError ? (
+        <p role="alert" className="font-body text-sm text-error">
+          {formError}
+        </p>
+      ) : null}
 
       <Button type="submit" isLoading={isSubmitting} className="self-start">
         {submitLabel}

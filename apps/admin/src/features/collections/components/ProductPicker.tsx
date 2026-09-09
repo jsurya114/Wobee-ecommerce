@@ -45,7 +45,7 @@ export function ProductPicker({ excludeProductIds, onAssign }: { excludeProductI
 
   return (
     <div className="flex flex-col gap-3">
-      <form onSubmit={runSearch} className="flex gap-2">
+      <form onSubmit={runSearch} className="flex gap-2" noValidate>
         <Input
           aria-label="Search products to add"
           placeholder="Search products to add"

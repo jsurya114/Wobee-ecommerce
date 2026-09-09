@@ -7,6 +7,7 @@ import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { uploadMedia } from "@/features/products/api/admin-media.client";
 import { ApiError } from "@/lib/api-client";
 import { resolveImageUrl } from "@/lib/resolve-image-url";
+import { useFormError } from "@/lib/use-form-error";
 import type { BannerPayload } from "../api/admin-banners.client";
 
 /** `datetime-local` has no timezone in its value — treat it as the browser's local time, same as any other admin date-time input in this app. */
@@ -40,6 +41,7 @@ export function BannerForm({
   const [endAt, setEndAt] = useState(isoToLocalInputValue(initialValues?.endAt));
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
 
   const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -62,8 +64,9 @@ export function BannerForm({
 
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    clear();
     if (!imageUrl) {
-      toast.error("Upload an image first");
+      setFieldError("imageUrl", "Upload an image first");
       return;
     }
     setIsSubmitting(true);
@@ -78,14 +81,17 @@ export function BannerForm({
         endAt: toIsoOrUndefined(endAt) ?? null,
       });
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "That didn't work.");
+      handle(error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // noValidate: onFormSubmit's own catch already surfaces the backend's real validation
+  // message via toast/ApiError — native HTML validation was intercepting submission
+  // before that ever ran, showing the browser's own generic bubble instead.
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-6">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-6" noValidate>
       <div className="flex flex-col gap-2">
         <SectionHeader as="h3">Media</SectionHeader>
         {imageUrl ? (
@@ -106,25 +112,31 @@ export function BannerForm({
         <Button type="button" variant="secondary" size="sm" isLoading={isUploading} onClick={() => fileInputRef.current?.click()} className="self-start">
           {imageUrl ? "Replace image" : "Upload image"}
         </Button>
+        {fieldErrors.imageUrl ? (
+          <p role="alert" className="font-body text-sm text-error">
+            {fieldErrors.imageUrl}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-3">
         <SectionHeader as="h3">Content</SectionHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <FormField label="Subtitle (optional)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} />
+          <FormField label="Title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} error={fieldErrors.title} />
+          <FormField label="Subtitle (optional)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} error={fieldErrors.subtitle} />
         </div>
       </div>
 
       <div className="flex flex-col gap-3">
         <SectionHeader as="h3">Action</SectionHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="CTA label (optional)" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} />
+          <FormField label="CTA label (optional)" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} error={fieldErrors.ctaLabel} />
           <FormField
             label="CTA link (optional)"
             value={ctaUrl}
             onChange={(e) => setCtaUrl(e.target.value)}
             placeholder="/products?category=dresses"
+            error={fieldErrors.ctaUrl}
           />
         </div>
       </div>
@@ -132,10 +144,28 @@ export function BannerForm({
       <div className="flex flex-col gap-3">
         <SectionHeader as="h3">Display</SectionHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Starts (optional)" type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
-          <FormField label="Ends (optional)" type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} />
+          <FormField
+            label="Starts (optional)"
+            type="datetime-local"
+            value={startAt}
+            onChange={(e) => setStartAt(e.target.value)}
+            error={fieldErrors.startAt}
+          />
+          <FormField
+            label="Ends (optional)"
+            type="datetime-local"
+            value={endAt}
+            onChange={(e) => setEndAt(e.target.value)}
+            error={fieldErrors.endAt}
+          />
         </div>
       </div>
+
+      {formError ? (
+        <p role="alert" className="font-body text-sm text-error">
+          {formError}
+        </p>
+      ) : null}
 
       <Button type="submit" isLoading={isSubmitting} className="self-start">
         {submitLabel}
