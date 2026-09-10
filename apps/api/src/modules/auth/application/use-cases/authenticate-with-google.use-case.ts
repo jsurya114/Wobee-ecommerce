@@ -5,6 +5,7 @@ import type { JwtService } from "../../infrastructure/services/jwt.service";
 import type { RefreshTokenService } from "../../infrastructure/services/refresh-token.service";
 import type { AuthRepositoryPort } from "../ports/auth-repository.port";
 import type { GoogleIdTokenVerifierPort } from "../ports/google-id-token-verifier.port";
+import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
 import { issueTokenPair, type TokenPair } from "./issue-token-pair";
 
 export interface AuthenticateWithGoogleResult extends TokenPair {
@@ -31,6 +32,7 @@ export class AuthenticateWithGoogleUseCase {
     private readonly googleVerifier: GoogleIdTokenVerifierPort,
     private readonly jwtService: JwtService,
     private readonly refreshTokenService: RefreshTokenService,
+    private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
   async execute(credential: string): Promise<AuthenticateWithGoogleResult> {
@@ -64,6 +66,18 @@ export class AuthenticateWithGoogleUseCase {
       jwtService: this.jwtService,
       refreshTokenService: this.refreshTokenService,
     });
+
+    // First-ever sign-in for this Google account — same WELCOME email as
+    // OTP-verified registration. Best-effort; never fails the sign-in.
+    await this.notificationEnqueuer
+      .enqueue({
+        userId: user.id,
+        type: "WELCOME",
+        channel: "EMAIL",
+        payload: { contactEmail: user.email, name: user.name },
+      })
+      .catch(() => undefined);
+
     return { user, isNewUser: true, ...tokens };
   }
 }

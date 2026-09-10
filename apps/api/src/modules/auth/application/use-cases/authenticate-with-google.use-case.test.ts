@@ -63,13 +63,15 @@ function build(opts: {
   } as unknown as AuthRepositoryPort;
 
   const verifier = new FakeGoogleIdTokenVerifier(opts.identity ?? IDENTITY);
+  const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
   const useCase = new AuthenticateWithGoogleUseCase(
     authRepository,
     verifier,
     new JwtService(),
     new RefreshTokenService(),
+    notificationEnqueuer,
   );
-  return { useCase, authRepository };
+  return { useCase, authRepository, notificationEnqueuer };
 }
 
 describe("AuthenticateWithGoogleUseCase", () => {
@@ -102,6 +104,25 @@ describe("AuthenticateWithGoogleUseCase", () => {
       providerSubject: IDENTITY.sub,
     });
     expect(typeof result.accessToken).toBe("string");
+  });
+
+  it("a first-ever Google sign-in enqueues a WELCOME email; an existing-user login does not", async () => {
+    const { useCase: newUser, notificationEnqueuer: newEnq } = build({ existingByGoogle: null, existingByEmail: null });
+    await newUser.execute("raw-credential");
+    expect(newEnq.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "WELCOME", channel: "EMAIL", payload: expect.objectContaining({ contactEmail: IDENTITY.email }) }),
+    );
+
+    const { useCase: returning, notificationEnqueuer: retEnq } = build({ existingByGoogle: userEntity() });
+    await returning.execute("raw-credential");
+    expect(retEnq.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("a failing WELCOME enqueue does NOT fail Google sign-in", async () => {
+    const { useCase, notificationEnqueuer } = build({ existingByGoogle: null, existingByEmail: null });
+    notificationEnqueuer.enqueue.mockRejectedValueOnce(new Error("redis down"));
+    const result = await useCase.execute("raw-credential");
+    expect(result.isNewUser).toBe(true);
   });
 
   it("no existing GOOGLE credential, but the email already belongs to a PASSWORD/OTP account -> GoogleAccountConflictError, never creates a user", async () => {

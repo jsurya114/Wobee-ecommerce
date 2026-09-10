@@ -9,6 +9,8 @@ const deliveredOrder = {
   userId: "user-1",
   status: "DELIVERED",
   deliveredAt: new Date(),
+  contactEmail: "a@a.com",
+  orderNumber: "WOOBE-1",
   items: [{ id: "item-1", variantId: "v1", productNameSnapshot: "Scarf", quantity: 2, unitPricePaise: 1000, taxAmountPaise: 100, discountPaise: 0 }],
 };
 
@@ -19,8 +21,9 @@ function buildUseCase(overrides: { orderReader?: Partial<OrderReaderPort>; exist
     create: vi.fn().mockResolvedValue({ id: "return-1", orderId: "order-1", status: "RETURN_REQUESTED", reason: "wrong size", requestedAt: new Date(), resolvedAt: null, items: [] }),
   } as unknown as ReturnRepositoryPort;
   const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
-  const useCase = new RequestReturnUseCase(orderReader, returnRepository, orderReturnFlagWriter);
-  return { useCase, orderReader, returnRepository, orderReturnFlagWriter };
+  const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const useCase = new RequestReturnUseCase(orderReader, returnRepository, orderReturnFlagWriter, notificationEnqueuer);
+  return { useCase, orderReader, returnRepository, orderReturnFlagWriter, notificationEnqueuer };
 }
 
 describe("RequestReturnUseCase", () => {
@@ -36,6 +39,26 @@ describe("RequestReturnUseCase", () => {
       items: [{ orderItemId: "item-1", quantity: 1 }],
     });
     expect(orderReturnFlagWriter.setHasActiveReturn).toHaveBeenCalledWith("order-1", true);
+  });
+
+  it("enqueues a RETURN_REQUESTED confirmation email after the return row is created", async () => {
+    const { useCase, notificationEnqueuer } = buildUseCase();
+    await useCase.execute({ orderId: "order-1", userId: "user-1", reason: "wrong size", items: [{ orderItemId: "item-1", quantity: 2 }] });
+    expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        type: "RETURN_REQUESTED",
+        channel: "EMAIL",
+        payload: expect.objectContaining({ contactEmail: "a@a.com", orderNumber: "WOOBE-1", returnId: "return-1", itemCount: 2 }),
+      }),
+    );
+  });
+
+  it("a failing notification enqueue does NOT fail the return request", async () => {
+    const { useCase, notificationEnqueuer } = buildUseCase();
+    notificationEnqueuer.enqueue.mockRejectedValueOnce(new Error("redis down"));
+    const result = await useCase.execute({ orderId: "order-1", userId: "user-1", reason: "wrong size", items: [{ orderItemId: "item-1", quantity: 1 }] });
+    expect(result.id).toBe("return-1");
   });
 
   it("rejects (without creating a Return row) when the order isn't eligible", async () => {

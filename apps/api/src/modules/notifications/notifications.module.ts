@@ -1,9 +1,12 @@
 import { Router } from "express";
+import { env } from "../../config/env";
+import { getMailer } from "../../shared/email/get-mailer";
 import { EnqueueNotificationUseCase } from "./application/use-cases/enqueue-notification.use-case";
 import { MarkNotificationFailedUseCase } from "./application/use-cases/mark-notification-failed.use-case";
 import { ProcessNotificationJobUseCase } from "./application/use-cases/process-notification-job.use-case";
 import { NotificationRepository } from "./infrastructure/repositories/notification.repository";
 import { BullMqNotificationQueue } from "./infrastructure/queues/notification.queue";
+import { NodemailerEmailProvider } from "./infrastructure/providers/nodemailer-email.provider";
 import { StubEmailProvider } from "./infrastructure/providers/stub-email.provider";
 
 /**
@@ -29,7 +32,14 @@ export const router = Router();
 
 const notificationRepository = new NotificationRepository();
 const notificationQueue = new BullMqNotificationQueue();
-const notificationProvider = new StubEmailProvider();
+/**
+ * Real nodemailer-backed provider once `SMTP_HOST` is configured;
+ * `StubEmailProvider` (which no-ops a send but still exercises the
+ * persist -> queue -> worker -> mark-sent pipeline) stays the fallback for
+ * local dev without SMTP and for the test suite — so the existing ~700
+ * tests and the no-SMTP dev flow are unchanged.
+ */
+const notificationProvider = env.SMTP_HOST ? new NodemailerEmailProvider(getMailer()) : new StubEmailProvider();
 
 export const enqueueNotificationUseCase = new EnqueueNotificationUseCase(notificationRepository, notificationQueue);
 /** Exported for worker.ts's own composition — the one place outside this module that needs either of these. */

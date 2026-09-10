@@ -54,12 +54,16 @@ export class MarkReturnRefundedUseCase {
     });
 
     const order = await this.orderReader.forAdmin(result.return.orderId);
-    await this.notificationEnqueuer.enqueue({
-      userId: order.userId,
-      type: "REFUND_PROCESSED",
-      channel: "EMAIL",
-      payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId },
-    });
+    // The money has now actually moved (staff confirmed) — refund COMPLETED,
+    // not merely initiated. Best-effort.
+    await this.notificationEnqueuer
+      .enqueue({
+        userId: order.userId,
+        type: "REFUND_COMPLETED",
+        channel: "EMAIL",
+        payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId },
+      })
+      .catch(() => undefined);
 
     return result.return;
   }

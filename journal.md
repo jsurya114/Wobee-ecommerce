@@ -3359,3 +3359,175 @@ All 5 reported issues addressed: 2 were real, fixed bugs (inventory off-by-one +
 
 Not yet committed at the time this entry was written — the user's own instruction for this sprint was "push everything after done"; committed and pushed immediately after this entry, see the commit this entry ships in.
 
+
+---
+
+## 2026-09-10 — Transactional email system: audit + architecture (Agent 1 / lead) — implementation dispatched to Agents 2–5
+
+**Branch:** `woobe-ui/bug-fixes`. Multi-agent build (5 lanes) per the user's brief: Agent 1 = lead/audit/architecture/synthesis; Agents 2–5 own auth+OTP / order+payment / shipping+returns+refunds+cancellation / email infrastructure respectively. This entry records the audit and the frozen architecture; per-lane implementation + the final synthesis follow in later entries. **Not committed/pushed/merged.**
+
+### Audit — what already exists (confirmed by reading the code, not assumed)
+
+- **`notifications` module (BullMQ) is real and correct.** `EnqueueNotificationUseCase` persists a `Notification` row (`PENDING`) then adds a BullMQ job carrying only the row id; `worker.ts` (separate process, started alongside `server.ts` by the `dev` script via `concurrently`) runs `ProcessNotificationJobUseCase`, which takes an atomic `claimForSending` (`PENDING → SENDING` conditional UPDATE) *before* the provider call, marks `SENT`/releases-claim-and-rethrows on failure. Queue: `jobId = notificationId`, `attempts: 3`, exponential backoff 5s, `removeOnComplete`, `removeOnFail: 1000`. `UnrecoverableError` conversion for non-retryable `NotificationDeliveryError`. Terminal `markFailed` merges `lastError` into `payload`. This is the async path the brief wants reused — **no second queue is being created.**
+- **`NotificationProviderPort` exists; the only implementation is `StubEmailProvider`, which sends nothing** — it succeeds whenever `payload.contactEmail` is a non-empty string and throws `NotificationDeliveryError(retryable: false)` when it is missing. So every order/return/refund notification to date has been enqueued, "sent", and marked `SENT` with zero real delivery.
+- **6 events already wired, all enqueued post-commit, all gated on a real `changed`/outcome flag:** `ORDER_CONFIRMED` (`payments` → `orders.notifyOrderEventUseCase` via `OrderPort.notifyOrderEvent`, from both `ConfirmCodOrderUseCase` and the Razorpay `payment.captured` webhook branch — folded: payment-success and order-confirmed are the same instant), `PAYMENT_FAILED` (webhook `payment.failed` branch), `ORDER_SHIPPED` / `ORDER_DELIVERED` (`ShipOrderUseCase` / `DeliverOrderUseCase`, post-`transaction.run`), `RETURN_APPROVED` (`ApproveReturnUseCase`), `REFUND_PROCESSED` (`IssueRefundForApprovedReturnUseCase` completed-outcome, `MarkReturnRefundedUseCase`, and `admin`'s `CancelOrderWithRefundUseCase` when a refund actually issued).
+- **Nodemailer is already a dependency** (`nodemailer ^9`, `@types/nodemailer`). Used **only** by auth OTP, on a **synchronous** path (not the queue), deliberately: `smtp-transport.ts`'s `createSmtpTransport()` + `SmtpOtpNotifier` (registration) + `SmtpPasswordResetNotifier` (reset), each implementing `OtpNotifierPort` / `PasswordResetNotifierPort`. `auth.module.ts` wires `env.SMTP_HOST ? new Smtp*Notifier() : new Dev*Notifier()`. Dev notifier `console.warn`s the code in `development` only; `exposeDevCode()` returns the code in the API response only when `NODE_ENV !== "production" && !SMTP_HOST`.
+- **SMTP env vars already defined** (`apps/api/src/config/env.ts` + `.env.example`, all optional): `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (default `Woobe <no-reply@woobe.local>`).
+- **`OrderEntity` (from `orderRepository.findById`) already carries everything an itemised invoice email needs** — `orderNumber`, `contactName`/`contactPhone`/`contactEmail`, `shippingSnapshot` (full address), `subtotalPaise`/`discountPaise`/`shippingFeePaise`/`taxPaise`/`totalPaise`, `paymentMethod`, and `items[]` (`productNameSnapshot`, `color`, `size`, `quantity`, `unitPricePaise`, `lineTotalPaise`, `taxAmountPaise`, `discountPaise`). **No order/tax/discount maths needs re-implementing** — the notification payload just needs enriching from data `NotifyOrderEventUseCase` already fetches.
+- `NotificationChannel` enum = `EMAIL / SMS / PUSH`; only `EMAIL` is wired (no SMS/PUSH provider — unchanged). `NotificationStatus` = `PENDING / SENDING / SENT / FAILED`.
+- **No invoice/PDF system anywhere** (no lib, nothing in schema). **No email-change / profile-update feature** (users module has address CRUD only) → account-email-change email has no backing workflow and will **not** be built. `RETURN_REJECTED` state exists (`RejectReturnUseCase`) but emits no notification today. `RequestReturnUseCase` emits nothing.
+
+### Frozen architecture (approved by the user, 3 decisions)
+
+1. **Invoice = itemised HTML inside the order-confirmed email.** No PDF dependency this sprint. Rendered from the authoritative `OrderEntity` snapshot; no calculation duplicated.
+2. **OTP stays synchronous** (user waits on-screen; must not depend on worker/queue availability; API must be able to report an SMTP failure immediately). OTP is only *refactored* to reuse the new shared transport + template layer — delivery path unchanged, all OTP security rules (expiry, resend cooldown, attempt caps, anti-enumeration, dev/prod `devCode` behaviour) preserved untouched.
+3. **All other transactional email flows through the existing post-commit BullMQ path.** `StubEmailProvider` is replaced by a real `NodemailerEmailProvider implements NotificationProviderPort`; the stub is kept as the no-SMTP / test fallback. Nodemailer never imported into domain/application code — only infrastructure.
+
+**Shared email infrastructure (new, `apps/api/src/shared/email/` — cross-cutting like `shared/cache/`, importable by both `auth` infra and `notifications` infra without an ADR-010 module edge):**
+- `email-message.ts` — `EmailMessage { to; subject; html; text }`, framework-free.
+- `mailer.port.ts` — `MailerPort { send(msg: EmailMessage): Promise<void> }`. The DIP seam. Throws on send failure (sync OTP path surfaces it to the user; async worker path lets BullMQ retry).
+- `nodemailer-mailer.ts` — `NodemailerMailer implements MailerPort`, one `createTransport` from the existing `SMTP_*` env. The single place nodemailer is constructed for the whole app.
+- `dev-mailer.ts` — `DevMailer implements MailerPort`, `console.warn` subject+recipient in `development` only, silent in test. Never logs OTP codes or full bodies.
+- `get-mailer.ts` — `env.SMTP_HOST ? NodemailerMailer : DevMailer` (mirrors the existing auth pattern).
+- `templates/layout.ts` — one branded HTML shell (Woobe wordmark, rose `#a54659` accent, system-font stack, mobile-safe single-column, footer with support contact `hello@woobe.in` + site URL) + a matching plain-text framer. Every email = layout(bodyFragment). No inline-HTML duplication.
+- `templates/<event>.ts` — one render fn per email returning `{ subject, html, text }` from a typed payload; `templates/index.ts` maps `NotificationEventType → renderer` for the provider. Subjects follow the brief's examples ("Order #XXXX confirmed", "Your order #XXXX has shipped", …).
+- `NodemailerEmailProvider` (in `notifications/infrastructure/providers/`) — resolves the renderer by `notification.type`, renders from `notification.payload`, calls the shared mailer. Missing `contactEmail` → `NotificationDeliveryError(retryable:false)` (unchanged non-retryable path). SMTP throw → propagates (retryable) → BullMQ retry.
+
+**New `NotificationEventType` strings** (added to `notifications/domain/entities/notification.entity.ts` by Agent 5 up front so every lane can reference them): `WELCOME`, `PASSWORD_RESET_SUCCESS`, `ORDER_CANCELLED`, `RETURN_REQUESTED`, `RETURN_REJECTED`, `REFUND_INITIATED`, `REFUND_COMPLETED`. `REFUND_PROCESSED` call-sites are remapped: the two "money has moved" sites (`MarkReturnRefundedUseCase`, `IssueRefundForApprovedReturnUseCase` completed-outcome, `CancelOrderWithRefundUseCase` refund-issued) → `REFUND_COMPLETED`; a new `REFUND_INITIATED` fires at the `RETURN_APPROVED → REFUND_INITIATED` transition.
+
+**Payment-success semantics (deliberate, documented):** no separate `PAYMENT_RECEIVED` event. Every payment-success path in this system *is* an order-confirmation (`ConfirmCodOrderUseCase`, Razorpay `payment.captured`) — a second near-simultaneous email would be invented spam. The single `ORDER_CONFIRMED` email carries the itemised invoice **and** the payment status/method ("Paid" for Razorpay, "Pay on delivery" for COD), satisfying "order confirmed" + "payment received" + "invoice/receipt" as one non-duplicate message. `PAYMENT_FAILED` stays its own email.
+
+**Duplicate protection — reuse only, nothing new:** Razorpay webhook 2-layer idempotency (`(provider,eventId)` unique + conditional status transition) + `changed:false` short-circuits the enqueue; COD confirm conditional; ship/deliver/return/refund all conditional `transitionStatus` with the enqueue gated on `changed`; worker `claimForSending` atomic claim; BullMQ `jobId = notificationId` + `attempts:3`. New triggers each gate on their own non-repeatable success: `WELCOME` (user row created once; Google path `isNewUser`-gated), `PASSWORD_RESET_SUCCESS` (reset row deleted on success), `RETURN_REQUESTED` (new row per genuine request), `ORDER_CANCELLED` (gated on `cancelOrderUseCase` `changed`), `RETURN_REJECTED` / `REFUND_INITIATED` (gated on `transitionStatus().changed`).
+
+### Lane / file ownership (no overlap — enforced)
+
+- **Agent 5 (email infra + templates):** everything under `apps/api/src/shared/email/**` (new); `notifications/infrastructure/providers/nodemailer-email.provider.ts` (+test, new); `notifications/notifications.module.ts` (wire provider, keep stub fallback); `notifications/domain/entities/notification.entity.ts` (add all new event strings); `apps/api/src/config/env.ts` + root `.env.example` + `apps/api/.env.example` (any new var — e.g. `APP_PUBLIC_URL`/`SUPPORT_EMAIL` for CTAs/footer — and the worker-SMTP deployment note). Builds templates against the payload contracts specified in each lane's brief.
+- **Agent 2 (auth + OTP):** `auth/infrastructure/services/{smtp-transport,smtp-otp-notifier,smtp-password-reset-notifier,dev-otp-notifier,dev-password-reset-notifier}.ts` (refactor onto shared mailer+templates, behaviour identical); `auth/application/ports/notification-enqueuer.port.ts` (new narrow port); `auth/application/use-cases/{verify-registration-otp,reset-password,authenticate-with-google}.use-case.ts` (enqueue `WELCOME` / `PASSWORD_RESET_SUCCESS` post-commit); `auth/auth.module.ts` (wire enqueuer; keep OTP notifier wiring); auth test files. Adds the `auth → notifications` module edge (acyclic, same pattern as orders/returns).
+- **Agent 3 (order + payment):** `orders/application/use-cases/notify-order-event.use-case.ts` (enrich `ORDER_CONFIRMED`/`SHIPPED`/`DELIVERED`/`PAYMENT_FAILED` payloads: line items, breakdown, `shippingSnapshot`, `contactName`, `paymentMethod` + derived payment status, tracking/carrier for SHIPPED — all from the `order` it already fetches); `orders/application/ports/notification-enqueuer.port.ts` (payload doc, event union unchanged); `orders/orders.module.ts` only if wiring changes; orders/payments test files (folded payment-success, PAYMENT_FAILED, webhook-retry no-double-send). **Sole owner of `notify-order-event.use-case.ts`.**
+- **Agent 4 (shipping verify + returns + refunds + cancellation):** `returns/application/use-cases/{request-return,reject-return,approve-return,issue-refund-for-approved-return,mark-return-refunded}.use-case.ts` (add `RETURN_REQUESTED`, `RETURN_REJECTED`; split `REFUND_INITIATED` vs `REFUND_COMPLETED`); `returns/application/ports/notification-enqueuer.port.ts` (extend union); `returns/returns.module.ts` (inject enqueuer into `RequestReturnUseCase`); `admin/application/use-cases/cancel-order-with-refund.use-case.ts` + `admin/admin.module.ts` (distinct `ORDER_CANCELLED` email, separate from the refund email); returns/admin test files. Verifies `ShipOrderUseCase`/`DeliverOrderUseCase` only enqueue on a successful committed transition (adds tests) — does **not** edit `notify-order-event.use-case.ts`.
+
+### Verification plan (Agent 1, after synthesis)
+`pnpm -r run typecheck` / `lint` / `pnpm run boundaries:check` / full `apps/api` suite / `pnpm -r run build`; live worker drain of a real order through confirm→ship→deliver and a real return through request→approve→reject/refund with a mock SMTP (Mailtrap-style or nodemailer JSON transport) capturing the rendered messages; browser pass on registration OTP + forgot-password + order placement.
+
+### Remaining limitations (known before implementation)
+- No PDF invoice (deliberate, this sprint).
+- No account-email-change email (no such feature exists).
+- SMS/PUSH channels remain unwired (no provider).
+- Real SMTP end-to-end still needs real credentials in the deploy env (`SMTP_*` on **both** `server` and `worker` processes) — documented, not exercised here.
+
+---
+
+## 2026-09-10 — Transactional email system: implemented (Nodemailer behind a port, branded templates, 12 lifecycle events) — not committed
+
+**Branch:** `woobe-ui/bug-fixes`. Follows the audit/architecture entry directly above. The 5-lane split was designed as planned; a subagent dispatch for lane 5 misfired (returned in 16s with zero tool calls, no files), so all lanes were implemented directly by the lead against the same frozen architecture and file-ownership map. **No commit / push / merge. No schema migration — none was needed** (`Notification.type` is already a free `String` column; the event vocabulary is a TS-only union).
+
+### 1. Shared email infrastructure — `apps/api/src/shared/email/` (new, cross-cutting like `shared/cache/`)
+
+- `email-message.ts` — `EmailMessage { to; subject; html; text }`, zero deps.
+- `mailer.port.ts` — `MailerPort { send(EmailMessage): Promise<void> }`. The dependency-inversion seam. Resolves on delivery, **throws** on failure.
+- `nodemailer-mailer.ts` — `NodemailerMailer implements MailerPort`. **The only `nodemailer.createTransport` call in the codebase.** Built from the existing `SMTP_*` env. `rawTransport()` escape hatch kept solely for `staff`'s pre-existing invitation notifier (via `auth`'s `createSmtpTransport` re-export, now a 3-line delegator to this) — flagged as a follow-up to migrate too.
+- `dev-mailer.ts` — `DevMailer implements MailerPort`. In `development` only, logs `recipient + subject` (never the body, never a code). Silent in test/production.
+- `get-mailer.ts` — `getMailer()` = `env.SMTP_HOST ? NodemailerMailer : DevMailer` (mirrors the existing auth pattern) + a shared `mailer` singleton.
+- `templates/layout.ts` — one branded HTML shell (Woobe wordmark, rose `#a54659`, table-based inline-styled 560px single column, footer with `SUPPORT_EMAIL` + `WEB_ORIGIN`) + `renderTextLayout` plain-text framer + an `esc()` HTML-escaper + `storefrontUrl()`.
+- `templates/render-helpers.ts` — defensive coercion (`str`/`num`/`bool`/`money`/`greeting`) so a renderer never throws on a missing optional payload field; `money()` uses `@woobe/utils`' `formatPaiseAsInr` (no money-formatting reimplemented).
+- `templates/{auth,order,returns}.templates.ts` — one renderer per email, `(payload) => { subject, html, text }`.
+- `templates/index.ts` — `EMAIL_TEMPLATES: Record<NotificationEventType, EmailRenderer>` (the queue-delivered events) + `renderRegistrationOtpEmail` / `renderPasswordResetOtpEmail` exported individually for the synchronous auth path.
+
+### 2. Real provider — replaces the no-op stub
+
+`notifications/infrastructure/providers/nodemailer-email.provider.ts` — `NodemailerEmailProvider implements NotificationProviderPort`, ctor `(mailer: MailerPort, templates = EMAIL_TEMPLATES)`. Resolves the template by `notification.type`, renders from `notification.payload`, calls `mailer.send`. **Failure contract unchanged from `StubEmailProvider`:** missing `contactEmail` or no template → `NotificationDeliveryError(retryable:false)` (worker → `UnrecoverableError`, stops retries); anything the mailer throws (SMTP down) propagates unchanged → BullMQ's existing `attempts:3` exponential backoff. `notifications.module.ts`: `env.SMTP_HOST ? new NodemailerEmailProvider(getMailer()) : new StubEmailProvider()` — **the stub is kept** as the no-SMTP / test / dev fallback, so the full existing suite and the no-SMTP dev flow are byte-for-byte unchanged.
+
+### 3. Event vocabulary — `NotificationEventType` (notifications/domain/entities/notification.entity.ts)
+
+Added: `WELCOME`, `PASSWORD_RESET_SUCCESS`, `ORDER_CANCELLED`, `RETURN_REQUESTED`, `RETURN_REJECTED`, `REFUND_INITIATED`, `REFUND_COMPLETED`. `REFUND_PROCESSED` kept in the union as `@deprecated` (no longer emitted; historical rows still type-check; mapped to the refund-completed template as a fallback).
+
+**Payment-success semantics (deliberate):** no separate `PAYMENT_RECEIVED` event. Every payment-success path in this system *is* an order confirmation (`ConfirmCodOrderUseCase`, Razorpay `payment.captured`); a second near-simultaneous email would be spam. The single `ORDER_CONFIRMED` email carries the **itemised HTML invoice** *and* the payment status/method ("Paid (Razorpay)" / "Pay on delivery (Cash)"), covering "order confirmed" + "payment received" + "invoice/receipt" as one message. `PAYMENT_FAILED` stays its own email.
+
+**Refund split:** `REFUND_INITIATED` fires at the `RETURN_APPROVED → REFUND_INITIATED` transition (money not moved); `REFUND_COMPLETED` fires only once money has actually moved (gateway refund succeeded, or staff-confirmed manual/COD completion). Never a completed email for a merely-initiated refund — covered by tests on the gateway-failure and COD-not-applicable branches.
+
+### 4. Lane 2 — auth + OTP (synchronous path preserved)
+
+- `SmtpOtpNotifier` / `SmtpPasswordResetNotifier` are now thin adapters over `MailerPort` + the shared OTP templates. **Delivery stays synchronous in the HTTP request** — never on BullMQ (the user is waiting for the code; the API must be able to report an SMTP failure immediately). `auth.module.ts` still picks `env.SMTP_HOST ? Smtp* : Dev*`. Every OTP security rule (expiry, resend cooldown, verify-attempt caps, anti-enumeration, dev `devCode` echo when `!SMTP_HOST`, prod behaviour) is untouched — verified by the unchanged, still-green `auth.integration.test.ts`.
+- New `auth/application/ports/notification-enqueuer.port.ts` (narrow, `WELCOME | PASSWORD_RESET_SUCCESS`) + `auth → notifications` module edge (acyclic; `notifications` depends on nothing).
+- `VerifyRegistrationOtpUseCase` — enqueues `WELCOME` **after** the user row + token pair exist. `AuthenticateWithGoogleUseCase` — enqueues `WELCOME` only on the `isNewUser` branch. `ResetPasswordUseCase` — enqueues `PASSWORD_RESET_SUCCESS` **after** the password is changed + sessions revoked. All three wrapped `.catch(() => undefined)` — a queue/Redis hiccup can never turn a completed registration / sign-in / reset into an error for the customer.
+- `smtp-transport.ts` kept (delegates to `NodemailerMailer.rawTransport()`) only for the out-of-scope `staff` invitation notifier.
+
+### 5. Lane 3 — order + payment payloads
+
+`orders/application/use-cases/notify-order-event.use-case.ts` (sole owner) — payloads enriched from the `order` it **already fetches** via `orderRepository.findById` (no new port, no new query, no calculation):
+- `ORDER_CONFIRMED`: `contactName`, `paymentMethod`, derived `paymentStatus` (`COD → PAY_ON_DELIVERY`, else `PAID` — a RAZORPAY order only reaches CONFIRMED via `payment.captured`), full `items[]`, `subtotal/discount/shipping/tax/total` Paise (all straight off the authoritative snapshot), `shippingAddress` from `shippingSnapshot`.
+- `ORDER_SHIPPED`: adds `trackingNumber` + `carrier` (only when present).
+- `PAYMENT_FAILED` / `ORDER_DELIVERED`: minimal (`contactEmail`, `contactName`, `orderNumber`, `totalPaise`).
+
+Ship/deliver already call this **post-`transaction.run`**, gated on the committed transition; the Razorpay webhook path already short-circuits on `changed:false` (two-layer idempotency). No new duplicate-protection was needed or added.
+
+### 6. Lane 4 — shipping verify + returns + refunds + cancellation
+
+- `RequestReturnUseCase` — now injected with the enqueuer; enqueues `RETURN_REQUESTED` after `returnRepository.create` (`.catch`-wrapped).
+- `RejectReturnUseCase` — now injected with `OrderReaderPort` + enqueuer; enqueues `RETURN_REJECTED` gated on the `RETURN_REQUESTED → RETURN_REJECTED` `transitionStatus().changed`.
+- `ApproveReturnUseCase` — unchanged (`RETURN_APPROVED` already correct).
+- `IssueRefundForApprovedReturnUseCase` — enqueues `REFUND_INITIATED` right after the `RETURN_APPROVED → REFUND_INITIATED` transition; enqueues `REFUND_COMPLETED` (was `REFUND_PROCESSED`) only on the `completed` gateway outcome, with `amountPaise`.
+- `MarkReturnRefundedUseCase` — `REFUND_PROCESSED` → `REFUND_COMPLETED` (money confirmed moved).
+- `admin/.../cancel-order-with-refund.use-case.ts` — always enqueues a **distinct `ORDER_CANCELLED`** email on a genuine cancel (`changed`), carrying `refundIssued` + `cancellationReason`; separately enqueues `REFUND_COMPLETED` **only when `refundIssued`** (that path returns `true` solely for a synchronously-COMPLETED Razorpay refund). Cancellation is never sent as a refund email. The local `NotificationEnqueuer` interface widened `"REFUND_PROCESSED"` → `"ORDER_CANCELLED" | "REFUND_COMPLETED"`.
+- Shipping "only on success" guarantee re-confirmed: `ShipOrderUseCase`/`DeliverOrderUseCase` enqueue only after `transaction.run` resolves with the transition committed — not edited, covered by their existing tests plus the new `notify-order-event` tests.
+
+### 7. Duplicate-email protection — reuse only, nothing new
+
+Razorpay webhook 2-layer idempotency (`(provider,eventId)` unique + conditional transition, enqueue skipped on `changed:false`); COD confirm conditional; every ship/deliver/return/refund step a conditional `transitionStatus` with the enqueue gated on `changed`/outcome; worker `claimForSending` atomic `PENDING→SENDING` before send; BullMQ `jobId = notificationId`, `attempts:3`. New triggers each gate on a non-repeatable success: `WELCOME` (user row created once; Google `isNewUser`), `PASSWORD_RESET_SUCCESS` (reset row deleted on success), `RETURN_REQUESTED` (one row per genuine request), `ORDER_CANCELLED` (`cancelOrderUseCase` `changed`), `RETURN_REJECTED` / `REFUND_INITIATED` (`transitionStatus().changed`).
+
+### 8. Security
+
+- OTP codes: never logged by any new code; `DevMailer` logs subject+recipient only; `devCode` echo unchanged (non-prod **and** `!SMTP_HOST` only).
+- SMTP credentials: read from env in exactly one file (`nodemailer-mailer.ts`), never logged, never sent to any frontend.
+- Email recipient always comes from authoritative server-side data — the order's own `contactEmail` / the account's own `email`; no client-supplied address anywhere in the email path.
+- Invoice content is built from the single order row being notified about — customer A's payload can only contain customer A's order (no cross-order join). No IDOR surface added (no new endpoint; the `notifications` router stays empty).
+- Admin cancel path stays `requirePermission`-gated exactly as before (no route touched).
+- No sensitive data beyond order summary + shipping address (already shown to the customer in-app) is included; no payment card data, no tokens.
+
+### 9. Environment variables
+
+Existing, reused unchanged: `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. New: `SUPPORT_EMAIL` (default `hello@woobe.in`, footer address) — `WEB_ORIGIN` (already present) is reused for CTA links. `.env.example` updated with both and an explicit note: **`SMTP_*` must be set on BOTH the `server` and the `worker` process** — the worker is what sends every order/return/refund email. No real credentials in the diff.
+
+### 10. Templates
+
+Reusable branded layout + plain-text framer, one renderer per email, all defensive against missing optional payload fields. Subjects follow the brief's examples ("Order #XXXX confirmed", "Your order #XXXX has shipped", "Welcome to Woobe", "Your Woobe password was changed", "Refund initiated/completed for order #XXXX", …). Customer name used where available; support line + storefront link in every footer. `ORDER_CONFIRMED` renders the full itemised invoice (line items, qty, unit price, line total, subtotal, discount, shipping/"Free", GST, bold total, ship-to block, payment status) in **both** HTML and plain text — figures formatted only, never recomputed.
+
+### 11. Tests
+
+New / changed test files, all green:
+- `shared/email/templates/templates.test.ts` (8) — every event renders subject+html+text with a full payload and degrades gracefully with only `contactEmail`; invoice figures present in both HTML and text; tracking shown only when present; cancellation never says "refund complete"; initiated vs completed distinct; OTP code in subject + both bodies.
+- `shared/email/mailer.test.ts` (5) — `NodemailerMailer` field mapping + `from`, failure propagation; `DevMailer` never logs the body.
+- `notifications/infrastructure/providers/nodemailer-email.provider.test.ts` (4) — renders + sends; non-retryable on missing email / unknown type; mailer failure propagates.
+- `auth/infrastructure/services/smtp-otp-notifier.test.ts` (3) — both notifiers render the right branded template; SMTP failure propagates synchronously.
+- `orders/.../notify-order-event.use-case.test.ts` (6) — full invoice payload, COD → PAY_ON_DELIVERY, shipped carries tracking, no line items leak into shipped/delivered, minimal payment-failed/delivered payloads, no-op on missing order.
+- `auth` use-case tests (+7) — WELCOME on registration + Google-new-user (not on returning login), PASSWORD_RESET_SUCCESS after the password write (not on wrong code), enqueue-failure never fails the flow.
+- `returns` + `admin` use-case tests updated — RETURN_REQUESTED / RETURN_REJECTED enqueued with the right payload, REFUND_INITIATED-then-COMPLETED ordering, no COMPLETED on gateway failure, ORDER_CANCELLED distinct from REFUND_COMPLETED, no refund email when none issued, enqueue-failure tolerated.
+
+### 12. Build / typecheck / lint / boundaries
+
+- `pnpm -r run typecheck` — clean, all 9 projects.
+- `pnpm -r run lint` — clean, all 9 (`--max-warnings=0`).
+- `pnpm run boundaries:check` — clean, **616 modules / 1979 dependencies, 0 violations** (up from 598; the new `shared/email` files + the `auth → notifications` edge, acyclic).
+- `pnpm --filter @woobe/api run test` — **733 passed / 1 failed**. The one failure (`auth: google … fails safely with 503`, got 401) is the **pre-existing, documented** env-contamination flake (a real `GOOGLE_CLIENT_ID` in the shared root `.env` makes the module wire the real verifier) — present on every recent journal entry, unrelated to and unaffected by this work.
+- `pnpm --filter @woobe/api run build` (tsc) — clean. `pnpm --filter @woobe/web run build` / `@woobe/admin` — both clean (`.next` cleared first).
+
+### 13. Live verification
+
+- **End-to-end worker drain** against real dev Postgres + real dev Redis (BullMQ), with a capture-only nodemailer `jsonTransport` in place of SMTP: enqueued one of every one of the 12 queue events via the real `EnqueueNotificationUseCase` → real `BullMqNotificationQueue` → real `Worker` running `ProcessNotificationJobUseCase` (real `claimForSending`). Result: **12/12 rows reached `SENT`**, 12 emails rendered (HTML + plain text, correct subject each), all rows cleaned up afterward.
+- **API boot** with all new wiring (`auth → notifications`, shared mailer, enriched notify-order-event) — server listens, `/health` 200, `POST /auth/register/start` returns `devCode` and logs `[otp] registration code …` exactly as before (no SMTP configured → `DevOtpNotifier` path unchanged). Test row cleaned up.
+- No frontend file was touched, so the storefront OTP / forgot-password / checkout UI is behaviourally identical; the register→verify and forgot→reset HTTP flows are covered end-to-end by the unchanged, still-green `auth.integration.test.ts`.
+
+### 14. Emails intentionally NOT implemented
+
+- **Account email-change / email-verification-on-change** — no profile-email-change feature exists anywhere in the codebase (users module has address CRUD only). No workflow to hook.
+- **PDF invoice attachment** — no invoice/PDF system exists; per the approved decision this sprint delivers the itemised invoice as HTML in the order-confirmed email, no PDF dependency added.
+- **Standalone "payment received" email** — folded into `ORDER_CONFIRMED` (see §3); a separate one would be duplicate.
+- **SMS / PUSH channels** — `NotificationChannel` has the enum values but no provider/credentials exist; unchanged.
+
+### 15. Remaining limitations
+
+- Real SMTP end-to-end is unproven here (no credentials in this environment) — the drain used a capture transport. A deployer must set `SMTP_*` on **both** the API and the worker process and do one real send-through.
+- `staff`'s invitation notifier still constructs a transport via the `createSmtpTransport` compatibility shim rather than depending on `MailerPort` directly — deliberately out of scope; flagged for a follow-up.
+- The pre-existing Google-auth 503-vs-401 test flake (env contamination) is still present and still unrelated.
+- Row cleanup / pruning of old `notifications` / `email_verifications` / `password_reset_tokens` rows — pre-existing gap, unchanged.
+- New auth-lifecycle enqueues are `.catch`-swallowed best-effort; if Redis is down at that instant the WELCOME / reset-confirmation / return-requested email is silently skipped (the business operation still succeeds, which is the required priority). Existing enqueue sites (order/ship/deliver/approve) keep their prior non-swallowed behaviour.

@@ -72,7 +72,9 @@ describe("RejectReturnUseCase", () => {
     } as unknown as ReturnRepositoryPort;
     const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-    const useCase = new RejectReturnUseCase(returnRepository, orderReturnFlagWriter, auditLogger);
+    const orderReader = { forAdmin: vi.fn().mockResolvedValue(returnOrderView()) } as unknown as OrderReaderPort;
+    const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new RejectReturnUseCase(returnRepository, orderReturnFlagWriter, auditLogger, orderReader, notificationEnqueuer);
 
     const result = await useCase.execute("return-1", actor, "Item shows wear beyond normal use");
 
@@ -80,6 +82,12 @@ describe("RejectReturnUseCase", () => {
     expect(orderReturnFlagWriter.setHasActiveReturn).toHaveBeenCalledWith("order-1", false);
     expect(auditLogger.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: "RETURN_REJECTED", metadata: { reason: "Item shows wear beyond normal use" } }),
+    );
+    expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "RETURN_REJECTED",
+        payload: expect.objectContaining({ contactEmail: "a@a.com", orderNumber: "WOOBE-1", reason: "Item shows wear beyond normal use" }),
+      }),
     );
   });
 
@@ -91,7 +99,9 @@ describe("RejectReturnUseCase", () => {
     } as unknown as ReturnRepositoryPort;
     const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
-    const useCase = new RejectReturnUseCase(returnRepository, orderReturnFlagWriter, auditLogger);
+    const orderReader = { forAdmin: vi.fn().mockResolvedValue(returnOrderView()) } as unknown as OrderReaderPort;
+    const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new RejectReturnUseCase(returnRepository, orderReturnFlagWriter, auditLogger, orderReader, notificationEnqueuer);
 
     await useCase.execute("return-1", actor);
 

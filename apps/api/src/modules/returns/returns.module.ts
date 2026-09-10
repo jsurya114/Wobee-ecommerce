@@ -87,7 +87,12 @@ const refundIssuer: RefundIssuerPort = {
 const auditLogger: AuditLoggerPort = { log: (entry) => recordAuditLogUseCase.execute(entry) };
 const notificationEnqueuer: NotificationEnqueuerPort = { enqueue: (input) => enqueueNotificationUseCase.execute(input) };
 
-const requestReturnUseCase = new RequestReturnUseCase(orderReader, returnRepository, orderReturnFlagWriter);
+const requestReturnUseCase = new RequestReturnUseCase(
+  orderReader,
+  returnRepository,
+  orderReturnFlagWriter,
+  notificationEnqueuer,
+);
 const listMyReturnsUseCase = new ListMyReturnsUseCase(returnRepository);
 const getReturnUseCase = new GetReturnUseCase(returnRepository, orderReader);
 
@@ -95,7 +100,13 @@ const getReturnUseCase = new GetReturnUseCase(returnRepository, orderReader);
 export const listReturnsForAdminUseCase = new ListReturnsForAdminUseCase(returnRepository);
 export const getReturnForAdminUseCase = new GetReturnForAdminUseCase(returnRepository, orderReader);
 export const approveReturnUseCase = new ApproveReturnUseCase(returnRepository, auditLogger, orderReader, notificationEnqueuer);
-export const rejectReturnUseCase = new RejectReturnUseCase(returnRepository, orderReturnFlagWriter, auditLogger);
+export const rejectReturnUseCase = new RejectReturnUseCase(
+  returnRepository,
+  orderReturnFlagWriter,
+  auditLogger,
+  orderReader,
+  notificationEnqueuer,
+);
 export const issueRefundForApprovedReturnUseCase = new IssueRefundForApprovedReturnUseCase(
   returnRepository,
   orderReader,
