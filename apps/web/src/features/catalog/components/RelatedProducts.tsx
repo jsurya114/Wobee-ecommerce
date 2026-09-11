@@ -8,8 +8,7 @@ import { ProductGrid } from "./ProductGrid";
  * `ProductGrid` / `ProductCard`, so wishlist and quick-add-to-cart keep
  * working and every card links to its own PDP. Renders nothing when the
  * list is empty, so the section disappears rather than showing an empty
- * shell or unrelated products. Framing matches the sibling `ReviewsSection`
- * (top border + display heading).
+ * shell or unrelated products.
  */
 export function RelatedProducts({ products }: { products: ProductSummary[] }) {
   if (products.length === 0) return null;

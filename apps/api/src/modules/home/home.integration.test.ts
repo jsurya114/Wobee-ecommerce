@@ -4,15 +4,19 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../../app";
 
 /**
- * Integration tests against the REAL test database (mirrors reviews'/
+ * Integration tests against the REAL test database (mirrors testimonials'/
  * wishlist's own *.integration.test.ts files) — Week 2 Day 8 Part 2
- * (week2 (1).md §12, Homepage Expansion). `GET /api/v1/home` is public, no
- * auth required, so every request here is a plain unauthenticated GET —
- * only fixture setup needs a real customer/admin session.
+ * (week2 (1).md §12, Homepage Expansion), updated 2026-09-11 for the
+ * testimonial system. `GET /api/v1/home` is public, no auth required, so
+ * every request here is a plain unauthenticated GET — only fixture setup
+ * needs a real customer/admin session.
  *
- * Own throwaway category/products/order/review per run (random suffix),
- * never reusing seed data, cleaned up in afterAll — same pattern
- * reviews.integration.test.ts already established.
+ * Own throwaway category/products/order/testimonial per run (random
+ * suffix), never reusing seed data, cleaned up in afterAll — same pattern
+ * testimonials.integration.test.ts already established. Testimonials are
+ * deleted BEFORE orders/users below: Testimonial.orderId/customerId have no
+ * onDelete: Cascade (unlike the old Review model), so an order/user with a
+ * still-existing testimonial row would fail to delete.
  */
 
 const TEST_PREFIX = "home-test";
@@ -23,7 +27,7 @@ let warehouseId: string;
 const createdProductIds: string[] = [];
 const createdVariantIds: string[] = [];
 const createdOrderIds: string[] = [];
-const createdReviewIds: string[] = [];
+const createdTestimonialIds: string[] = [];
 const createdUserEmails: string[] = [];
 
 beforeAll(async () => {
@@ -34,8 +38,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (createdReviewIds.length > 0) {
-    await prisma.review.deleteMany({ where: { id: { in: createdReviewIds } } });
+  if (createdTestimonialIds.length > 0) {
+    await prisma.testimonial.deleteMany({ where: { id: { in: createdTestimonialIds } } });
   }
   if (createdOrderIds.length > 0) {
     // OrderItem cascades off Order's onDelete: Cascade.
@@ -45,7 +49,7 @@ afterAll(async () => {
     await prisma.inventory.deleteMany({ where: { variantId: { in: createdVariantIds } } });
   }
   if (createdProductIds.length > 0) {
-    // ProductVariant/ProductImage/Review cascade off Product's onDelete: Cascade.
+    // ProductVariant/ProductImage cascade off Product's onDelete: Cascade.
     await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } });
   }
   if (createdUserEmails.length > 0) {
@@ -99,18 +103,20 @@ async function createTestProduct(
 }
 
 /**
- * A "sold" order with one line item — mirrors reviews.integration.test.ts's
+ * A "sold" order with one line item — mirrors testimonials.integration.test.ts's
  * own direct-Prisma order fixture. Defaults to DELIVERED (merchandising
  * logic corrections, 2026-09-06): `home`'s "Loved by Customers" rail now
  * only counts completed deliveries, not merely CONFIRMED/PROCESSING/SHIPPED
- * — see get-homepage.use-case.ts's own doc comment.
+ * — see get-homepage.use-case.ts's own doc comment. Returns the created
+ * order's id — the testimonial fixtures below need it (Testimonial.orderId
+ * is a real FK, not a free-text field).
  */
 async function createSoldOrder(
   variantId: string,
   quantity: number,
   userId: string | null = null,
   status: "CONFIRMED" | "PROCESSING" | "SHIPPED" | "DELIVERED" = "DELIVERED",
-): Promise<void> {
+): Promise<{ orderId: string }> {
   const order = await prisma.order.create({
     data: {
       orderNumber: `WOOBE-TEST-${crypto.randomUUID().slice(0, 8)}`,
@@ -146,13 +152,15 @@ async function createSoldOrder(
     },
   });
   createdOrderIds.push(order.id);
+  return { orderId: order.id };
 }
 
-async function createApprovedReview(productId: string, userId: string, rating: number): Promise<void> {
-  const review = await prisma.review.create({
-    data: { productId, userId, rating, title: "Great buy", body: "Loved the fabric and fit.", status: "APPROVED", isVerifiedPurchase: true },
+async function createApprovedTestimonial(orderId: string, customerId: string, rating: number): Promise<{ testimonialId: string }> {
+  const testimonial = await prisma.testimonial.create({
+    data: { orderId, customerId, rating, text: "Loved the fabric and the fit — arrived quickly too.", status: "APPROVED" },
   });
-  createdReviewIds.push(review.id);
+  createdTestimonialIds.push(testimonial.id);
+  return { testimonialId: testimonial.id };
 }
 
 describe("GET /api/v1/home", () => {
@@ -162,7 +170,8 @@ describe("GET /api/v1/home", () => {
     expect(res.body).toHaveProperty("newArrivals");
     expect(res.body).toHaveProperty("bestSellers");
     expect(res.body).toHaveProperty("featuredCollections");
-    expect(res.body).toHaveProperty("customerReviews");
+    expect(res.body).toHaveProperty("testimonials");
+    expect(res.body).toHaveProperty("testimonialAggregate");
   });
 
   it("New Arrivals is wired to real products.newest results, shaped like a product card", async () => {
@@ -276,28 +285,37 @@ describe("GET /api/v1/home", () => {
     expect(bestSellerIds).not.toContain(productId);
   });
 
-  it("shows an APPROVED review with its product's name/slug, and never a PENDING one", async () => {
-    const { userId } = await registerCustomer();
-    const { productId } = await createTestProduct("Reviewed Product");
-    await createApprovedReview(productId, userId, 5);
+  it("shows an APPROVED testimonial with a server-derived display name, and never a PENDING one or a raw customer id", async () => {
+    const { userId } = await registerCustomer(); // registers as "Home Tester" — see registerCustomer()
+    const { variantId } = await createTestProduct("Testimonial Source Product");
 
-    const pendingProduct = await createTestProduct("Pending Reviewed Product");
-    const pendingReview = await prisma.review.create({
-      data: { productId: pendingProduct.productId, userId, rating: 5, title: "Pending", body: "Not moderated yet", status: "PENDING", isVerifiedPurchase: true },
+    const { orderId: approvedOrderId } = await createSoldOrder(variantId, 1, userId, "DELIVERED");
+    const { testimonialId: approvedTestimonialId } = await createApprovedTestimonial(approvedOrderId, userId, 5);
+
+    const { orderId: pendingOrderId } = await createSoldOrder(variantId, 1, userId, "DELIVERED");
+    const pendingTestimonial = await prisma.testimonial.create({
+      data: { orderId: pendingOrderId, customerId: userId, rating: 4, text: "Still waiting on moderation — must never show publicly.", status: "PENDING" },
     });
-    createdReviewIds.push(pendingReview.id);
+    createdTestimonialIds.push(pendingTestimonial.id);
 
     const res = await request(app).get("/api/v1/home");
 
-    const reviewProductIds: string[] = res.body.customerReviews.map((r: { product: { id: string } }) => r.product.id);
-    expect(reviewProductIds).toContain(productId);
-    expect(reviewProductIds).not.toContain(pendingProduct.productId);
-    const shown = res.body.customerReviews.find((r: { product: { id: string } }) => r.product.id === productId);
-    expect(shown.product.slug).toEqual(expect.any(String));
+    const testimonialIds: string[] = res.body.testimonials.map((t: { id: string }) => t.id);
+    expect(testimonialIds).toContain(approvedTestimonialId);
+    expect(testimonialIds).not.toContain(pendingTestimonial.id);
+
+    const shown = res.body.testimonials.find((t: { id: string }) => t.id === approvedTestimonialId);
+    expect(shown.displayName).toBe("Home T."); // "Home Tester" -> First Name + Last Initial
+    expect(shown).not.toHaveProperty("customerId");
     expect(shown).not.toHaveProperty("userId");
+    expect(shown).not.toHaveProperty("status");
+
+    // Aggregate reflects the APPROVED testimonial only, never the PENDING one.
+    expect(res.body.testimonialAggregate.approvedCount).toBeGreaterThanOrEqual(1);
+    expect(res.body.testimonialAggregate.averageRating).toEqual(expect.any(Number));
   });
 
-  it("excludes a Loved-by-Customers product / review whose product is inactive", async () => {
+  it("excludes a Loved-by-Customers product whose product has since gone inactive", async () => {
     const { variantId, productId } = await createTestProduct("Will Go Inactive", { isActive: true });
     await createSoldOrder(variantId, 7);
     await prisma.product.update({ where: { id: productId }, data: { isActive: false } });

@@ -20,7 +20,8 @@ function makeUseCase(overrides: {
   variantToProduct?: Map<string, string>;
   productsById?: Map<string, ReturnType<typeof product>>;
   collections?: unknown[];
-  reviews?: unknown[];
+  testimonials?: unknown[];
+  testimonialAggregate?: { approvedCount: number; averageRating: number | null };
   categories?: { id: string; name: string; slug: string; sortOrder: number; imageUrl: string | null }[];
   categoryImages?: Map<string, string>;
   banners?: unknown[];
@@ -34,7 +35,10 @@ function makeUseCase(overrides: {
   const variantProductResolver = { execute: vi.fn().mockResolvedValue(overrides.variantToProduct ?? new Map()) };
   const productsByIdsReader = { execute: vi.fn().mockResolvedValue(overrides.productsById ?? new Map()) };
   const activeCollectionsLister = { execute: vi.fn().mockResolvedValue(overrides.collections ?? []) };
-  const topApprovedReviewsReader = { execute: vi.fn().mockResolvedValue(overrides.reviews ?? []) };
+  const approvedTestimonialsReader = { execute: vi.fn().mockResolvedValue(overrides.testimonials ?? []) };
+  const aggregateTestimonialRatingReader = {
+    execute: vi.fn().mockResolvedValue(overrides.testimonialAggregate ?? { approvedCount: 0, averageRating: null }),
+  };
   const categoriesLister = { execute: vi.fn().mockResolvedValue(overrides.categories ?? []) };
   const categoryImageResolver = { execute: vi.fn().mockResolvedValue(overrides.categoryImages ?? new Map()) };
   const visibleBannersLister = { execute: vi.fn().mockResolvedValue(overrides.banners ?? []) };
@@ -50,7 +54,8 @@ function makeUseCase(overrides: {
     variantProductResolver,
     productsByIdsReader,
     activeCollectionsLister,
-    topApprovedReviewsReader,
+    approvedTestimonialsReader,
+    aggregateTestimonialRatingReader,
     categoriesLister,
     categoryImageResolver,
     visibleBannersLister,
@@ -66,7 +71,8 @@ function makeUseCase(overrides: {
     variantProductResolver,
     productsByIdsReader,
     activeCollectionsLister,
-    topApprovedReviewsReader,
+    approvedTestimonialsReader,
+    aggregateTestimonialRatingReader,
     categoriesLister,
     categoryImageResolver,
     visibleBannersLister,
@@ -213,54 +219,36 @@ describe("GetHomePageUseCase", () => {
     expect(result.featuredCollections).toEqual(collections.slice(0, 4));
   });
 
-  it("enriches each review with its product's name/slug/image and never a reviewer name", async () => {
-    const reviewedProduct = product("p1", { slug: "silk-scarf", name: "Silk Scarf" });
-    const { useCase } = makeUseCase({
-      reviews: [{ id: "r1", productId: "p1", rating: 5, title: "Lovely", body: "Great fabric", status: "APPROVED", isVerifiedPurchase: true, createdAt: new Date("2026-01-01"), updatedAt: new Date("2026-01-01") }],
-      productsById: new Map([["p1", reviewedProduct]]),
-    });
+  it("passes the approved testimonials list straight through — enrichment (display name, product info) already happened one layer down", async () => {
+    const testimonials = [
+      { id: "t1", rating: 5, text: "Lovely fabric and quick delivery", createdAt: new Date("2026-01-01"), displayName: "Anjali K.", images: [], verifiedCustomer: true as const },
+    ];
+    const { useCase } = makeUseCase({ testimonials });
 
     const result = await useCase.execute();
 
-    expect(result.customerReviews).toEqual([
-      { id: "r1", rating: 5, title: "Lovely", body: "Great fabric", createdAt: new Date("2026-01-01"), product: { id: "p1", slug: "silk-scarf", name: "Silk Scarf", image: null } },
-    ]);
-    expect(result.customerReviews[0]).not.toHaveProperty("userId");
+    expect(result.testimonials).toEqual(testimonials);
   });
 
-  it("drops a review whose product has since gone inactive", async () => {
-    const { useCase } = makeUseCase({
-      reviews: [{ id: "r1", productId: "p1", rating: 5, title: null, body: null, status: "APPROVED", isVerifiedPurchase: false, createdAt: new Date(), updatedAt: new Date() }],
-      productsById: new Map([["p1", product("p1", { isActive: false })]]),
-    });
+  it("omits the aggregate rating when there are zero approved testimonials, never a fabricated 0/5", async () => {
+    const { useCase } = makeUseCase({ testimonialAggregate: { approvedCount: 0, averageRating: null } });
 
     const result = await useCase.execute();
 
-    expect(result.customerReviews).toEqual([]);
+    expect(result.testimonialAggregate).toBeNull();
   });
 
-  it("stops enriching reviews once 6 have been collected, even if more were fetched", async () => {
-    const reviews = Array.from({ length: 12 }, (_, i) => ({
-      id: `r${i}`,
-      productId: "p1",
-      rating: 5,
-      title: null,
-      body: null,
-      status: "APPROVED" as const,
-      isVerifiedPurchase: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }));
-    const { useCase } = makeUseCase({ reviews, productsById: new Map([["p1", product("p1")]]) });
+  it("surfaces the real approved-only aggregate rating when testimonials exist", async () => {
+    const { useCase } = makeUseCase({ testimonialAggregate: { approvedCount: 12, averageRating: 4.8 } });
 
     const result = await useCase.execute();
 
-    expect(result.customerReviews).toHaveLength(6);
+    expect(result.testimonialAggregate).toEqual({ approvedCount: 12, averageRating: 4.8 });
   });
 
   it("runs all sections independently — a section with no data doesn't block the others", async () => {
     const arrivals = [product("only-new")];
-    const { useCase } = makeUseCase({ newArrivals: arrivals, variantSales: [], collections: [], reviews: [], categories: [] });
+    const { useCase } = makeUseCase({ newArrivals: arrivals, variantSales: [], collections: [], testimonials: [], categories: [] });
 
     const result = await useCase.execute();
 
@@ -270,7 +258,8 @@ describe("GetHomePageUseCase", () => {
       newArrivals: arrivals,
       bestSellers: [],
       featuredCollections: [],
-      customerReviews: [],
+      testimonials: [],
+      testimonialAggregate: null,
       budgetTiles: [
         { label: "Under ₹499", maxPricePaise: 49_900, imageUrl: null },
         { label: "Under ₹799", maxPricePaise: 79_900, imageUrl: null },

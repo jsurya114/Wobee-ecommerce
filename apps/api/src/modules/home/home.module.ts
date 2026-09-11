@@ -17,7 +17,7 @@ import {
   listProductsUseCase,
   resolveProductIdsForVariantsUseCase,
 } from "../products/products.module";
-import { listTopApprovedReviewsUseCase } from "../reviews/reviews.module";
+import { getAggregateTestimonialRatingUseCase, listApprovedTestimonialsUseCase } from "../testimonials/testimonials.module";
 import { cacheAside } from "../../shared/cache/catalog-cache";
 import { env } from "../../config/env";
 import { GetHomePageUseCase, type HomePageView } from "./application/use-cases/get-homepage.use-case";
@@ -57,7 +57,8 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   resolveProductIdsForVariantsUseCase,
   getProductsByIdsUseCase,
   listCollectionsUseCase,
-  listTopApprovedReviewsUseCase,
+  listApprovedTestimonialsUseCase,
+  getAggregateTestimonialRatingUseCase,
   listCategoriesUseCase,
   getCategoryImagesUseCase,
   listVisibleBannersUseCase,

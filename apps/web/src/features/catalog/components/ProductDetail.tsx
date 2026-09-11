@@ -1,6 +1,4 @@
 import { Badge } from "@woobe/ui";
-import { ReviewsSection } from "@/features/reviews/components/ReviewsSection";
-import type { ListReviewsResult } from "@/features/reviews/api/reviews.client";
 import type { ProductDetail as ProductDetailData, ProductSummary } from "../api/products.client";
 import { SelectedVariantProvider } from "../hooks/useSelectedVariant";
 import { ProductGallery } from "./ProductGallery";
@@ -12,17 +10,18 @@ import { RelatedProducts } from "./RelatedProducts";
  * swipeable main image) on the left, and the product hierarchy on the
  * right: category → name (the one place Playfair is used besides the
  * wordmark) → description → the purchase panel (price + weight·rate + "how
- * this price works" + variants + CTA + details + delivery). Reviews, then
- * "Related Products", follow below.
+ * this price works" + variants + CTA + details + delivery), then "Related
+ * Products" below. No per-product review/rating UI (2026-09-11 testimonial
+ * design) — Woobe's surplus/limited-run stock means a given product may
+ * never restock, so customer feedback lives store-level ("What Our
+ * Customers Say" on the homepage), not attached to this one listing.
  */
 export function ProductDetail({
   product,
   relatedProducts,
-  initialReviews,
 }: {
   product: ProductDetailData;
   relatedProducts: ProductSummary[];
-  initialReviews: ListReviewsResult | null;
 }) {
   return (
     <div>
@@ -48,8 +47,6 @@ export function ProductDetail({
           </div>
         </div>
       </SelectedVariantProvider>
-
-      <ReviewsSection productId={product.id} initialReviews={initialReviews} />
 
       <RelatedProducts products={relatedProducts} />
     </div>

@@ -2,7 +2,6 @@ import { paiseToRupees } from "@woobe/utils";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
-import { listReviews } from "@/features/reviews/api/reviews.client";
 import { getProductBySlug, getRelatedProducts, type ProductDetail } from "@/features/catalog/api/products.client";
 import { ProductDetail as ProductDetailView } from "@/features/catalog/components/ProductDetail";
 import { ApiError } from "@/lib/api-client";
@@ -81,14 +80,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  // Default page/pageSize (1/10) — the same first page ReviewsSection would
-  // otherwise fetch client-side on mount. SSR-ing it here serves both the
-  // JSON-LD aggregateRating below AND ReviewsSection's initial render (no
-  // more separate pageSize:1 probe + a second client-side fetch of the same
-  // page — 2026-09-02 perf audit fix).
-  const initialReviews = await listReviews(product.id).catch(() => null); // Reviews being briefly unreachable shouldn't 500 the whole product page — just omit aggregateRating and let ReviewsSection fall back to its own client fetch.
-  const ratingSummary = initialReviews?.ratingSummary ?? null;
-
   const relatedProducts = await getRelatedProducts(product.slug)
     .then((result) => result.products)
     .catch(() => []); // A transient failure just hides the "You may also like" section — it never 500s the PDP.
@@ -120,14 +111,13 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               availability: inStockVariant ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
               url: absoluteUrl(`/products/${product.slug}`),
             },
-            aggregateRating:
-              ratingSummary && ratingSummary.reviewCount > 0
-                ? { "@type": "AggregateRating", ratingValue: ratingSummary.averageRating, reviewCount: ratingSummary.reviewCount }
-                : undefined,
+            // No aggregateRating — 2026-09-11 testimonial design: ratings are a
+            // store-experience figure now (see the homepage's "What Our
+            // Customers Say" aggregate), never a per-product one.
           }}
         />
       ) : null}
-      <ProductDetailView product={product} relatedProducts={relatedProducts} initialReviews={initialReviews} />
+      <ProductDetailView product={product} relatedProducts={relatedProducts} />
     </main>
   );
 }

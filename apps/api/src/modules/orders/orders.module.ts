@@ -38,7 +38,6 @@ import { GetOrderAnalyticsUseCase } from "./application/use-cases/get-order-anal
 import { GetOrderForAdminUseCase } from "./application/use-cases/get-order-for-admin.use-case";
 import { GetOrderForPaymentUseCase } from "./application/use-cases/get-order-for-payment.use-case";
 import { GetOrderUseCase } from "./application/use-cases/get-order.use-case";
-import { HasPurchasedProductUseCase } from "./application/use-cases/has-purchased-product.use-case";
 import { ListMyOrdersUseCase } from "./application/use-cases/list-my-orders.use-case";
 import { ListOrdersUseCase } from "./application/use-cases/list-orders.use-case";
 import { MarkOrderPackedUseCase } from "./application/use-cases/mark-order-packed.use-case";
@@ -152,8 +151,6 @@ export const markOrderReturnedToOriginUseCase = new MarkOrderReturnedToOriginUse
 export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transactionRunner);
 export const listOrdersUseCase = new ListOrdersUseCase(orderRepository);
 export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository, resolveProductIdsForVariantsUseCase, getProductsByIdsUseCase);
-/** Exported for `reviews`' verified-purchase check (Week 2 Day 4). */
-export const hasPurchasedProductUseCase = new HasPurchasedProductUseCase(orderRepository);
 /** Exported for `returns`' own OrderReturnFlagWriterPort adapter (Week 2 Day 6). */
 export const setOrderHasActiveReturnUseCase = new SetOrderHasActiveReturnUseCase(orderRepository);
 /** Exported for `home`'s Best Sellers rail (Week 2 Day 8 Part 2, week2 (1).md §12). */

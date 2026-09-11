@@ -2,13 +2,19 @@ import { apiFetch } from "@/lib/api-client";
 import type { Collection } from "@/features/catalog/api/collections.client";
 import type { ProductSummary } from "@/features/catalog/api/products.client";
 
-export interface HomeReview {
+/** A store-experience testimonial (2026-09-11, replaces the old per-product HomeReview) — never a product reference; `displayName` is server-derived "First L.", never a raw customer name/id. */
+export interface HomeTestimonial {
   id: string;
   rating: number;
-  title: string | null;
-  body: string | null;
+  text: string;
   createdAt: string;
-  product: { id: string; slug: string; name: string; image: string | null };
+  displayName: string;
+  images: { id: string; url: string }[];
+}
+
+export interface HomeTestimonialAggregate {
+  averageRating: number;
+  approvedCount: number;
 }
 
 export interface HomeCategoryTile {
@@ -49,7 +55,10 @@ export interface HomePageData {
   bestSellers: ProductSummary[];
   /** Rendered as "Curated Collections" (2026-09-06 — the "Featured"/"New Drops" labels implied a lifecycle this data never had). */
   featuredCollections: Collection[];
-  customerReviews: HomeReview[];
+  /** "What our customers say" — APPROVED testimonials only, server-filtered. */
+  testimonials: HomeTestimonial[];
+  /** null when there are zero approved testimonials — omit the aggregate display entirely, never show a fabricated 0/5. */
+  testimonialAggregate: HomeTestimonialAggregate | null;
   budgetTiles: HomeBudgetTile[];
   /** "Shop your size" rail — already sorted (curated order) and already filtered to sizes with at least one live variant. */
   sizeAvailability: HomeSizeOption[];

@@ -20,6 +20,8 @@ export const PERMISSIONS = {
   MANAGE_CUSTOMERS: "MANAGE_CUSTOMERS",
   /** Admin analytics dashboard (2026-09-03) — revenue, order/customer counts, best sellers. super_admin only, same reasoning as MANAGE_CUSTOMERS: revenue figures are more sensitive than either staff role's own day-to-day scope (order processing, catalog/inventory), and neither role's quotation description mentions business reporting. */
   VIEW_ANALYTICS: "VIEW_ANALYTICS",
+  /** Testimonial moderation (2026-09-11) — approve/reject customer-submitted store-experience testimonials. super_admin only: same reasoning as MANAGE_CUSTOMERS/VIEW_ANALYTICS — this is customer-identity-adjacent, brand-reputation-sensitive content, and neither staff role's contracted scope (order processing vs. catalog/inventory) mentions it. */
+  MANAGE_TESTIMONIALS: "MANAGE_TESTIMONIALS",
 } as const;
 
 /**
@@ -38,6 +40,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     PERMISSIONS.MANAGE_STAFF,
     PERMISSIONS.MANAGE_CUSTOMERS,
     PERMISSIONS.VIEW_ANALYTICS,
+    PERMISSIONS.MANAGE_TESTIMONIALS,
   ]),
   // Explicitly no catalog/pricing/settings access (ADR-024).
   ORDER_PROCESSING_STAFF: new Set([PERMISSIONS.MANAGE_ORDERS]),

@@ -86,6 +86,7 @@ export const PERMISSION = [
   "MANAGE_STAFF",
   "MANAGE_CUSTOMERS",
   "VIEW_ANALYTICS",
+  "MANAGE_TESTIMONIALS",
 ] as const;
 export type Permission = (typeof PERMISSION)[number];
 

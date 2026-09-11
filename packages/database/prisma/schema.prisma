@@ -187,14 +187,14 @@ model User {
   cart                 Cart?
   wishlist             Wishlist?
   orders               Order[]
-  reviews              Review[]
+  testimonials         Testimonial[]
   couponRedemptions    CouponRedemption[]
   adminAuditLogs       AdminAuditLog[]
   uploadedMedia        Media[]
   /// Present only while this staff account hasn't finished activation yet —
   /// see StaffInvitation's own doc comment.
-  staffInvitation      StaffInvitation?  @relation("StaffInvitationUser")
-  sentStaffInvitations StaffInvitation[] @relation("StaffInvitationInviter")
+  staffInvitation      StaffInvitation?   @relation("StaffInvitationUser")
+  sentStaffInvitations StaffInvitation[]  @relation("StaffInvitationInviter")
 
   @@map("users")
 }
@@ -501,7 +501,6 @@ model Product {
   variants       ProductVariant[]
   images         ProductImage[]
   collections    ProductCollection[]
-  reviews        Review[]
   wishlistItems  WishlistItem[]
   couponProducts CouponProduct[]
 
@@ -882,6 +881,7 @@ model Order {
   returns          Return[]
   refunds          Refund[]
   couponRedemption CouponRedemption?
+  testimonial      Testimonial?
 
   @@index([userId])
   @@index([status])
@@ -1058,53 +1058,74 @@ model Refund {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Reviews — built out Week 2 Day 4 (week2 (1).md §8)
+// Testimonials — 2026-09-11. Replaces the Week 2 Day 4 per-product `Review`
+// model (removed outright, zero rows existed in any environment at removal
+// time — see the testimonials module's own doc comments). Woobe sells
+// surplus/limited-run stock: a given product frequently never restocks, so
+// a review permanently attached to a Product is the wrong shape — this
+// belongs to CUSTOMER + ORDER + the Woobe experience as a whole, not to an
+// inventory item that may not exist to browse tomorrow.
 // ─────────────────────────────────────────────────────────────────────────
 
-/// Replaces Week 1's plain `isApproved: Boolean` — the plan's admin bullet
-/// list ("Approve/reject/hide") needs three distinct outcomes, not one.
-/// New reviews start PENDING; only APPROVED reviews are ever shown to
-/// other customers or counted in a product's rating summary.
-enum ReviewStatus {
+/// No RESUBMITTED/HIDDEN value on purpose — REJECTED is terminal (there is
+/// no resubmission flow), and unlike the old Review model there is no
+/// separate "hide after the fact" moderation action for testimonials.
+enum TestimonialStatus {
   PENDING
   APPROVED
   REJECTED
-  HIDDEN
 }
 
-model Review {
-  id                 String       @id @default(uuid())
-  productId          String
-  userId             String
-  rating             Int
-  title              String?
-  body               String?
-  status             ReviewStatus @default(PENDING)
-  /// Snapshotted at submission time (did this user have a CONFIRMED-or-later
-  /// order containing this product when they wrote the review) — a display
-  /// flag, not a financial figure, so caching it here follows this schema's
-  /// existing "denormalized cache is fine for display, never for money" rule
-  /// (see Product.minPricePaiseCache's comment) rather than re-querying
-  /// Order/OrderItem on every read.
-  isVerifiedPurchase Boolean      @default(false)
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+model Testimonial {
+  id         String            @id @default(uuid())
+  /// One row per order, not per (customer, order) — `@@unique` below is the
+  /// DB-level "one testimonial per order" guarantee a concurrent
+  /// double-submit races against, not just an app-level check-then-insert.
+  orderId    String            @unique
+  customerId String
+  /// 1-5 inclusive — the CHECK constraint enforcing this is added by this
+  /// model's own migration (Prisma has no first-class range-constraint
+  /// syntax at this version), matching pg_trgm's own precedent of a raw-SQL
+  /// addition alongside a Prisma-declared model (see Product.name's index).
+  rating     Int
+  /// Text-only feedback about the clothing/fit/quality/packaging/delivery/
+  /// service/value/overall experience — deliberately NOT a second numeric
+  /// product rating (see `rating` above, which is the store-experience
+  /// score, not a per-item one).
+  text       String
+  status     TestimonialStatus @default(PENDING)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order    Order              @relation(fields: [orderId], references: [id])
+  customer User               @relation(fields: [customerId], references: [id])
+  images   TestimonialImage[]
 
-  // week2 (1).md §8's own rule: "Prevent duplicate reviews" — enforced by
-  // the schema itself, not just application logic (same precedent as
-  // WishlistItem's @@unique([wishlistId, productId])).
-  @@unique([productId, userId])
-  @@index([productId])
-  /// Week 2 Day 9 (week2 (1).md §21) — two real, unbounded-growth query
-  /// paths now filter by `status` alone with no `productId`: the admin
-  /// moderation queue (`listForAdmin`) and the homepage's site-wide
-  /// `listTopApproved` (Week 2 Day 8 Part 2). Same justification Order's
-  /// own `@@index([status])` already used for its admin dashboard filter.
+  /// The admin moderation queue and the homepage's public rail both filter
+  /// by `status` alone with no other predicate — same `@@index([status])`
+  /// precedent as the old Review model and Order's own admin-dashboard
+  /// filter.
   @@index([status])
-  @@map("reviews")
+  @@index([customerId])
+  @@map("testimonials")
+}
+
+/// Up to 3 per testimonial (enforced in the submit use-case, not here —
+/// Prisma/Postgres have no first-class "max child rows" constraint). A
+/// join onto `Media` (not a denormalized url/altText pair like
+/// ProductImage) — customer-uploaded photos go through the exact same
+/// MediaStoragePort/UploadMediaUseCase admin product photos already do, see
+/// the testimonials module's own doc comment on why.
+model TestimonialImage {
+  id            String @id @default(uuid())
+  testimonialId String
+  mediaId       String
+
+  testimonial Testimonial @relation(fields: [testimonialId], references: [id], onDelete: Cascade)
+  media       Media       @relation(fields: [mediaId], references: [id])
+
+  @@index([testimonialId])
+  @@map("testimonial_images")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1142,7 +1163,8 @@ model Media {
   uploadedByUserId String
   createdAt        DateTime    @default(now())
 
-  uploadedBy User @relation(fields: [uploadedByUserId], references: [id])
+  uploadedBy        User               @relation(fields: [uploadedByUserId], references: [id])
+  testimonialImages TestimonialImage[]
 
   @@map("media")
 }
