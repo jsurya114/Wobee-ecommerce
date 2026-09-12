@@ -3689,3 +3689,33 @@ Separately from the toast work, `GET /` (storefront homepage) started 500ing wit
 - **`apps/web/package.json`** — added `canvas-confetti` (runtime) and `@types/canvas-confetti` (devDependency). `OrderPlacementCelebration.tsx` dynamically imports `canvas-confetti` for the checkout celebration animation, but the package was never added to `apps/web`'s own dependencies — it was likely installed at the root or in a different workspace during the feature's development session and worked locally via hoisting, but fails on a clean install or CI build where only declared dependencies are resolved.
 
 **Why:** `Module not found: Can't resolve 'canvas-confetti'` build error blocking `apps/web` from compiling.
+
+---
+
+## 2026-09-12 — Cleanup: duplicate files removed, missing `canvas-confetti` dependency added, dev server ports freed
+
+**Branch/commit:** `main`
+
+**What changed (three fixes in one session):**
+
+### 1. Missing `canvas-confetti` dependency (build error)
+- `apps/web/package.json` — added `canvas-confetti` (runtime) and `@types/canvas-confetti` (devDependency). `OrderPlacementCelebration.tsx` dynamically imports `canvas-confetti` for the checkout celebration animation, but the package was never declared in `apps/web`'s own dependencies — it worked locally via pnpm hoisting but failed on build with `Module not found: Can't resolve 'canvas-confetti'`. Fixed by explicitly adding both packages, clearing the stale `.next` cache, and verifying a clean production build (all routes compiled, `/checkout` at 7.77kB).
+
+### 2. Stray duplicate files removed
+- **31 git-tracked `" 2"` source files** (macOS Finder copy artifacts scattered across `apps/admin`, `apps/api`, `apps/web`, `packages/database`, `packages/validation`, `project_planning`) — removed via `git rm`, committed as `f9d605f`, pushed.
+- **~45 Prisma `generated/client` duplicates** (`" 2"`, `" 3"`, `" 4"` suffixed files including `.js`, `.ts`, `.mjs`, `.node`, `.json`) — removed by nuking `packages/database/generated/` and regenerating cleanly via `prisma generate`.
+- **7 duplicate staff module directories** (`apps/admin/src/features/staff/{components,api,hooks} 2`, `apps/api/src/modules/staff/{interface,domain,infrastructure,application} 2`) — removed.
+- **~25 `node_modules/.bin` symlink duplicates** (`tsc 2`, `eslint 2`, `next 2`, etc.) — cleaned.
+
+### 3. EADDRINUSE on ports 3000/3001/4000
+- Previous dev server processes were still holding ports 3000 (web), 3001 (admin), 4000 (api). Killed stale processes via `lsof -ti :<port> | xargs kill -9`, then restarted `pnpm run dev` — all three servers started cleanly: web on `localhost:3000`, admin on `localhost:3001`, api on `localhost:4000`.
+
+**Commits pushed:**
+- `0258e80` — `fix(home): guard CustomerReviewsSection against undefined reviews prop` (journal-only, code fix superseded by upstream `TestimonialsSection` replacement)
+- `34857aa` — `fix(web): add missing canvas-confetti dependency`
+- `f9d605f` — `chore: remove accidental duplicate ' 2' files`
+
+**Why:** Three independent issues blocking local development — a missing npm dependency preventing builds, stray duplicate files polluting the repo, and stale processes preventing dev server startup.
+
+**Follow-ups / known gaps:**
+- The duplicate files likely originated from macOS Finder-level copy operations or a merge tool artifact — no `.gitignore` rule prevents `" 2"` files from being committed again. Consider adding a pre-commit hook or CI check if this recurs.
