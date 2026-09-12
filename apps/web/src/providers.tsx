@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Toaster } from "sonner";
+import { Toaster } from "@woobe/ui";
 import { GuestLoginPrompt } from "@/features/auth/components/GuestLoginPrompt";
 import { AuthProvider } from "@/features/auth/hooks/useAuth";
 import { CartProvider } from "@/features/cart/hooks/useCart";
@@ -15,7 +15,7 @@ export function Providers({ children }: { children: ReactNode }) {
         <WishlistProvider>
           {children}
           <GuestLoginPrompt />
-          <Toaster position="top-center" richColors />
+          <Toaster />
         </WishlistProvider>
       </CartProvider>
     </AuthProvider>
