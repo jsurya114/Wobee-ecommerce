@@ -6,6 +6,7 @@ export * from "./primitives/Card";
 export * from "./primitives/Chip";
 export * from "./primitives/Input";
 export * from "./primitives/Label";
+export * from "./primitives/NavDrawer";
 export * from "./primitives/RadioGroup";
 export * from "./primitives/Sheet";
 export * from "./primitives/Skeleton";

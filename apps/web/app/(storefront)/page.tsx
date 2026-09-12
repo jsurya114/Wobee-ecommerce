@@ -9,6 +9,7 @@ import { ShopByBudget } from "@/features/home/components/ShopByBudget";
 import { ShopYourSize } from "@/features/home/components/ShopYourSize";
 import { ProductCard } from "@/features/catalog/components/ProductCard";
 import type { ProductSummary } from "@/features/catalog/api/products.client";
+import { ScrollToHashOnLoad } from "@/features/home/components/ScrollToHashOnLoad";
 
 /** Server-rendered per rail item — the same sizing wrapper `ProductRail`'s track previously applied itself, now built by this (server) caller so `ProductCard` never enters `ProductRail`'s client bundle. */
 function railItem(product: ProductSummary) {
@@ -55,6 +56,7 @@ export default async function HomePage() {
 
   return (
     <main>
+      <ScrollToHashOnLoad />
       <CompactSearchBar />
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
@@ -63,7 +65,9 @@ export default async function HomePage() {
         {home.newArrivals.map(railItem)}
       </ProductRail>
       <ShopByBudget tiles={home.budgetTiles} />
-      <ProductRail title="Loved by customers">{home.bestSellers.map(railItem)}</ProductRail>
+      <ProductRail id="loved-by-customers" title="Loved by customers">
+        {home.bestSellers.map(railItem)}
+      </ProductRail>
       <FeaturedCollections collections={home.featuredCollections} />
       <TestimonialsSection testimonials={home.testimonials} aggregate={home.testimonialAggregate} />
     </main>

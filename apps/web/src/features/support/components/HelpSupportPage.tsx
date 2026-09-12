@@ -2,12 +2,33 @@
 
 import { Card } from "@woobe/ui";
 import { ChevronLeft, ChevronRight, CreditCard, MessageCircle, Package, RotateCcw, UserCircle, Search, Wallet } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState, type ComponentType, type SVGProps } from "react";
 import { ContactSupportSection } from "./ContactSupportSection";
 import { HelpOrderQueries } from "./HelpOrderQueries";
 import { AccountHelpContent, PaymentsHelpContent, RefundPolicyContent, ReturnsPolicyContent } from "./HelpTopicContent";
 
 type Screen = "hub" | "orders" | "returns" | "refunds" | "payments" | "account" | "contact";
+
+/**
+ * `?topic=` deep-linking (hamburger menu, 2026-09-11) — maps a URL param to
+ * one of the screens above so a link can land directly on it instead of
+ * always opening the hub. "shipping" has no screen of its own: there's no
+ * separate shipping-policy content anywhere yet, and "Orders & Delivery"
+ * already covers delivery status/tracking (see its `TOPICS` entry below), so
+ * it aliases there rather than the literal query value inventing a topic
+ * this hub doesn't actually have. An unrecognized or missing `topic` falls
+ * back to the hub — it never breaks navigation/refresh.
+ */
+const TOPIC_TO_SCREEN: Record<string, Exclude<Screen, "hub">> = {
+  orders: "orders",
+  shipping: "orders",
+  returns: "returns",
+  refunds: "refunds",
+  payments: "payments",
+  account: "account",
+  contact: "contact",
+};
 
 interface Topic {
   screen: Exclude<Screen, "hub">;
@@ -73,7 +94,10 @@ const TOPICS: Topic[] = [
  * status or return eligibility itself.
  */
 export function HelpSupportPage() {
-  const [screen, setScreen] = useState<Screen>("hub");
+  const searchParams = useSearchParams();
+  const topicParam = searchParams.get("topic");
+  const initialScreen: Screen = (topicParam && TOPIC_TO_SCREEN[topicParam]) || "hub";
+  const [screen, setScreen] = useState<Screen>(initialScreen);
   const [query, setQuery] = useState("");
 
   const filteredTopics = useMemo(() => {
