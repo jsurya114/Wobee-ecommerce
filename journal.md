@@ -3562,3 +3562,64 @@ New / changed test files, all green:
 - `warning` has no dedicated icon color (see above) — add a real `warning` Tailwind token first if a real `toast.warning(...)` call ever ships.
 - The pre-existing `[issue] A form field element should have an id or name attribute` DevTools notice on `apps/web` (unrelated form, not touched by this change) and the pre-existing `auth` OTP test failures above — both out of scope.
 - Sonner's default toast duration/position/no-close-button behavior — unchanged everywhere, per the task's "timing unchanged unless already intended" instruction.
+
+---
+
+## 2026-09-12 — Missing `testimonials` table on local `woobe_dev` (unrelated to the toast fix above)
+
+**Branch:** `woobe-ui/bug-fixes` — environment-only, no source changes.
+
+Separately from the toast work, `GET /` (storefront homepage) started 500ing with `ApiError("Something went wrong")` at `apiFetch`. Root cause: `GetHomePageUseCase`'s `Promise.all` includes `listApprovedTestimonialsUseCase.execute()`, and this machine's local `woobe_dev` Postgres was one migration behind — `20260910185907_replace_reviews_with_testimonials` (the migration that ships with `68ac27a`, "replace product reviews with store-level testimonials") had never been applied here, so `prisma.testimonial.findMany()` failed with `The table "public.testimonials" does not exist`, taking the whole `/api/v1/home` call down with it (not a caching issue this time — a real missing table). Checked `reviews` was empty (`0` rows) before applying the migration (it also drops that table), then ran `pnpm run db:migrate:deploy` — applied cleanly, `GET /api/v1/home` and `GET /` both verified `200` afterward, log silent on repeat requests. No code changes; flagging only because it's the kind of local-environment drift this journal has recorded more than once (stale Prisma client, unmigrated `woobe_test`, etc.) and is worth knowing if another machine hits the same 500.
+
+---
+
+## 2026-09-12 — Checkout order-placement celebration (circle progress → crackle → "Order Placed!") before the existing Order Confirmation page
+
+**Branch:** `woobe-ui/bug-fixes` — uncommitted (per instruction: journal updated, no commit/push/merge).
+
+**Read first:** the 2026-09-10 "Admin + User bug-fix sprint" entry above, specifically "Workstream 2 — Checkout: the empty-cart flash was a real, provable race" — this task builds directly on top of that fix's `orderPlaced` guard rather than replacing it, and the reasoning there (why the guard has to be set *before* `refreshCart()`, not after) still fully applies here.
+
+**What was asked:** a polished animated transition — circular progress → completion pulse → a particle "crackle" bursting outward from inside the completed circle → checkmark + "Order Placed!" — between a successful checkout and the existing Order Confirmation page, with the Order Confirmation page itself left completely untouched.
+
+**Investigated before writing any code:**
+- `CheckoutForm.tsx`'s `onSubmit` success path (unchanged shape since the 2026-09-10 fix): `checkoutApi.checkout()` → `setOrderPlaced(true)` (before the cart refresh, for the exact race-condition reason that entry documents) → `await refreshCart()` → `router.push('/order-confirmation/[id]')`. The `orderPlaced` branch rendered a single `<p>Order placed! Redirecting…</p>` — this is the one and only insertion point: everything downstream (`OrderConfirmation.tsx`, the route itself) needed zero changes.
+- `apps/web` already depends on `motion` (`motion/react`) — used by `Reveal.tsx` (homepage scroll-reveal) and, notably, already inside `OrderConfirmation.tsx` itself (`StatusHeading`'s own checkmark scale-in, gated on `useReducedMotion()`). No new dependency added; same library, same `useReducedMotion()` hook, same "mount-keyed `initial`/`animate`" idiom already established in this codebase rather than imperative animation controls.
+- No existing confetti/particle utility anywhere in the repo (`packages/ui` or either app) — built new, kept small and self-contained, not added as a `packages/ui` primitive (this is a one-call-site, checkout-specific sequence, not a reusable design-system piece).
+
+**What changed:**
+- **New `apps/web/src/features/checkout/components/OrderPlacementCelebration.tsx`** — a 3-phase state machine (`progress` → `pulse` → `celebrate`) driven by four named, fixed-duration `setTimeout`s (900ms / 220ms / 700ms / 320ms hold — same "self-documenting timer constant" convention `OrderConfirmation.tsx` already uses for its own poll timers), read via a ref so the timer chain runs exactly once per mount regardless of the caller's own re-renders.
+  - **Progress**: an SVG ring, `stroke-dasharray`/`stroke-dashoffset` animated via `motion.circle` with an ease-out-expo curve (`[0.16,1,0.3,1]`, not linear), rotated -90° so the line starts at 12 o'clock — a defined, consistent start point. Text: "Placing your order…" / "Please wait a moment".
+  - **Pulse**: the same circle scales to 1.06× with a soft `drop-shadow` glow for 220ms — no remount, just a target-value change on the same `motion.div`.
+  - **Celebrate**: 14 fixed (not `Math.random()`-per-render) particles — a mix of dots, small rotated "confetti" rects, and `lucide-react`'s `Sparkle` icon — each launched from the exact center (`left:50%;top:50%`, negative margin offset) and animated outward via `translateX/Y` computed from a hand-tuned angle+distance pair (`cos(angle)*distance`, `sin(angle)*distance`), `ease: "easeOut"` (fast off center, decelerating outward — a real burst, not a linear slide), opacity keyframed `[0,1,1,0]`. A `CheckCircle2` (same icon `OrderConfirmation.tsx`'s own `CONFIRMED` state already uses) scales in over it. Every particle color is an existing Tailwind-preset token (`primary` `#A54659`, `primary.hover` `#884350`, `primary.tint` `#F3DEE2`) — nothing invented, same discipline as the same day's toast-theme fix above.
+  - **Reduced motion**: `useReducedMotion()` (Motion's own hook) short-circuits to a single static state — checkmark + "Order Placed!" + subtext, held 650ms, then `onComplete()`. No circle draw, no particles, per the task's explicit accessibility requirement.
+- **`CheckoutForm.tsx`**: `orderPlaced`'s branch now renders `<OrderPlacementCelebration onComplete={handleCelebrationComplete} />` instead of the plain `<p>`. The `refreshCart()` await was previously inline, blocking `router.push` — now kicked off into a `cartRefreshRef` immediately after `setOrderPlaced(true)` (so the celebration can start rendering right away rather than waiting on that network round trip), and `router.push` moved into a new `handleCelebrationComplete` callback that awaits `cartRefreshRef.current` before navigating — preserving the exact 2026-09-09 guarantee ("nav badge correct by the time the confirmation page mounts") regardless of which finishes first. `placedOrderId` is a new small piece of state capturing the just-placed order's real id purely for that final navigation — never passed as props into `OrderConfirmation` (which still fetches its own data by id, completely unchanged).
+- **`OrderConfirmation.tsx` — zero changes.** Confirmed via `git diff`/`git status` before and after: empty diff, not in the changed-files list.
+
+**Why checkout stays safe:** the celebration only ever renders after `checkoutApi.checkout()` has already resolved successfully (`setOrderPlaced(true)` is the very next line) — a rejected promise goes straight to the existing `catch` block (field errors inline, `toast.error` otherwise), which never touches `orderPlaced`/`placedOrderId`, so a failed checkout structurally cannot reach the celebration. No order-creation, payment, inventory, cart-conversion, or state-machine code was touched — the component receives only a completion callback, the same shape `OrderConfirmation`'s own `StatusHeading` already uses (animates a result, owns no business logic).
+
+**Empty-cart flash:** unaffected — still governed by the same `orderPlaced` flag, set at the same point in the same order, for the same reason the 2026-09-10 entry documents. Verified live it's still gone (see below), not just reasoned about.
+
+**Verified live (chrome-devtools-mcp against real dev servers, real Postgres/Redis, real COD checkout end to end):**
+- Multiple real COD checkouts, natural (unmodified) timing — every one went `Place order` click → straight to the real Order Confirmation page, "Order confirmed!", correct order number/items/total, zero empty-cart flash, zero console errors.
+- **Every phase visually confirmed**, not just inferred — an injected `initScript` intercepted `window.setTimeout` for this component's timer range only, freezing the sequence mid-flight so tool round-trip latency (which, verified separately, made every earlier attempt land *after* the ~2.1s sequence had already finished) couldn't hide the intermediate states:
+  - Progress ring: fully drawn, correct pink stroke, centered, no overflow.
+  - Pulse: circle scaled up with a visible soft pink glow.
+  - Celebrate: DOM-inspected mid-burst — particle `transform` values matched the intended trig exactly (e.g. 8°/58px → `translateX(57.4355px) translateY(8.07204px)`), colors matched the three intended tokens exactly, shapes (dot/confetti-rect/Sparkle) all present, all originating from dead-center (`left:50%;top:50%`).
+  - Success state: checkmark + "Order Placed!" + "Your order has been placed successfully." — settled screenshot confirmed.
+- **Reduced motion**: `window.matchMedia` overridden via `initScript` to force `(prefers-reduced-motion: reduce)`. Simplified path rendered, navigation to the real order-confirmation page still succeeded, zero console errors.
+- **Checkout failure**: real network-offline simulation (`emulate` networkConditions `Offline`) during submit — no celebration rendered, form/payment-method selection fully intact, no navigation; restoring the network and resubmitting succeeded normally (fresh order, fresh confirmation page) — same failure/retry behavior the 2026-09-10 fix's own verification already established, unaffected by this change.
+- **Responsive**: 375 / 1024 / 1440px, both the progress and celebrate phases — centered, no overflow, no layout shift, in each case verified via the timer-freeze technique above (not a best-effort glance).
+- **768px**: covered incidentally (checkout form itself reflows to the two-column desktop layout at `md:`, `768` and `1024` share that layout) — not re-verified pixel-for-pixel as its own screenshot, since the celebration's own layout (a centered flex column, independent of the two-column form grid beneath it) doesn't have a distinct breakpoint between 768 and 1024 to begin with.
+- **Razorpay path**: not separately screenshotted this session — `checkoutApi.checkout()` returns the same shape (an order id, `PENDING_PAYMENT`) regardless of `paymentMethod`, and everything COD/Razorpay actually differ on happens downstream, inside the untouched `OrderConfirmation.tsx`, after this component has already handed off — so the celebration itself is payment-method-agnostic by construction, not merely assumed to be.
+
+**Build/typecheck/lint/boundaries:**
+- `pnpm exec tsc --noEmit` (`apps/web`) and `pnpm exec eslint ... --max-warnings=0` on both changed/new files — clean.
+- `pnpm -r run typecheck` / `pnpm -r run lint` — clean, all 9 projects.
+- `pnpm run boundaries:check` — clean, 620 modules / 1991 deps, 0 violations (frontend-only change, no backend module touched).
+- `pnpm run build` — clean, all three apps. `/checkout`'s own bundle grew (4.69kB→7.72kB, First Load 190kB→233kB — the new component's own code plus a heavier direct `motion/react` import); `/order-confirmation/[id]`'s reported bundle size dropped in the same build (43.1kB→3.61kB) purely from Next/webpack's chunk-splitting shifting `motion`'s shared code around now that a third route imports it — confirmed this is not a functional regression via `git diff` (zero changes to that file) and a live, byte-for-byte-unchanged render.
+- `pnpm run test` — same pre-existing `auth` OTP/`devCode` failures as every other entry this session, none new (this change touches no backend code, no `apps/api` file).
+
+**Follow-ups / known gaps:**
+- 768px not independently screenshotted (see above) — low-risk given the celebration's layout is breakpoint-independent, but flagging rather than silently skipping.
+- Razorpay's own post-navigation flow (`OrderConfirmation`'s "Pay now" → widget → poll) wasn't re-exercised this session — untouched by this change, already covered by the 2026-08-27 Week 1 entries' own verification.
+- The particle set (angle/distance/color/shape per particle) is a fixed, hand-tuned array, not procedurally generated — deliberate (restrained, reproducible, no `Math.random()` flicker between renders), but means adding/removing particles later is a manual edit to that array, not a config knob.
