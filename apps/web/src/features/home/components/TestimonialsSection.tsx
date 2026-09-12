@@ -24,7 +24,17 @@ export function TestimonialsSection({
   testimonials: HomeTestimonial[];
   aggregate: HomeTestimonialAggregate | null;
 }) {
-  if (testimonials.length === 0) return null;
+  // `testimonials` is typed as always-an-array, but the actual value comes
+  // straight from a `GET /api/v1/home` response that can be served out of
+  // the API's own 60s home-page cache (home.module.ts's `cacheAside`) — a
+  // cache entry written by pre-this-field API code parses fine as JSON and
+  // is missing the key entirely, so the type alone can't be trusted here.
+  // Fall back to empty rather than crash on `.length` of `undefined`; the
+  // real fix is home.module.ts's cache-key schema version (bumped whenever
+  // HomePageView's shape changes), this is the last line of defense for
+  // whatever staleness window still exists around a deploy.
+  const items = testimonials ?? [];
+  if (items.length === 0) return null;
 
   return (
     <section className="px-4 py-section sm:px-6">
@@ -42,7 +52,7 @@ export function TestimonialsSection({
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {testimonials.map((testimonial) => (
+          {items.map((testimonial) => (
             <TestimonialCard key={testimonial.id} testimonial={testimonial} />
           ))}
         </div>

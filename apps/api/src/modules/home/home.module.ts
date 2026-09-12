@@ -70,6 +70,26 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
 const HOME_TTL_SECONDS = 60;
 
 /**
+ * Bump this whenever `HomePageView`'s shape changes (a field added,
+ * removed, or renamed) and fold it into the cache key below. Without it, a
+ * Redis entry written by the *previous* deploy's `GetHomePageUseCase` (old
+ * shape) still parses as valid JSON and gets served as-is by `cacheAside`
+ * for up to `HOME_TTL_SECONDS` after the new code goes live — it has no way
+ * to know the shape moved under it. That's exactly what happened on
+ * 2026-09-11: `testimonials`/`testimonialAggregate` were added to
+ * `HomePageView`, a still-live pre-deploy cache entry lacked both fields,
+ * and the storefront crashed on `testimonials.length` of `undefined` for
+ * whatever was left of that entry's TTL.
+ *
+ * Deliberately a separate counter from `cache:catalog:version`
+ * (`bumpCatalogCacheVersion()` in `catalog-cache.ts`) — that one tracks
+ * admin CONTENT writes (a product/category/banner edit) and is bumped at
+ * runtime; this one tracks the response SHAPE and is bumped at deploy time,
+ * by hand, in code review, same as any other schema-version constant.
+ */
+const HOME_PAGE_SCHEMA_VERSION = 2;
+
+/**
  * ADR-017 (Caching Strategy) — the whole aggregate cached as one unit,
  * on top of (not instead of) `listProductsUseCase`/`listCategoriesUseCase`/
  * `listVisibleBannersUseCase` already being individually cached above: this
@@ -96,7 +116,9 @@ const HOME_TTL_SECONDS = 60;
  */
 export const getHomePageUseCase = {
   execute: (): Promise<HomePageView> =>
-    env.NODE_ENV === "test" ? realGetHomePageUseCase.execute() : cacheAside("home:page", HOME_TTL_SECONDS, () => realGetHomePageUseCase.execute()),
+    env.NODE_ENV === "test"
+      ? realGetHomePageUseCase.execute()
+      : cacheAside(`home:page:schema${HOME_PAGE_SCHEMA_VERSION}`, HOME_TTL_SECONDS, () => realGetHomePageUseCase.execute()),
 };
 
 const homeController = new HomeController(getHomePageUseCase);
