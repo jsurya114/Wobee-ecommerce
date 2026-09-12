@@ -27,13 +27,23 @@ export const ADMIN_NAV: AdminNavEntry[] = [
   { label: "Inventory", href: "/inventory", status: "live", permission: "MANAGE_INVENTORY" },
   { label: "Staff", href: "/staff", status: "live", permission: "MANAGE_STAFF" },
   { label: "Returns", href: "/returns", status: "live", permission: "MANAGE_ORDERS" },
+  { label: "Testimonials", href: "/testimonials", status: "live", permission: "MANAGE_TESTIMONIALS" },
   { label: "Settings", href: "/settings", status: "live", permission: "MANAGE_SETTINGS" },
 ];
 
 /** Mirrors apps/api/src/config/permissions.ts's ROLE_PERMISSIONS map — duplicated here (client-side convenience only, never the actual enforcement) rather than imported, since apps/admin can't reach into apps/api's internals (ADR-019). The server route guard is what actually enforces access; this only decides what to show. */
 export const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
   CUSTOMER: new Set(),
-  SUPER_ADMIN: new Set(["MANAGE_SETTINGS", "MANAGE_CATALOG", "MANAGE_INVENTORY", "MANAGE_ORDERS", "MANAGE_STAFF", "MANAGE_CUSTOMERS", "VIEW_ANALYTICS"]),
+  SUPER_ADMIN: new Set([
+    "MANAGE_SETTINGS",
+    "MANAGE_CATALOG",
+    "MANAGE_INVENTORY",
+    "MANAGE_ORDERS",
+    "MANAGE_STAFF",
+    "MANAGE_CUSTOMERS",
+    "VIEW_ANALYTICS",
+    "MANAGE_TESTIMONIALS",
+  ]),
   ORDER_PROCESSING_STAFF: new Set(["MANAGE_ORDERS"]),
   PRODUCT_MANAGEMENT_STAFF: new Set(["MANAGE_CATALOG", "MANAGE_INVENTORY"]),
 };

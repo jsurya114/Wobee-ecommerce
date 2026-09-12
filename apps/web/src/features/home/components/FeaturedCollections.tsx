@@ -2,6 +2,7 @@ import { SectionHeader } from "@woobe/ui";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import type { Collection } from "@/features/catalog/api/collections.client";
+import { SITE_HEADER_HEIGHT_REM } from "@/lib/layout-constants";
 
 /**
  * "Curated collections" rail (Week 2 Day 8 Part 2, week2 (1).md §12;
@@ -19,7 +20,7 @@ export function FeaturedCollections({ collections }: { collections: Collection[]
   if (collections.length === 0) return null;
 
   return (
-    <section className="px-4 py-section sm:px-6">
+    <section id="curated-collections" style={{ scrollMarginTop: SITE_HEADER_HEIGHT_REM }} className="px-4 py-section sm:px-6">
       <div className="mx-auto max-w-6xl">
         <SectionHeader>Curated collections</SectionHeader>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

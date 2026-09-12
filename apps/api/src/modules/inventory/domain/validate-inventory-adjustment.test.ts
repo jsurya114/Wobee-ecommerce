@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLowStock, isOutOfStock, LOW_STOCK_THRESHOLD, validateInventoryAdjustment } from "./validate-inventory-adjustment";
+import { getInventoryStatus, isLowStock, isOutOfStock, LOW_STOCK_THRESHOLD, validateInventoryAdjustment } from "./validate-inventory-adjustment";
 
 describe("validateInventoryAdjustment", () => {
   it("accepts a positive restock", () => {
@@ -40,8 +40,15 @@ describe("validateInventoryAdjustment", () => {
 });
 
 describe("isLowStock", () => {
-  it(`flags sellable quantity at or under the ${LOW_STOCK_THRESHOLD}-unit threshold`, () => {
-    expect(isLowStock(LOW_STOCK_THRESHOLD, 0)).toBe(true);
+  it(`is false exactly AT the ${LOW_STOCK_THRESHOLD}-unit threshold — the threshold value itself is IN_STOCK, not LOW_STOCK`, () => {
+    expect(isLowStock(LOW_STOCK_THRESHOLD, 0)).toBe(false);
+  });
+
+  it(`is true exactly one unit below the ${LOW_STOCK_THRESHOLD}-unit threshold`, () => {
+    expect(isLowStock(LOW_STOCK_THRESHOLD - 1, 0)).toBe(true);
+  });
+
+  it("is false comfortably above the threshold", () => {
     expect(isLowStock(LOW_STOCK_THRESHOLD + 1, 0)).toBe(false);
   });
 
@@ -64,5 +71,14 @@ describe("isOutOfStock", () => {
 
   it("is false when sellable quantity is positive", () => {
     expect(isOutOfStock(5, 4)).toBe(false);
+  });
+});
+
+describe("getInventoryStatus", () => {
+  it("classifies the exact boundary values consistently with isLowStock/isOutOfStock", () => {
+    expect(getInventoryStatus(0, 0)).toBe("OUT_OF_STOCK");
+    expect(getInventoryStatus(LOW_STOCK_THRESHOLD - 1, 0)).toBe("LOW_STOCK");
+    expect(getInventoryStatus(LOW_STOCK_THRESHOLD, 0)).toBe("IN_STOCK");
+    expect(getInventoryStatus(LOW_STOCK_THRESHOLD + 1, 0)).toBe("IN_STOCK");
   });
 });

@@ -78,6 +78,13 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().default("Woobe <no-reply@woobe.local>"),
 
+  // Transactional email templates (2026-09-10) — the branded layout's
+  // footer support line and the customer-facing CTA links (order pages,
+  // "shop now"). `WEB_ORIGIN` above is the storefront origin and is reused
+  // for the links; `SUPPORT_EMAIL` is the address shown in every email's
+  // footer. Not secrets — safe defaults, override per environment.
+  SUPPORT_EMAIL: z.string().default("hello@woobe.in"),
+
   // "Continue with Google" (2026-09-05) — Google Identity Services' ID-token
   // flow: the frontend obtains a signed Google ID token and hands it to the
   // API, which verifies it server-side (google-auth-library's verifyIdToken).

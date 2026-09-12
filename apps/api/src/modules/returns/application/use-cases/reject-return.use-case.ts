@@ -2,6 +2,8 @@ import type { Role } from "@woobe/types";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import type { ReturnEntity } from "../../domain/entities/return.entity";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
+import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
+import type { OrderReaderPort } from "../ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "../ports/order-return-flag-writer.port";
 import type { ReturnRepositoryPort } from "../ports/return-repository.port";
 
@@ -12,12 +14,18 @@ import type { ReturnRepositoryPort } from "../ports/return-repository.port";
  * purely to land in the audit log, not persisted on the Return row itself
  * — a deliberate scope call, not an oversight, since inventing a new
  * column beyond the approved status model isn't this module's call to make.
+ *
+ * A RETURN_REJECTED email is enqueued (async, best-effort) only when this
+ * call actually performed the RETURN_REQUESTED -> RETURN_REJECTED
+ * transition — never on a repeat/lost-race call.
  */
 export class RejectReturnUseCase {
   constructor(
     private readonly returnRepository: ReturnRepositoryPort,
     private readonly orderReturnFlagWriter: OrderReturnFlagWriterPort,
     private readonly auditLogger: AuditLoggerPort,
+    private readonly orderReader: OrderReaderPort,
+    private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
   async execute(returnId: string, actor: { id: string; role: Role }, reason?: string): Promise<ReturnEntity> {
@@ -44,6 +52,17 @@ export class RejectReturnUseCase {
       entityId: returnId,
       metadata: { reason },
     });
+
+    const order = await this.orderReader.forAdmin(result.return.orderId);
+    await this.notificationEnqueuer
+      .enqueue({
+        userId: order.userId,
+        type: "RETURN_REJECTED",
+        channel: "EMAIL",
+        payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId, reason },
+      })
+      .catch(() => undefined);
+
     return result.return;
   }
 }

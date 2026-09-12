@@ -12,7 +12,7 @@ export * from "./payments.schema";
 export * from "./pricing.schema";
 export * from "./products.schema";
 export * from "./returns.schema";
-export * from "./reviews.schema";
+export * from "./testimonials.schema";
 export * from "./shared";
 export * from "./shipping.schema";
 export * from "./staff.schema";

@@ -2,6 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { ButtonHTMLAttributes } from "react";
 import { forwardRef } from "react";
 import { cn } from "../lib/cn";
+import { Spinner } from "./Spinner";
 
 /** Exported so a non-`<button>` element (e.g. a Next.js `Link` styled as a button/CTA) can share the exact same classes without an `asChild`/Slot indirection this primitive doesn't implement. */
 export const buttonVariants = cva(
@@ -36,6 +37,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       aria-busy={isLoading}
       {...props}
     >
+      {/* `isLoading` previously only disabled the button (no visible change beyond
+          `disabled:opacity-50`) despite `Spinner`'s own doc comment already describing
+          this as Button's job — every "Save"/"Adjust"/etc. click across the app looked
+          like a no-op until the request settled. A spinner alongside the existing label
+          (not a text swap) needs no caller changes anywhere this prop is already passed. */}
+      {isLoading ? <Spinner size={size === "sm" ? "sm" : "default"} className="text-current" /> : null}
       {children}
     </button>
   ),

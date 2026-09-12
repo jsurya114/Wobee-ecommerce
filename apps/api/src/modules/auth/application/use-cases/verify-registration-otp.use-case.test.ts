@@ -47,13 +47,15 @@ function build(rec: EmailVerificationRecord | null) {
       revokedAt: null,
     }),
   } as unknown as AuthRepositoryPort;
+  const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
   const useCase = new VerifyRegistrationOtpUseCase(
     authRepository,
     otpService,
     new JwtService(),
     new RefreshTokenService(),
+    notificationEnqueuer,
   );
-  return { useCase, authRepository };
+  return { useCase, authRepository, notificationEnqueuer };
 }
 
 describe("VerifyRegistrationOtpUseCase", () => {
@@ -107,5 +109,23 @@ describe("VerifyRegistrationOtpUseCase", () => {
     expect(result.user.id).toBe("u1");
     expect(typeof result.accessToken).toBe("string");
     expect(typeof result.refreshToken).toBe("string");
+  });
+
+  it("correct code -> enqueues a WELCOME email to the new account", async () => {
+    const { useCase, notificationEnqueuer } = build(record());
+    await useCase.execute({ email: "asha@example.com", code: CODE });
+    expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith({
+      userId: "u1",
+      type: "WELCOME",
+      channel: "EMAIL",
+      payload: { contactEmail: "asha@example.com", name: "Asha Rao" },
+    });
+  });
+
+  it("a failing notification enqueue does NOT fail the registration", async () => {
+    const { useCase, notificationEnqueuer } = build(record());
+    notificationEnqueuer.enqueue.mockRejectedValueOnce(new Error("redis down"));
+    const result = await useCase.execute({ email: "asha@example.com", code: CODE });
+    expect(result.user.id).toBe("u1");
   });
 });

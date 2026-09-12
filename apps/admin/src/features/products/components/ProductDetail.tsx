@@ -5,6 +5,7 @@ import { Badge, Button, Card } from "@woobe/ui";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
+import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminCategories } from "../hooks/useAdminCategories";
 import { useAdminProduct } from "../hooks/useAdminProduct";
 import { ProductForm } from "./ProductForm";
@@ -12,10 +13,14 @@ import { ProductImages } from "./ProductImages";
 import { VariantsList } from "./VariantsList";
 
 export function ProductDetail({ productId }: { productId: string }) {
+  const saveAndRedirect = useSaveAndRedirect("/products");
   const { product, loading, error, update, setActive, createVariant, updateVariant, setVariantActive, addImage, removeImage, reorderImages } =
     useAdminProduct(productId);
   const { categories } = useAdminCategories();
   const [isTogglingActive, setIsTogglingActive] = useState(false);
+  // Bumped after every successful save — see the `key` comment on ProductForm
+  // below for why this is needed on top of the id-keyed remount.
+  const [saveGen, setSaveGen] = useState(0);
 
   if (loading) {
     return <LoadingState />;
@@ -59,7 +64,11 @@ export function ProductDetail({ productId }: { productId: string }) {
           // tied to the id, ProductForm's internal useState(values) would
           // keep showing the previous product's values after `product` has
           // already updated underneath it (same bug class as BannerForm).
-          key={productId}
+          // `saveGen` is folded in too: saving an edit to the SAME product
+          // doesn't change `productId`, so without it the form's local
+          // state would stay frozen at its pre-save values even though
+          // `product` (and the listing) already reflect the fresh save.
+          key={`${productId}:${saveGen}`}
           categories={categories}
           initialValues={{
             name: product.name,
@@ -71,10 +80,12 @@ export function ProductDetail({ productId }: { productId: string }) {
             metaDescription: product.metaDescription ?? "",
           }}
           submitLabel="Save changes"
-          onSubmit={async (payload) => {
-            await update(payload);
-            toast.success("Product updated");
-          }}
+          onSubmit={(payload) =>
+            saveAndRedirect(async () => {
+              await update(payload);
+              setSaveGen((g) => g + 1);
+            })
+          }
         />
       </Card>
 

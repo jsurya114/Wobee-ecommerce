@@ -4,6 +4,7 @@ import { hasVerifyAttemptsLeft, isOtpConsumed, isOtpExpired, MAX_VERIFY_ATTEMPTS
 import type { BcryptService } from "../../infrastructure/services/bcrypt.service";
 import type { OtpCodeService } from "../../infrastructure/services/otp-code.service";
 import type { AuthRepositoryPort } from "../ports/auth-repository.port";
+import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
 
 /**
  * Step 2 of forgot-password: check the code and, if it's right, set the new
@@ -11,6 +12,9 @@ import type { AuthRepositoryPort } from "../ports/auth-repository.port";
  * the code is consumed exactly once. On success every refresh token for the
  * user is revoked (a password change ends all other sessions) and the reset
  * row is deleted. No session is issued — the user logs in fresh afterwards.
+ * A PASSWORD_RESET_SUCCESS security-confirmation email is enqueued (async)
+ * only after the password is actually changed, wrapped so a queue failure
+ * can't fail the reset.
  *
  * Deliberately mirrors VerifyRegistrationOtpUseCase's guard order (expired →
  * attempt cap → wrong code increments-then-throws) so the two OTP flows
@@ -21,6 +25,7 @@ export class ResetPasswordUseCase {
     private readonly authRepository: AuthRepositoryPort,
     private readonly otpCodeService: OtpCodeService,
     private readonly bcryptService: BcryptService,
+    private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
   async execute({ email, code, password }: ResetPasswordInput): Promise<void> {
@@ -47,5 +52,16 @@ export class ResetPasswordUseCase {
     // A password change kills every existing session — same response as
     // refresh-token reuse detection.
     await this.authRepository.revokeAllRefreshTokensForUser(record.userId);
+
+    // Best-effort security-confirmation email — the password is already
+    // changed; a queue failure here must not fail the reset.
+    await this.notificationEnqueuer
+      .enqueue({
+        userId: record.userId,
+        type: "PASSWORD_RESET_SUCCESS",
+        channel: "EMAIL",
+        payload: { contactEmail: email },
+      })
+      .catch(() => undefined);
   }
 }

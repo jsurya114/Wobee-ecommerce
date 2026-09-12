@@ -7,14 +7,21 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
+import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminCoupon } from "../hooks/useAdminCoupon";
 import { CouponForm, toDatetimeLocalValue, toRupeesValue } from "./CouponForm";
 
 export function CouponDetail({ couponId }: { couponId: string }) {
   const router = useRouter();
+  const saveAndRedirect = useSaveAndRedirect("/coupons");
   const { coupon, loading, error, update, setActive, remove } = useAdminCoupon(couponId);
   const [isTogglingActive, setIsTogglingActive] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Bumped after every successful same-coupon save so CouponForm below remounts (see its `key`) —
+  // the update mutation already refreshes the cached `coupon` query data correctly, but CouponForm's
+  // own local `values` state only initializes from `initialValues` on mount, so without this the form
+  // would keep showing pre-save values even though the save genuinely persisted (listing page proves it).
+  const [saveGen, setSaveGen] = useState(0);
 
   if (loading) {
     return <LoadingState />;
@@ -80,7 +87,8 @@ export function CouponDetail({ couponId }: { couponId: string }) {
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>
         <CouponForm
           // Next reuses this component instance across /coupons/[id1] -> [id2] navigation — same fix as CategoryForm/ProductForm.
-          key={couponId}
+          // `saveGen` also bumps this key after a same-coupon save so the form remounts with the fresh values too.
+          key={`${couponId}:${saveGen}`}
           initialValues={{
             code: coupon.code,
             type: coupon.type,
@@ -93,10 +101,12 @@ export function CouponDetail({ couponId }: { couponId: string }) {
             validTo: toDatetimeLocalValue(coupon.validTo),
           }}
           submitLabel="Save changes"
-          onSubmit={async (payload) => {
-            await update(payload);
-            toast.success("Coupon updated");
-          }}
+          onSubmit={(payload) =>
+            saveAndRedirect(async () => {
+              await update(payload);
+              setSaveGen((g) => g + 1);
+            })
+          }
         />
       </Card>
 

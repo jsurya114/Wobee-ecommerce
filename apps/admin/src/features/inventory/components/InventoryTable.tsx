@@ -7,9 +7,6 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import type { AdminInventoryRow } from "../api/admin-inventory.client";
 
-/** DECISIONS_PENDING.md #6 — matches apps/api's own LOW_STOCK_THRESHOLD constant (inventory/domain/validate-inventory-adjustment.ts); duplicated here since apps/admin can't import apps/api's internals (ADR-019), same reasoning nav-config.ts's own ROLE_PERMISSIONS mirror already documents. */
-const LOW_STOCK_THRESHOLD = 5;
-
 export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]; onAdjust: (variantId: string, delta: number, reason: string) => Promise<void> }) {
   const [adjustingId, setAdjustingId] = useState<string | null>(null);
   const [delta, setDelta] = useState("");
@@ -47,7 +44,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
     setIsSubmitting(true);
     try {
       await onAdjust(variantId, parsedDelta, reason.trim());
-      toast.success("Inventory adjusted");
+      toast.success("Saved successfully");
       setAdjustingId(null);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "That didn't work.");
@@ -94,7 +91,8 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
         <tbody>
           {items.map((row) => {
             const sellable = row.quantityAvailable - row.quantityReserved;
-            const status = sellable <= 0 ? "out of stock" : sellable <= LOW_STOCK_THRESHOLD ? "low stock" : "in stock";
+            // Backend-authoritative — never re-derived from raw numbers here (see AdminInventoryRow.status's own doc comment).
+            const statusLabel = row.status === "OUT_OF_STOCK" ? "out of stock" : row.status === "LOW_STOCK" ? "low stock" : "in stock";
             const variant = row.color && row.size ? `${row.color} / ${row.size}` : "";
             return (
               <Fragment key={row.variantId}>
@@ -108,7 +106,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
                   <td className="py-3 pr-4 text-text-primary">{row.quantityReserved}</td>
                   <td className="py-3 pr-4 text-text-primary">{sellable}</td>
                   <td className="py-3 pr-4">
-                    <Badge variant={status === "in stock" ? "success" : status === "low stock" ? "neutral" : "error"}>{status}</Badge>
+                    <Badge variant={statusLabel === "in stock" ? "success" : statusLabel === "low stock" ? "neutral" : "error"}>{statusLabel}</Badge>
                   </td>
                   <td className="py-3 pr-4">
                     <Button variant="secondary" size="sm" onClick={() => startAdjusting(row.variantId)}>

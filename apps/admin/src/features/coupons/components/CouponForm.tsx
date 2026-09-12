@@ -3,8 +3,7 @@
 import { Button, FormField, RadioGroup, RadioGroupItem } from "@woobe/ui";
 import { paiseToRupees, rupeesToPaise } from "@woobe/utils";
 import { useState } from "react";
-import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
+import { useFormError } from "@/lib/use-form-error";
 import type { CouponPayload, CouponType } from "../api/admin-coupons.client";
 
 export interface CouponFormValues {
@@ -44,25 +43,25 @@ export function CouponForm({
 }) {
   const [values, setValues] = useState<CouponFormValues>({ ...EMPTY_VALUES, ...initialValues });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [fieldError, setFieldError] = useState<string | null>(null);
+  const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
 
   const set = <K extends keyof CouponFormValues>(key: K, value: CouponFormValues[K]) => setValues((prev) => ({ ...prev, [key]: value }));
 
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFieldError(null);
+    clear();
 
     if (!values.code.trim()) {
-      setFieldError("Enter a coupon code");
+      setFieldError("code", "Enter a coupon code");
       return;
     }
     const value = Number(values.value);
     if (!values.value.trim() || !Number.isFinite(value) || value <= 0) {
-      setFieldError("Enter a positive value");
+      setFieldError("value", "Enter a positive value");
       return;
     }
     if (!values.validFrom || !values.validTo) {
-      setFieldError("Set both a start and an expiry date");
+      setFieldError(values.validFrom ? "validTo" : "validFrom", "Set both a start and an expiry date");
       return;
     }
 
@@ -82,26 +81,29 @@ export function CouponForm({
     try {
       await onSubmit(payload);
     } catch (error) {
-      if (error instanceof ApiError && error.fieldErrors) {
-        setFieldError(Object.values(error.fieldErrors)[0]?.[0] ?? error.message);
-      } else if (error instanceof ApiError) {
-        setFieldError(error.message); // e.g. 409 duplicate code, 400 cross-field business rule
-      } else {
-        toast.error("That didn't work. Please try again.");
-      }
+      // A duplicate-code 409 (ConflictError) has no structural field to attach to (it's not
+      // a Zod field error) — `handle` correctly falls back to the one inline `formError`
+      // banner below rather than a toast; a real 400 Zod error DOES land per-field via
+      // `fieldErrors` (e.g. `fieldErrors.code`/`fieldErrors.value`), same backend field
+      // names as `createCouponSchema`/`updateCouponSchema`.
+      handle(error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // noValidate: this form's own field-level checks above and its catch block's ApiError/
+  // fieldErrors handling already surface real messages — native HTML validation was
+  // intercepting submission before either ran, showing the browser's own generic bubble.
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-4" noValidate>
       <FormField
         label="Coupon code"
         value={values.code}
         onChange={(e) => set("code", e.target.value.toUpperCase())}
         placeholder="SUMMER20"
         required
+        error={fieldErrors.code}
       />
 
       <div className="flex flex-col gap-2">
@@ -122,6 +124,7 @@ export function CouponForm({
           value={values.value}
           onChange={(e) => set("value", e.target.value)}
           required
+          error={fieldErrors.value}
         />
         {values.type === "PERCENTAGE" ? (
           <FormField
@@ -132,6 +135,7 @@ export function CouponForm({
             value={values.maxDiscountRupees}
             onChange={(e) => set("maxDiscountRupees", e.target.value)}
             helperText="Caps the percentage discount at this amount."
+            error={fieldErrors.maxDiscountPaise}
           />
         ) : null}
       </div>
@@ -144,6 +148,7 @@ export function CouponForm({
         value={values.minCartValueRupees}
         onChange={(e) => set("minCartValueRupees", e.target.value)}
         helperText="Leave blank for no minimum."
+        error={fieldErrors.minCartValuePaise}
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -155,6 +160,7 @@ export function CouponForm({
           value={values.usageLimit}
           onChange={(e) => set("usageLimit", e.target.value)}
           helperText="Total redemptions across every customer. Blank = unlimited."
+          error={fieldErrors.usageLimit}
         />
         <FormField
           label="Per-customer limit (optional)"
@@ -164,17 +170,32 @@ export function CouponForm({
           value={values.perUserLimit}
           onChange={(e) => set("perUserLimit", e.target.value)}
           helperText="Times any one customer can use this. Blank = unlimited."
+          error={fieldErrors.perUserLimit}
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Start" type="datetime-local" value={values.validFrom} onChange={(e) => set("validFrom", e.target.value)} required />
-        <FormField label="Expiry" type="datetime-local" value={values.validTo} onChange={(e) => set("validTo", e.target.value)} required />
+        <FormField
+          label="Start"
+          type="datetime-local"
+          value={values.validFrom}
+          onChange={(e) => set("validFrom", e.target.value)}
+          required
+          error={fieldErrors.validFrom}
+        />
+        <FormField
+          label="Expiry"
+          type="datetime-local"
+          value={values.validTo}
+          onChange={(e) => set("validTo", e.target.value)}
+          required
+          error={fieldErrors.validTo}
+        />
       </div>
 
-      {fieldError ? (
+      {formError ? (
         <p role="alert" className="font-body text-sm text-error">
-          {fieldError}
+          {formError}
         </p>
       ) : null}
 

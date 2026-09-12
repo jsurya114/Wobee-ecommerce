@@ -5,6 +5,7 @@ import type { JwtService } from "../../infrastructure/services/jwt.service";
 import type { OtpCodeService } from "../../infrastructure/services/otp-code.service";
 import type { RefreshTokenService } from "../../infrastructure/services/refresh-token.service";
 import type { AuthRepositoryPort } from "../ports/auth-repository.port";
+import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
 import { issueTokenPair } from "./issue-token-pair";
 import type { RegisterResult } from "./register-user.use-case";
 
@@ -13,6 +14,11 @@ import type { RegisterResult } from "./register-user.use-case";
  * `createUserWithPassword` + `issueTokenPair` path — the result shape is
  * identical to RegisterUserUseCase's, so the controller/cookie handling
  * matches `register` exactly. The pending row is deleted on success.
+ *
+ * On a genuinely-new account it enqueues a WELCOME email (async, via the
+ * notification queue) — strictly AFTER the user row exists, and wrapped so
+ * a queue failure can never fail the registration the customer just
+ * completed.
  */
 export class VerifyRegistrationOtpUseCase {
   constructor(
@@ -20,6 +26,7 @@ export class VerifyRegistrationOtpUseCase {
     private readonly otpCodeService: OtpCodeService,
     private readonly jwtService: JwtService,
     private readonly refreshTokenService: RefreshTokenService,
+    private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
   async execute({ email, code }: VerifyOtpInput): Promise<RegisterResult> {
@@ -55,6 +62,18 @@ export class VerifyRegistrationOtpUseCase {
       jwtService: this.jwtService,
       refreshTokenService: this.refreshTokenService,
     });
+
+    // Best-effort welcome email — the account already exists and is
+    // usable; a queue/Redis hiccup here must not turn a successful
+    // registration into an error for the customer.
+    await this.notificationEnqueuer
+      .enqueue({
+        userId: user.id,
+        type: "WELCOME",
+        channel: "EMAIL",
+        payload: { contactEmail: user.email, name: user.name },
+      })
+      .catch(() => undefined);
 
     return { user, ...tokens };
   }

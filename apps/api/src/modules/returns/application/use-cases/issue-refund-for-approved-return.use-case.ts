@@ -68,6 +68,17 @@ export class IssueRefundForApprovedReturnUseCase {
       throw new ConflictError("This return isn't ready for a refund");
     }
 
+    // Refund is now in flight (money not yet moved) — best-effort "refund
+    // initiated" email. Semantically distinct from the completion email below.
+    await this.notificationEnqueuer
+      .enqueue({
+        userId: order.userId,
+        type: "REFUND_INITIATED",
+        channel: "EMAIL",
+        payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId, amountPaise },
+      })
+      .catch(() => undefined);
+
     const { outcome } = await this.refundIssuer.issueForReturn(returnId, existing.orderId, amountPaise);
     await this.auditLogger.log({
       actorId: actor.id,
@@ -86,12 +97,14 @@ export class IssueRefundForApprovedReturnUseCase {
       if (stillActive === 0) {
         await this.orderReturnFlagWriter.setHasActiveReturn(existing.orderId, false);
       }
-      await this.notificationEnqueuer.enqueue({
-        userId: order.userId,
-        type: "REFUND_PROCESSED",
-        channel: "EMAIL",
-        payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId, amountPaise },
-      });
+      await this.notificationEnqueuer
+        .enqueue({
+          userId: order.userId,
+          type: "REFUND_COMPLETED",
+          channel: "EMAIL",
+          payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber, returnId, amountPaise },
+        })
+        .catch(() => undefined);
       return { return: finalized.return, outcome };
     }
 

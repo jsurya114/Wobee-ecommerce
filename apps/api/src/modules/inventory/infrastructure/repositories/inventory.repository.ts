@@ -1,6 +1,6 @@
 import { Prisma, prisma } from "@woobe/database";
 import { NotFoundError, UnprocessableEntityError } from "../../../../shared/errors";
-import { LOW_STOCK_THRESHOLD, validateInventoryAdjustment } from "../../domain/validate-inventory-adjustment";
+import { getInventoryStatus, isLowStock, isOutOfStock, validateInventoryAdjustment } from "../../domain/validate-inventory-adjustment";
 import type {
   AdminInventoryRow,
   InventoryRepositoryPort,
@@ -188,6 +188,11 @@ export class InventoryRepository implements InventoryRepositoryPort {
       },
     });
 
+    // status is computed once, here, via the same domain functions the
+    // filters below use — a row's badge and its filter membership can never
+    // disagree, unlike before this fix (apps/admin used to re-derive status
+    // from raw numbers with its own, differently-off-by-one copy of the
+    // threshold).
     const mapped: AdminInventoryRow[] = rows.map((row) => ({
       variantId: row.variantId,
       productId: row.variant.product.id,
@@ -197,12 +202,12 @@ export class InventoryRepository implements InventoryRepositoryPort {
       size: row.variant.size,
       quantityAvailable: row.quantityAvailable,
       quantityReserved: row.quantityReserved,
+      status: getInventoryStatus(row.quantityAvailable, row.quantityReserved),
     }));
 
     const filtered = mapped.filter((row) => {
-      const sellable = row.quantityAvailable - row.quantityReserved;
-      if (filter.outOfStockOnly && sellable > 0) return false;
-      if (filter.lowStockOnly && !(sellable > 0 && sellable <= LOW_STOCK_THRESHOLD)) return false;
+      if (filter.outOfStockOnly && !isOutOfStock(row.quantityAvailable, row.quantityReserved)) return false;
+      if (filter.lowStockOnly && !isLowStock(row.quantityAvailable, row.quantityReserved)) return false;
       return true;
     });
 

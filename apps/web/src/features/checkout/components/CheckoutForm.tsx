@@ -15,7 +15,7 @@ import {
 } from "@woobe/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
@@ -27,6 +27,7 @@ import * as shippingApi from "@/features/shipping/api/shipping.client";
 import type { ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import * as checkoutApi from "../api/checkout.client";
 import { CheckoutAddressPicker } from "./CheckoutAddressPicker";
+import { OrderPlacementCelebration } from "./OrderPlacementCelebration";
 
 export function CheckoutForm() {
   const router = useRouter();
@@ -53,6 +54,38 @@ export function CheckoutForm() {
   // doc comment). Never blocks checkout; it's a courtesy heads-up.
   const [deliveryEstimate, setDeliveryEstimate] =
     useState<ShippingEstimate | null>(null);
+
+  // Bug fix (2026-09-09): checkout's own success path awaits `refreshCart()`
+  // before navigating (see onSubmit below) so the app-root nav badge is
+  // already correct by the time the confirmation page mounts — but that
+  // `setCart` happens while THIS component is still mounted on /checkout,
+  // and the render guards below ("Your bag is empty" / weight threshold)
+  // read that same cart state. Without this flag, the now-emptied cart
+  // makes this component render its own empty-bag branch for the beat
+  // between the refresh resolving and `router.push` completing the route
+  // change — a real race, not a guess: the order already placed
+  // successfully, the cart is *supposed* to be empty now, this component
+  // just shouldn't be the one reacting to that. `orderPlaced` scopes
+  // "ignore what cart state says, we know why it's empty" to this one
+  // component's own checkout flow, so the shared cart guards stay honest
+  // for every other case (a shopper who genuinely has an empty bag still
+  // sees them normally) — see journal.md 2026-09-05 for the refresh fix
+  // this complements.
+  const [orderPlaced, setOrderPlaced] = useState(false);
+  // The just-placed order's id, captured purely for navigation once the
+  // celebration finishes — never re-derived from cart/checkout state, and
+  // never passed into the (untouched) confirmation page as props; that
+  // page still fetches its own data by id exactly as before.
+  const [placedOrderId, setPlacedOrderId] = useState<string | null>(null);
+  // `refreshCart()` still runs (and is still awaited before navigating) for
+  // the exact reason the 2026-09-09 fix documented below — the nav badge
+  // must be correct by the time the confirmation page mounts. What changed
+  // (2026-09-12, order-placement celebration) is *when* the navigation
+  // itself fires: previously immediately after this promise resolved, now
+  // only once BOTH this has resolved AND the celebration animation's own
+  // timeline has finished — whichever takes longer — so a fast cart
+  // refresh can never cut the animation short.
+  const cartRefreshRef = useRef<Promise<void> | null>(null);
   const pincodeField = register("address.pincode");
   const checkPincode = async (pincode: string) => {
     if (!pincode.trim()) {
@@ -143,6 +176,12 @@ export function CheckoutForm() {
   const onSubmit = handleSubmit(async (data) => {
     try {
       const order = await checkoutApi.checkout(data, accessToken ?? undefined);
+      // Order already placed successfully server-side — from this point on,
+      // this component's own empty-cart/weight guards must stop reading
+      // cart state (see the flag's doc comment above) regardless of what
+      // `refreshCart` below is about to do to it.
+      setPlacedOrderId(order.id);
+      setOrderPlaced(true);
       // CheckoutUseCase converts the cart server-side inside the same
       // transaction as order creation (unconditional — happens regardless
       // of payment method, since that's a separate concern from "is this
@@ -153,18 +192,15 @@ export function CheckoutForm() {
       // a full page reload remounted the provider. `refreshCart` re-fetches
       // the now-authoritative (converted/empty) cart from the server, the
       // same "ask the backend, don't guess" rule every other cart mutation
-      // already follows. Awaited (not fire-and-forget) so the nav badge is
-      // already correct by the time the confirmation page renders, rather
-      // than snapping from stale to correct a beat later — errors are
-      // swallowed rather than blocking navigation to an order that was
-      // already placed successfully; the next real page load resolves it
-      // regardless.
-      await refreshCart().catch(() => {});
-      // The order lands at PENDING_PAYMENT regardless of method — the
-      // confirmation page drives it the rest of the way (COD confirms
-      // itself immediately; Razorpay opens Checkout and waits for the
-      // webhook-verified capture, ADR-014).
-      router.push(`/order-confirmation/${order.id}`);
+      // already follows. Kicked off here (not awaited inline) so the
+      // order-placement celebration can start rendering immediately rather
+      // than waiting on this network round trip; `handleCelebrationComplete`
+      // below still awaits it before navigating, preserving the original
+      // guarantee that the nav badge is correct by the time the
+      // confirmation page mounts. Errors are swallowed rather than blocking
+      // navigation to an order that was already placed successfully — the
+      // next real page load resolves it regardless.
+      cartRefreshRef.current = refreshCart().catch(() => {});
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.fieldErrors) {
@@ -181,12 +217,38 @@ export function CheckoutForm() {
     }
   });
 
+  // Fires once `OrderPlacementCelebration`'s own fixed animation timeline
+  // finishes. Still waits on the cart refresh kicked off in `onSubmit`
+  // above (a no-op await in the near-certain case it already settled
+  // during the ~2s animation) before navigating — this is the only place
+  // that actually calls `router.push` for a successful checkout now.
+  const handleCelebrationComplete = useCallback(() => {
+    if (!placedOrderId) return;
+    void (cartRefreshRef.current ?? Promise.resolve()).then(() => {
+      router.push(`/order-confirmation/${placedOrderId}`);
+    });
+  }, [placedOrderId, router]);
+
   if (isCartLoading) {
     return (
       <p className="py-16 text-center font-body text-sm text-text-secondary">
         Loading your bag…
       </p>
     );
+  }
+
+  // Order placed — the cart legitimately just went empty (or stale) as a
+  // side effect of `refreshCart()` above, on this very page, mid-navigation
+  // to the confirmation route. Render a transitional state instead of
+  // falling into the empty-bag/weight guards below, which would otherwise
+  // misread "checkout just succeeded" as "this shopper's bag is empty."
+  // (2026-09-12: this transitional state is now the order-placement
+  // celebration rather than a plain "Redirecting…" line — same guard,
+  // richer transition. `placedOrderId` is always set in the same tick as
+  // `orderPlaced`, in `onSubmit` above, so this null-check never actually
+  // renders nothing in practice.)
+  if (orderPlaced) {
+    return placedOrderId ? <OrderPlacementCelebration onComplete={handleCelebrationComplete} /> : null;
   }
 
   if (!cart || cart.items.length === 0) {

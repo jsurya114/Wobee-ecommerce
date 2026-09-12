@@ -21,6 +21,9 @@ import { UpdateUserProfileUseCase } from "./application/use-cases/update-user-pr
 import { VerifyRegistrationOtpUseCase } from "./application/use-cases/verify-registration-otp.use-case";
 import { VerifyResetPasswordOtpUseCase } from "./application/use-cases/verify-reset-password-otp.use-case";
 import { env } from "../../config/env";
+import { getMailer } from "../../shared/email/get-mailer";
+import { enqueueNotificationUseCase } from "../notifications/notifications.module";
+import type { NotificationEnqueuerPort } from "./application/ports/notification-enqueuer.port";
 import { AuthRepository } from "./infrastructure/repositories/auth.repository";
 import { BcryptService } from "./infrastructure/services/bcrypt.service";
 import { DevOtpNotifier } from "./infrastructure/services/dev-otp-notifier";
@@ -42,11 +45,24 @@ export const bcryptService = new BcryptService();
 const jwtService = new JwtService();
 const refreshTokenService = new RefreshTokenService();
 export const otpCodeService = new OtpCodeService();
-// Real email when SMTP is configured, otherwise the dev stub (logs the code;
-// the API also returns it as `devCode` in non-prod). Both implement the same
-// OtpNotifierPort — see DECISIONS_PENDING.md #7.
-const otpNotifier = env.SMTP_HOST ? new SmtpOtpNotifier() : new DevOtpNotifier();
-const passwordResetNotifier = env.SMTP_HOST ? new SmtpPasswordResetNotifier() : new DevPasswordResetNotifier();
+// Real SYNCHRONOUS OTP email when SMTP is configured, otherwise the dev
+// stub (logs the code; the API also returns it as `devCode` in non-prod).
+// Both implement the same OtpNotifierPort. The Smtp* variants are now thin
+// adapters over the shared `MailerPort` + shared branded templates
+// (`shared/email/`) — one transport, one HTML layout, no duplication —
+// while the delivery path stays synchronous (the user is waiting for the
+// code; it must not depend on the BullMQ worker). See DECISIONS_PENDING.md #7.
+const otpNotifier = env.SMTP_HOST ? new SmtpOtpNotifier(getMailer()) : new DevOtpNotifier();
+const passwordResetNotifier = env.SMTP_HOST ? new SmtpPasswordResetNotifier(getMailer()) : new DevPasswordResetNotifier();
+
+/**
+ * Async auth-lifecycle emails (WELCOME, PASSWORD_RESET_SUCCESS) — through
+ * the existing post-commit notification queue, exactly as `orders`/
+ * `returns` do. Adds an `auth -> notifications` edge (acyclic).
+ */
+const notificationEnqueuer: NotificationEnqueuerPort = {
+  enqueue: (input) => enqueueNotificationUseCase.execute(input),
+};
 
 /** Exported for cross-module use — the admin module (ADR-025) reuses these directly for staff login, same pattern as orders/payments' own exports. */
 export const registerUserUseCase = new RegisterUserUseCase(
@@ -77,6 +93,7 @@ export const verifyRegistrationOtpUseCase = new VerifyRegistrationOtpUseCase(
   otpCodeService,
   jwtService,
   refreshTokenService,
+  notificationEnqueuer,
 );
 export const resendRegistrationOtpUseCase = new ResendRegistrationOtpUseCase(
   authRepository,
@@ -86,7 +103,12 @@ export const resendRegistrationOtpUseCase = new ResendRegistrationOtpUseCase(
 
 export const forgotPasswordUseCase = new ForgotPasswordUseCase(authRepository, otpCodeService, passwordResetNotifier);
 export const verifyResetPasswordOtpUseCase = new VerifyResetPasswordOtpUseCase(authRepository, otpCodeService);
-export const resetPasswordUseCase = new ResetPasswordUseCase(authRepository, otpCodeService, bcryptService);
+export const resetPasswordUseCase = new ResetPasswordUseCase(
+  authRepository,
+  otpCodeService,
+  bcryptService,
+  notificationEnqueuer,
+);
 export const resendPasswordResetOtpUseCase = new ResendPasswordResetOtpUseCase(
   authRepository,
   otpCodeService,
@@ -106,6 +128,7 @@ export const authenticateWithGoogleUseCase = new AuthenticateWithGoogleUseCase(
   googleIdTokenVerifier,
   jwtService,
   refreshTokenService,
+  notificationEnqueuer,
 );
 export const linkGoogleAccountUseCase = new LinkGoogleAccountUseCase(authRepository, googleIdTokenVerifier);
 

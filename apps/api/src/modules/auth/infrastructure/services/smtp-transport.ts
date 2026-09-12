@@ -1,17 +1,20 @@
-import nodemailer, { type Transporter } from "nodemailer";
-import { env } from "../../../../config/env";
+import type { Transporter } from "nodemailer";
+import { NodemailerMailer } from "../../../../shared/email/nodemailer-mailer";
 
 /**
- * One place that turns the `SMTP_*` env vars into a nodemailer transport,
- * so every OTP email adapter (registration, password reset, …) is
- * configured identically. Provider-agnostic — point the vars at Gmail (app
- * password), SES SMTP, Mailtrap, Postmark, etc.
+ * Historical helper — the auth OTP notifiers and the shared
+ * `NodemailerEmailProvider` now both go through `shared/email`'s
+ * `MailerPort` / `NodemailerMailer`, so nothing in auth constructs a raw
+ * transport any more. This is kept ONLY because the `staff` module's
+ * invitation-email notifier still imports `createSmtpTransport` (via
+ * `auth.module.ts`'s re-export) and migrating that surface is out of scope
+ * for the 2026-09-10 transactional-email sprint. It now delegates to the
+ * single shared nodemailer construction so there is still exactly one
+ * `nodemailer.createTransport` call in the codebase.
+ *
+ * Follow-up: migrate `staff`'s notifier onto `MailerPort` directly and
+ * delete this file.
  */
 export function createSmtpTransport(): Transporter {
-  return nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_SECURE, // true for 465, false for 587/25 (STARTTLS)
-    auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
-  });
+  return new NodemailerMailer().rawTransport();
 }

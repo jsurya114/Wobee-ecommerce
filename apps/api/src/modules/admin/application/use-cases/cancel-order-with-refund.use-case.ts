@@ -24,9 +24,14 @@ interface AuditLogger {
   execute(input: CreateAuditLogInput): Promise<void>;
 }
 
-/** Matches `EnqueueNotificationUseCase`'s own `execute` signature — see the class doc comment for why REFUND_PROCESSED for this path is enqueued here rather than inside `refunds`' own use-case. */
+/** Matches `EnqueueNotificationUseCase`'s own `execute` signature — see the class doc comment for why the cancellation/refund emails for this path are enqueued here rather than inside `refunds`' own use-case. */
 interface NotificationEnqueuer {
-  execute(input: { userId: string | null; type: "REFUND_PROCESSED"; channel: "EMAIL"; payload: Record<string, unknown> }): Promise<void>;
+  execute(input: {
+    userId: string | null;
+    type: "ORDER_CANCELLED" | "REFUND_COMPLETED";
+    channel: "EMAIL";
+    payload: Record<string, unknown>;
+  }): Promise<void>;
 }
 
 /**
@@ -63,11 +68,15 @@ interface NotificationEnqueuer {
  * cancel already won) skips both the refund and the audit write so neither
  * happens twice.
  *
- * Week 2 Day 8 (week2 (1).md §20): a successful refund here also enqueues
- * REFUND_PROCESSED — built here rather than inside `refunds`' own
- * IssueRefundForCancelledOrderUseCase because that use-case only ever sees
- * a Payment record (ADR-025), never contact PII; `admin` already has the
- * full `order` (contactEmail included) from the cancellation step above.
+ * Week 2 Day 8 (week2 (1).md §20) / 2026-09-10 transactional-email build:
+ * on a successful cancel this enqueues a distinct ORDER_CANCELLED email
+ * (NOT a refund email — the two are semantically separate), and, only when
+ * a refund genuinely completed here (`IssueRefundForCancelledOrderUseCase`
+ * returns `refundIssued: true` solely for a synchronously-COMPLETED Razorpay
+ * refund), a REFUND_COMPLETED email as well. Built here rather than inside
+ * `refunds`' own use-case because that use-case only ever sees a Payment
+ * record (ADR-025), never contact PII; `admin` already has the full `order`
+ * (contactEmail included) from the cancellation step above.
  */
 export class CancelOrderWithRefundUseCase {
   constructor(
@@ -97,12 +106,34 @@ export class CancelOrderWithRefundUseCase {
       metadata: { reason, refundIssued },
     });
 
+    // Distinct cancellation email — always, on a genuine cancel. Never
+    // conflated with the refund email.
+    await this.notificationEnqueuer.execute({
+      userId: order.userId,
+      type: "ORDER_CANCELLED",
+      channel: "EMAIL",
+      payload: {
+        contactEmail: order.contactEmail,
+        contactName: order.contactName,
+        orderNumber: order.orderNumber,
+        refundIssued,
+        cancellationReason: reason,
+      },
+    });
+
+    // Separate refund email — only when a refund actually completed here
+    // (synchronous Razorpay refund). A COD/unpaid cancel issues no refund
+    // and sends no refund email.
     if (refundIssued) {
       await this.notificationEnqueuer.execute({
         userId: order.userId,
-        type: "REFUND_PROCESSED",
+        type: "REFUND_COMPLETED",
         channel: "EMAIL",
-        payload: { contactEmail: order.contactEmail, orderNumber: order.orderNumber },
+        payload: {
+          contactEmail: order.contactEmail,
+          orderNumber: order.orderNumber,
+          amountPaise: order.totalPaise,
+        },
       });
     }
 

@@ -35,8 +35,9 @@ function build(rec: PasswordResetRecord | null) {
     hash: vi.fn().mockResolvedValue("bcrypt$new"),
     compare: vi.fn(),
   };
-  const useCase = new ResetPasswordUseCase(authRepository, otpService, bcryptService);
-  return { useCase, authRepository, bcryptService };
+  const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const useCase = new ResetPasswordUseCase(authRepository, otpService, bcryptService, notificationEnqueuer);
+  return { useCase, authRepository, bcryptService, notificationEnqueuer };
 }
 
 describe("ResetPasswordUseCase", () => {
@@ -77,5 +78,29 @@ describe("ResetPasswordUseCase", () => {
     expect(authRepository.updateUserPassword).toHaveBeenCalledWith("u1", "bcrypt$new");
     expect(authRepository.deletePasswordReset).toHaveBeenCalledWith("asha@example.com");
     expect(authRepository.revokeAllRefreshTokensForUser).toHaveBeenCalledWith("u1");
+  });
+
+  it("correct code -> enqueues a PASSWORD_RESET_SUCCESS email AFTER the password is changed", async () => {
+    const { useCase, authRepository, notificationEnqueuer } = build(record());
+    await useCase.execute(INPUT);
+    expect(authRepository.updateUserPassword).toHaveBeenCalled();
+    expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith({
+      userId: "u1",
+      type: "PASSWORD_RESET_SUCCESS",
+      channel: "EMAIL",
+      payload: { contactEmail: "asha@example.com" },
+    });
+  });
+
+  it("a wrong code never enqueues a confirmation email", async () => {
+    const { useCase, notificationEnqueuer } = build(record({ attempts: 2 }));
+    await expect(useCase.execute({ ...INPUT, code: "0000" })).rejects.toBeInstanceOf(OtpInvalidError);
+    expect(notificationEnqueuer.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("a failing notification enqueue does NOT fail the password reset", async () => {
+    const { useCase, notificationEnqueuer } = build(record());
+    notificationEnqueuer.enqueue.mockRejectedValueOnce(new Error("redis down"));
+    await expect(useCase.execute(INPUT)).resolves.toBeUndefined();
   });
 });

@@ -5,15 +5,19 @@ import { Badge, Button, Card } from "@woobe/ui";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
+import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminCollection } from "../hooks/useAdminCollection";
 import { AssignedProductsList } from "./AssignedProductsList";
 import { CollectionForm } from "./CollectionForm";
 import { ProductPicker } from "./ProductPicker";
 
 export function CollectionDetail({ collectionId }: { collectionId: string }) {
+  const saveAndRedirect = useSaveAndRedirect("/collections");
   const { collection, assignedProducts, loading, error, update, setActive, assignProduct, removeProduct, reorderProducts } =
     useAdminCollection(collectionId);
   const [isTogglingActive, setIsTogglingActive] = useState(false);
+  // Bumped after every successful save — see the `key` comment on CollectionForm below.
+  const [saveGen, setSaveGen] = useState(0);
 
   if (loading) {
     return <LoadingState />;
@@ -55,14 +59,20 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
           // Same fix as ProductForm/BannerForm: Next reuses this component
           // instance across /collections/[id1] -> [id2] navigation, so the
           // form's internal useState needs to remount on id change or it
-          // keeps showing the previous collection's values.
-          key={collectionId}
+          // keeps showing the previous collection's values. `saveGen` is
+          // folded in too: saving an edit to the SAME collection doesn't
+          // change `collectionId`, so without it the form's local state
+          // would stay frozen at its pre-save values even though
+          // `collection` (and the listing) already reflect the fresh save.
+          key={`${collectionId}:${saveGen}`}
           initialValues={{ name: collection.name, slug: collection.slug, description: collection.description ?? undefined }}
           submitLabel="Save changes"
-          onSubmit={async (payload) => {
-            await update(payload);
-            toast.success("Collection updated");
-          }}
+          onSubmit={(payload) =>
+            saveAndRedirect(async () => {
+              await update(payload);
+              setSaveGen((g) => g + 1);
+            })
+          }
         />
       </Card>
 

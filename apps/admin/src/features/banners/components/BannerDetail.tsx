@@ -5,12 +5,19 @@ import { Badge, Button, Card } from "@woobe/ui";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
+import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminBanner } from "../hooks/useAdminBanner";
 import { BannerForm } from "./BannerForm";
 
 export function BannerDetail({ bannerId }: { bannerId: string }) {
+  const saveAndRedirect = useSaveAndRedirect("/banners");
   const { banner, loading, error, update, setActive } = useAdminBanner(bannerId);
   const [isTogglingActive, setIsTogglingActive] = useState(false);
+  // Bumped after every successful same-banner save so BannerForm below remounts (see its `key`) —
+  // the update mutation already refreshes the cached `banner` query data correctly, but BannerForm's
+  // own local useState fields only initialize from `initialValues` on mount, so without this the form
+  // would keep showing pre-save values even though the save genuinely persisted. Same root cause/fix as CouponDetail.
+  const [saveGen, setSaveGen] = useState(0);
 
   if (loading) {
     return <LoadingState />;
@@ -53,13 +60,16 @@ export function BannerDetail({ bannerId }: { bannerId: string }) {
           // /banners/[id2] navigation — without a key tied to the id, BannerForm's
           // internal useState (image/title/etc.) would keep showing the previous
           // banner's values after `banner` has already updated underneath it.
-          key={bannerId}
+          // `saveGen` also bumps this key after a same-banner save so the form remounts with the fresh values too.
+          key={`${bannerId}:${saveGen}`}
           initialValues={banner}
           submitLabel="Save changes"
-          onSubmit={async (payload) => {
-            await update(payload);
-            toast.success("Banner updated");
-          }}
+          onSubmit={(payload) =>
+            saveAndRedirect(async () => {
+              await update(payload);
+              setSaveGen((g) => g + 1);
+            })
+          }
         />
       </Card>
     </div>

@@ -59,6 +59,22 @@ describe("CancelOrderUseCase", () => {
     );
   });
 
+  // 2026-09-06's PACKED checkpoint (PROCESSING -> PACKED -> SHIPPED) sits
+  // between the two cancellable states and the first genuinely-uncancellable
+  // one. This use-case's allow-list was never touched when PACKED was
+  // introduced, but the list is explicit ("=== CONFIRMED || === PROCESSING"),
+  // not an exclusion list — so PACKED already fails closed today. Matches
+  // MarkOrderPackedUseCase/ShipOrderUseCase's and OrderStatusActions.tsx's
+  // own treatment of PACKED as "already staged for shipping, too late to
+  // cancel" (no Cancel button is rendered for a PACKED order admin-side).
+  // This test makes that already-correct behavior explicit and regression-proof.
+  it("rejects cancelling an order that is PACKED (already staged for shipping)", async () => {
+    const { useCase } = buildUseCase({ findByIdResult: order({ status: "PACKED" }) });
+    await expect(useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" })).rejects.toThrow(
+      "Cannot cancel an order in status PACKED",
+    );
+  });
+
   it("is a no-op for an already CANCELLED order — never touches the transition or inventory", async () => {
     const { useCase, orderRepository, inventoryRestock } = buildUseCase({ findByIdResult: order({ status: "CANCELLED" }) });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });

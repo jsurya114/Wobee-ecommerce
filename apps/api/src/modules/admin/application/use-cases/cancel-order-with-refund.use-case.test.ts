@@ -47,12 +47,20 @@ describe("CancelOrderWithRefundUseCase", () => {
       actorId: "staff-1", actorRole: "ORDER_PROCESSING_STAFF", action: "ORDER_CANCELLED",
       entityType: "Order", entityId: "order-1", metadata: { reason: "Customer request", refundIssued: true },
     });
+    const types = notificationEnqueuer.execute.mock.calls.map((c) => c[0].type);
+    expect(types).toEqual(["ORDER_CANCELLED", "REFUND_COMPLETED"]);
     expect(notificationEnqueuer.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "REFUND_PROCESSED", payload: expect.objectContaining({ contactEmail: "a@a.com" }) }),
+      expect.objectContaining({
+        type: "ORDER_CANCELLED",
+        payload: expect.objectContaining({ contactEmail: "a@a.com", orderNumber: "WOOBE-1", refundIssued: true, cancellationReason: "Customer request" }),
+      }),
+    );
+    expect(notificationEnqueuer.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "REFUND_COMPLETED", payload: expect.objectContaining({ contactEmail: "a@a.com", amountPaise: 100 }) }),
     );
   });
 
-  it("still reports the order as cancelled — and still audits — when the refund attempt fails, without notifying a refund that never happened", async () => {
+  it("still reports the order as cancelled — and still audits and sends the cancellation email — when the refund attempt fails, WITHOUT a refund-completed email", async () => {
     const { useCase, recordAuditLogUseCase, notificationEnqueuer } = buildUseCase({ refundIssued: false });
 
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
@@ -62,7 +70,9 @@ describe("CancelOrderWithRefundUseCase", () => {
     expect(recordAuditLogUseCase.execute).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: { reason: undefined, refundIssued: false } }),
     );
-    expect(notificationEnqueuer.execute).not.toHaveBeenCalled();
+    const types = notificationEnqueuer.execute.mock.calls.map((c) => c[0].type);
+    expect(types).toEqual(["ORDER_CANCELLED"]);
+    expect(types).not.toContain("REFUND_COMPLETED");
   });
 
   it("is idempotent — a concurrent cancel that already won skips the refund and the audit entry entirely", async () => {

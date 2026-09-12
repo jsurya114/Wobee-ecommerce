@@ -17,7 +17,7 @@ function returnOrderView() {
 }
 
 describe("MarkReturnRefundedUseCase", () => {
-  it("transitions REFUND_INITIATED -> REFUNDED, marks the refund manually completed, clears the active-return flag, logs the action, and enqueues REFUND_PROCESSED", async () => {
+  it("transitions REFUND_INITIATED -> REFUNDED, marks the refund manually completed, clears the active-return flag, logs the action, and enqueues REFUND_COMPLETED", async () => {
     const returnRepository = {
       findById: vi.fn().mockResolvedValue(refundInitiatedReturn()),
       transitionStatus: vi.fn().mockResolvedValue({ changed: true, return: { ...refundInitiatedReturn(), status: "REFUNDED" } }),
@@ -37,7 +37,7 @@ describe("MarkReturnRefundedUseCase", () => {
     expect(orderReturnFlagWriter.setHasActiveReturn).toHaveBeenCalledWith("order-1", false);
     expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({ action: "RETURN_REFUND_MANUALLY_COMPLETED" }));
     expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "REFUND_PROCESSED", payload: expect.objectContaining({ contactEmail: "a@a.com" }) }),
+      expect.objectContaining({ type: "REFUND_COMPLETED", payload: expect.objectContaining({ contactEmail: "a@a.com" }) }),
     );
   });
 

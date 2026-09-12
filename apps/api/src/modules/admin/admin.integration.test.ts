@@ -140,6 +140,44 @@ async function createConfirmedRazorpayOrder(variantId: string) {
   return order;
 }
 
+/**
+ * Agent 5 (Admin Orders Filters, 2026-09-09/10) — mirrors
+ * createConfirmedRazorpayOrder above but drives a `payment.failed` webhook
+ * instead of `payment.captured`. Exists to prove, at the integration level
+ * (not just live-browser), that `Order.status = PAYMENT_FAILED` is the one
+ * place a real payment failure always lands — the same authoritative
+ * transition handle-razorpay-webhook.use-case.ts's own doc comment
+ * describes, and the field the admin "Payment Failed" filter reads.
+ */
+async function createFailedRazorpayOrder(variantId: string) {
+  const agent = request.agent(app);
+  const order = await checkoutOrder(agent, variantId, "RAZORPAY");
+
+  const razorpayOrderId = `order_test_${randomUUID().slice(0, 12)}`;
+  await prisma.payment.create({
+    data: { orderId: order.id, provider: "RAZORPAY", status: "CREATED", amountPaise: order.totalPaise, razorpayOrderId },
+  });
+
+  const payload = {
+    event: "payment.failed",
+    payload: {
+      payment: {
+        entity: { id: `pay_test_${randomUUID().slice(0, 12)}`, order_id: razorpayOrderId, amount: order.totalPaise, status: "failed" },
+      },
+    },
+  };
+  const body = JSON.stringify(payload);
+  const webhookRes = await request(app)
+    .post("/api/v1/payments/razorpay/webhook")
+    .set("X-Razorpay-Signature", signPayload(body))
+    .set("X-Razorpay-Event-Id", randomUUID())
+    .set("Content-Type", "application/json")
+    .send(body);
+  expect(webhookRes.status).toBe(200);
+
+  return order;
+}
+
 /** Checks out COD and confirms it immediately (no gateway step), exactly like payments.integration.test.ts's own COD test does. */
 async function createConfirmedCodOrder(variantId: string) {
   const agent = request.agent(app);
@@ -200,6 +238,61 @@ describe("admin orders RBAC", () => {
     const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
     const res = await request(app).get("/api/v1/admin/orders").set("Authorization", `Bearer ${accessToken}`);
     expect(res.status).toBe(200);
+  });
+});
+
+/**
+ * Agent 5 (Admin Orders Filters, 2026-09-09/10) — GET /admin/orders' status
+ * filter (ListOrdersUseCase -> OrderRepository.findAllPaginated) had no test
+ * coverage at all before this: not the where-clause shape, not that a filter
+ * actually excludes non-matching statuses, not the search+status combination.
+ * A live/manual pass against real dev data confirmed all 9 OrderStatus
+ * values filter correctly; these two tests pin that behavior with real,
+ * concurrent-safe fixtures (asserting membership/exclusion, not exact
+ * counts, since this file's other describe blocks create orders of their
+ * own against the same shared test DB).
+ */
+describe("admin orders list — status filter (Agent 5 audit, 2026-09-09/10)", () => {
+  it("filters strictly by status: PAYMENT_FAILED never includes a CONFIRMED order and vice versa", async () => {
+    const { variantId: variantA } = await createTestVariant(3);
+    const { variantId: variantB } = await createTestVariant(3);
+    const confirmedOrder = await createConfirmedCodOrder(variantA);
+    const failedOrder = await createFailedRazorpayOrder(variantB);
+
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    const confirmedRes = await request(app).get("/api/v1/admin/orders?status=CONFIRMED&pageSize=100").set(auth);
+    expect(confirmedRes.status).toBe(200);
+    expect(confirmedRes.body.items.every((o: { status: string }) => o.status === "CONFIRMED")).toBe(true);
+    expect(confirmedRes.body.items.some((o: { id: string }) => o.id === confirmedOrder.id)).toBe(true);
+    expect(confirmedRes.body.items.some((o: { id: string }) => o.id === failedOrder.id)).toBe(false);
+
+    const failedRes = await request(app).get("/api/v1/admin/orders?status=PAYMENT_FAILED&pageSize=100").set(auth);
+    expect(failedRes.status).toBe(200);
+    expect(failedRes.body.items.every((o: { status: string }) => o.status === "PAYMENT_FAILED")).toBe(true);
+    expect(failedRes.body.items.some((o: { id: string }) => o.id === failedOrder.id)).toBe(true);
+    expect(failedRes.body.items.some((o: { id: string }) => o.id === confirmedOrder.id)).toBe(false);
+  });
+
+  it("combines status and search with AND semantics, not OR", async () => {
+    const { variantId } = await createTestVariant(3);
+    const confirmedOrder = await createConfirmedCodOrder(variantId);
+    const accessToken = await loginAdmin("orders@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    const detailRes = await request(app).get(`/api/v1/admin/orders/${confirmedOrder.id}`).set(auth);
+    expect(detailRes.status).toBe(200);
+    const orderNumber = detailRes.body.orderNumber as string;
+
+    // Right search term, matching status -> the one order.
+    const matching = await request(app).get(`/api/v1/admin/orders?status=CONFIRMED&search=${orderNumber}`).set(auth);
+    expect(matching.body.items).toHaveLength(1);
+    expect(matching.body.items[0].id).toBe(confirmedOrder.id);
+
+    // Same search term, a status this order isn't in -> AND excludes it (never OR-matched back in via the search term alone).
+    const mismatched = await request(app).get(`/api/v1/admin/orders?status=PAYMENT_FAILED&search=${orderNumber}`).set(auth);
+    expect(mismatched.body.items).toHaveLength(0);
   });
 });
 

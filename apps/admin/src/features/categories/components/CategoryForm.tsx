@@ -8,6 +8,7 @@ import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { uploadMedia } from "@/features/products/api/admin-media.client";
 import { ApiError } from "@/lib/api-client";
 import { resolveImageUrl } from "@/lib/resolve-image-url";
+import { useFormError } from "@/lib/use-form-error";
 import type { CategoryPayload } from "../api/admin-categories.client";
 
 export interface CategoryFormValues {
@@ -38,6 +39,7 @@ export function CategoryForm({
   const [values, setValues] = useState<CategoryFormValues>({ ...EMPTY_VALUES, ...initialValues });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
   // Same "smart default, stops following once edited" rule as ProductForm's
   // slug field — an existing category's slug never auto-changes just
   // because the name was edited (would break a storefront link/bookmark).
@@ -71,29 +73,34 @@ export function CategoryForm({
 
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    clear();
     if (!values.name.trim()) {
-      toast.error("Name is required");
+      setFieldError("name", "Name is required");
       return;
     }
     setIsSubmitting(true);
     try {
       await onSubmit({ name: values.name.trim(), slug: values.slug, imageUrl: values.imageUrl || null });
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "That didn't work.");
+      handle(error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // noValidate: this form already validates (name check above, plus the backend's own
+  // field errors on save) and surfaces a real message via toast/ApiError — native HTML
+  // validation was intercepting submission before any of that ran.
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-4" noValidate>
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Name" value={values.name} onChange={(e) => onNameChange(e.target.value)} required />
+        <FormField label="Name" value={values.name} onChange={(e) => onNameChange(e.target.value)} required error={fieldErrors.name} />
         <FormField
           label="Slug"
           value={values.slug}
           onChange={(e) => onSlugChange(e.target.value)}
           required
+          error={fieldErrors.slug}
           helperText={slugTouched ? "Custom URL — won't change automatically." : "Auto-generated from the name. Edit to set a custom URL."}
         />
       </div>
@@ -125,7 +132,18 @@ export function CategoryForm({
             </Button>
           ) : null}
         </div>
+        {fieldErrors.imageUrl ? (
+          <p role="alert" className="font-body text-sm text-error">
+            {fieldErrors.imageUrl}
+          </p>
+        ) : null}
       </div>
+
+      {formError ? (
+        <p role="alert" className="font-body text-sm text-error">
+          {formError}
+        </p>
+      ) : null}
 
       <Button type="submit" isLoading={isSubmitting} className="self-start">
         {submitLabel}

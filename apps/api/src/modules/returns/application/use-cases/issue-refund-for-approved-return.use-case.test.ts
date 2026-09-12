@@ -58,7 +58,7 @@ describe("IssueRefundForApprovedReturnUseCase", () => {
     expect(refundIssuer.issueForReturn).toHaveBeenCalledWith("return-1", "order-1", 1050);
   });
 
-  it("advances RETURN_APPROVED -> REFUND_INITIATED -> REFUNDED on a completed refund, clears the order's active-return flag, logs the action, and enqueues REFUND_PROCESSED", async () => {
+  it("advances RETURN_APPROVED -> REFUND_INITIATED -> REFUNDED on a completed refund, clears the order's active-return flag, logs the action, and enqueues REFUND_INITIATED then REFUND_COMPLETED", async () => {
     const { useCase, returnRepository, orderReturnFlagWriter, auditLogger, notificationEnqueuer } = buildUseCase("completed");
 
     const result = await useCase.execute("return-1", actor);
@@ -69,12 +69,14 @@ describe("IssueRefundForApprovedReturnUseCase", () => {
     expect(result.return.status).toBe("REFUNDED");
     expect(orderReturnFlagWriter.setHasActiveReturn).toHaveBeenCalledWith("order-1", false);
     expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({ action: "RETURN_REFUND_ISSUED" }));
+    const types = notificationEnqueuer.enqueue.mock.calls.map((c) => c[0].type);
+    expect(types).toEqual(["REFUND_INITIATED", "REFUND_COMPLETED"]);
     expect(notificationEnqueuer.enqueue).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "REFUND_PROCESSED", payload: expect.objectContaining({ contactEmail: "a@a.com", amountPaise: 1050 }) }),
+      expect.objectContaining({ type: "REFUND_COMPLETED", payload: expect.objectContaining({ contactEmail: "a@a.com", amountPaise: 1050 }) }),
     );
   });
 
-  it("leaves the return at REFUND_INITIATED when the gateway reports failure, does not advance further, and does not notify a refund that never completed", async () => {
+  it("gateway failure -> enqueues REFUND_INITIATED only, never REFUND_COMPLETED for a refund that never completed", async () => {
     const { useCase, returnRepository, notificationEnqueuer } = buildUseCase("failed");
 
     const result = await useCase.execute("return-1", actor);
@@ -82,7 +84,9 @@ describe("IssueRefundForApprovedReturnUseCase", () => {
     expect(returnRepository.transitionStatus).toHaveBeenCalledTimes(1);
     expect(result.outcome).toBe("failed");
     expect(result.return.status).toBe("REFUND_INITIATED");
-    expect(notificationEnqueuer.enqueue).not.toHaveBeenCalled();
+    const types = notificationEnqueuer.enqueue.mock.calls.map((c) => c[0].type);
+    expect(types).toEqual(["REFUND_INITIATED"]);
+    expect(types).not.toContain("REFUND_COMPLETED");
   });
 
   it("leaves the return at REFUND_INITIATED for a COD order (not-applicable)", async () => {

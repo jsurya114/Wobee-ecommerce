@@ -2,8 +2,7 @@
 
 import { Button, FormField } from "@woobe/ui";
 import { useState } from "react";
-import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
+import { useFormError } from "@/lib/use-form-error";
 import type { AdminProductVariant, UpdateVariantPayload, VariantPayload } from "../api/admin-products.client";
 
 export interface VariantFormValues {
@@ -57,6 +56,7 @@ export function VariantForm({
 }) {
   const [values, setValues] = useState<VariantFormValues>(toValues(variant));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
   const isEditing = Boolean(variant);
   const isFixed = categoryPricingMode === "FIXED";
 
@@ -64,14 +64,23 @@ export function VariantForm({
 
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    clear();
     const weightGrams = Number(values.weightGrams);
-    if (!values.color.trim() || !values.size.trim() || !weightGrams) {
-      toast.error("Colour, size, and weight are required");
+    if (!values.color.trim()) {
+      setFieldError("color", "Colour is required");
+      return;
+    }
+    if (!values.size.trim()) {
+      setFieldError("size", "Size is required");
+      return;
+    }
+    if (!weightGrams) {
+      setFieldError("weightGrams", "Weight is required");
       return;
     }
     const fixedPricePaise = values.fixedPricePaise ? Number(values.fixedPricePaise) : null;
     if (isFixed && !fixedPricePaise) {
-      toast.error("This category is fixed-price — enter a price");
+      setFieldError("fixedPricePaise", "This category is fixed-price — enter a price");
       return;
     }
     setIsSubmitting(true);
@@ -88,14 +97,17 @@ export function VariantForm({
       });
       if (!isEditing) setValues(toValues());
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "That didn't work.");
+      handle(error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // noValidate: the field-level check above and this form's own catch/ApiError handling
+  // already surface real messages — native HTML validation was intercepting submission
+  // before either ran, showing the browser's own generic bubble instead.
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-3 rounded-control border border-border p-4">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-3 rounded-control border border-border p-4" noValidate>
       <div className="flex flex-col gap-1.5">
         <span className="font-body text-sm font-medium text-text-primary">SKU</span>
         <span className="font-body text-sm text-text-secondary">
@@ -103,15 +115,22 @@ export function VariantForm({
         </span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <FormField label="Weight (grams)" type="number" value={values.weightGrams} onChange={(e) => set("weightGrams", e.target.value)} />
-        <FormField label="Colour" value={values.color} onChange={(e) => set("color", e.target.value)} />
-        <FormField label="Size" value={values.size} onChange={(e) => set("size", e.target.value)} />
+        <FormField
+          label="Weight (grams)"
+          type="number"
+          value={values.weightGrams}
+          onChange={(e) => set("weightGrams", e.target.value)}
+          error={fieldErrors.weightGrams}
+        />
+        <FormField label="Colour" value={values.color} onChange={(e) => set("color", e.target.value)} error={fieldErrors.color} />
+        <FormField label="Size" value={values.size} onChange={(e) => set("size", e.target.value)} error={fieldErrors.size} />
         {isFixed ? (
           <FormField
             label="Fixed price (paise)"
             type="number"
             value={values.fixedPricePaise}
             onChange={(e) => set("fixedPricePaise", e.target.value)}
+            error={fieldErrors.fixedPricePaise}
           />
         ) : (
           <div className="flex flex-col gap-1.5">
@@ -120,14 +139,30 @@ export function VariantForm({
           </div>
         )}
         {!isEditing ? (
-          <FormField label="Starting stock" type="number" value={values.initialQuantity} onChange={(e) => set("initialQuantity", e.target.value)} />
+          <FormField
+            label="Starting stock"
+            type="number"
+            value={values.initialQuantity}
+            onChange={(e) => set("initialQuantity", e.target.value)}
+            error={fieldErrors.initialQuantity}
+          />
         ) : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <FormField label="Fabric (optional)" value={values.fabric} onChange={(e) => set("fabric", e.target.value)} />
-        <FormField label="Fit (optional)" value={values.fit} onChange={(e) => set("fit", e.target.value)} />
-        <FormField label="Measurements (optional)" value={values.measurements} onChange={(e) => set("measurements", e.target.value)} />
+        <FormField label="Fabric (optional)" value={values.fabric} onChange={(e) => set("fabric", e.target.value)} error={fieldErrors.fabric} />
+        <FormField label="Fit (optional)" value={values.fit} onChange={(e) => set("fit", e.target.value)} error={fieldErrors.fit} />
+        <FormField
+          label="Measurements (optional)"
+          value={values.measurements}
+          onChange={(e) => set("measurements", e.target.value)}
+          error={fieldErrors.measurements}
+        />
       </div>
+      {formError ? (
+        <p role="alert" className="font-body text-sm text-error">
+          {formError}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" isLoading={isSubmitting}>
           {isEditing ? "Save variant" : "Add variant"}

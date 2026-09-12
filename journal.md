@@ -3126,3 +3126,541 @@ The 7-day return window and both refund/return processing timelines are current 
 
 `git push` was rejected (non-fast-forward): a teammate had pushed `e082e76` (staff management system), `c9e99b0` (order `PACKED`/`RETURNED_TO_ORIGIN` checkpoints + `Refund.returnId` uniqueness), and `e32d67f` (Home rail logic fix) to this same branch first. `git pull --rebase` replayed this commit on top cleanly, but the new `OrderStatus` values exposed two real bugs in the just-written Help & Support code, caught by re-checking the already-updated `OrderTimeline`/`OrderStatusBadge` rather than assuming the old enum still matched: (1) `IN_PROGRESS_STATUSES` (`HelpOrderQueries.tsx`) didn't include `PACKED` — an order genuinely in progress would have silently vanished from the default "in progress" view into the "delivered/cancelled" bucket; added `PACKED` (a normal happy-path step, confirmed against `OrderTimeline`'s own `["PACKED","SHIPPED","DELIVERED"]` array) and `RETURNED_TO_ORIGIN` (confirmed against `OrderStatusBadge`'s `variant="error"` treatment — a failed delivery is exactly the kind of thing Help & Support should surface, not hide alongside successfully completed orders). (2) The order-list row rendered its own inline `Badge variant="neutral">{status.replace(...).toLowerCase()}` instead of reusing `OrderStatusBadge` — harmless before this teammate's change, but would have shown a broken raw label ("packed"/"returned to origin") instead of the shared component's human-friendly, correctly-colored wording ("Packed and ready to ship", red "Delivery failed — returning to seller") the moment either new status appeared; switched to `<OrderStatusBadge status={order.status} />`, removing the now-dead `Badge` import. Also had to `prisma generate` + `prisma migrate deploy` against both `woobe_dev` and `woobe_test` (the two new migrations the teammate's push carried weren't applied locally yet — surfaced immediately as a hard Prisma validation error on the dev DB, and as a full-suite 243-test cascade of 500s on the test DB, both from the same root cause, not two separate problems) before either fix could be verified live or the full test suite could pass again. Re-verified live in the browser (flipped the same real test order through `PACKED` then `RETURNED_TO_ORIGIN`, confirmed both the in-progress list and the shared badge wording) and re-ran the full gate: typecheck/lint clean, `boundaries:check` clean (598 modules post-merge, 0 violations), `pnpm --filter @woobe/api run test` 693/694 (same single pre-existing, unrelated Google-auth failure as before — nothing newly broken by the merge).
 
+## 2026-09-08 — Admin audit: the shared "save works, page stays stale" bug found and fixed everywhere it exists, inventory adjustment confirmed already working
+
+**Branch:** `woobe-ui/bug-fixes`. User-reported: (1) "in inventory section admin can't adjust the stock," (2) "when admin edits any field in coupons and clicks save changes its not showing saving and we go back and then check its changed in the coupon listing page — same in every page, customers, product, categories, banners, coupons." Full functional audit requested across every admin page, 7-lane parallel approach requested explicitly (same shape as Week 3's).
+
+### Root cause #1 (shared across Coupons/Products/Categories/Collections/Banners) — a form remounts on cross-entity navigation but not on a same-entity save
+
+Every `XDetail.tsx` (Coupon/Product/Category/Collection/Banner) renders `<XForm key={xId} initialValues={{...from the live query data...}} onSubmit={...} />`. `XForm.tsx` seeds its local editable state with `useState({...EMPTY_VALUES, ...initialValues})` — a React `useState` initializer runs exactly once, on mount. `key={xId}` already forces a fresh mount (and thus fresh initial state) when navigating between two *different* entities — that fix was already in the code, credited in-place to "same fix as ProductForm/CollectionForm" comments going back to earlier weeks. But saving an edit to the *same* entity doesn't change `xId`, so the form is never remounted: `useAdminX`'s mutation genuinely calls `queryClient.setQueryData`/`invalidateQueries` correctly and the listing page (which reads query data directly, no staged local state) reflects the new value immediately — but the detail page the admin is still looking at keeps rendering whatever the form's local state was frozen at pre-save, until they navigate away and back. Confirmed identically present in all five forms before fixing any of them.
+
+**Fix, one consistent pattern, no new abstraction:** each `XDetail.tsx` now tracks a local `saveGen` counter, bumped in the `onSubmit` success handler right after the mutation resolves, and folded into the form's existing `key`: `key={`${xId}:${saveGen}`}`. This reuses the exact remount mechanism already proven for cross-entity navigation — no `useEffect`-based resync (which risks loop/edge-case bugs the key-remount approach structurally can't have). Applied to `CouponDetail.tsx`, `ProductDetail.tsx`, `CategoryDetail.tsx`, `CollectionDetail.tsx`, `BannerDetail.tsx`. `Settings`'s `PricingSettingsForm.tsx` was audited and found to already use a *better* pattern (`draftRupees ?? currentRupees` — the displayed value derives live from query data whenever the admin isn't actively typing, and resets to `null` on successful save) — no fix needed there, and it's arguably the pattern worth adopting everywhere next time this class of form is built. Customers/Orders/Returns/Staff/Dashboard were audited and confirmed to have **no** instance of this pattern — those pages are read-plus-status-action-button surfaces, not free-text edit forms, so the bug class genuinely doesn't apply there (grepped for the `useState(initialValues)` shape across all five feature folders — zero matches).
+
+### Root cause #2 (shared across every admin page) — `Button`'s `isLoading` never actually showed a spinner
+
+`packages/ui/src/primitives/Button.tsx`'s `isLoading` prop only set `disabled`/`aria-busy` — no visible spinner, no text change, just `disabled:opacity-50`. `packages/ui/src/primitives/Spinner.tsx`'s own doc comment already said *"used wherever Button's own isLoading prop isn't the right shape"*, implying Button was supposed to render one — it didn't. Every "Save"/"Confirm"/"Adjust" click across the entire admin app looked like a near-no-op until the request settled (barely-visible dimming on a fast local connection), which is the direct, simplest explanation for "clicking Save Changes isn't showing saving" being reported as a *distinct* complaint from the stale-data bug above. **Fixed once, in the shared primitive:** renders `<Spinner size={size==="sm"?"sm":"default"} className="text-current" />` alongside the existing label when `isLoading` is true — every caller that already passes `isLoading={isSubmitting}` (nearly universal across this codebase's admin forms) gets a real spinner for free, zero caller changes needed anywhere.
+
+### Bug 1 (inventory adjustment) — reproduced live, found no backend/business-logic defect; root cause was #2 above, plus one real minor bug found along the way
+
+Live-tested directly against the running admin app as `SUPER_ADMIN`: increased a variant's stock (+5, `28→33`), decreased another (-5, `24→19`), and attempted an invalid over-decrease (-100 on 19 available) — all three behaved exactly correctly: the `POST /admin/inventory/:variantId/adjust` requests returned 200/200/422 respectively, `AdjustInventoryUseCase`'s row-locked, never-negative validation (`validateInventoryAdjustment`, Week 2 Day 7) rejected the invalid case cleanly with zero side effects, and the table's Available/Sellable columns updated immediately after every successful adjustment via the existing `invalidateQueries(["admin","inventory"])` — no stale-UI issue exists in this particular table (unlike Coupons/Products/etc., `InventoryTable` reads `items` straight from the query result, it never stages a copy in local form state, so root cause #1 above doesn't apply here at all). Concluded the reported "can't adjust stock" was very likely root cause #2 (no visible saving feedback made a successful adjustment look like a no-op) — now fixed.
+
+**One real, separate bug found and fixed along the way:** `admin-inventory.client.ts`'s `toQuery()` sent the search box's value to the server un-trimmed. `listInventoryAdminQuerySchema`'s own `.trim().min(1)` validator rejects a whitespace-only string as invalid (400), which the hook surfaced as "Couldn't load inventory" — replacing the *entire table*, not just a no-op empty search. Fixed by trimming client-side before building the query string, so an accidental space (or clearing-then-re-typing) degrades to "no filter," not "the whole page breaks."
+
+### One more real, separate bug found along the way — category image URL validation blocked every edit to a seed-era category
+
+`createCategorySchema`/`updateCategorySchema` (`packages/validation/src/categories.schema.ts`) validated `imageUrl` with a strict `.url()` check, which rejects app-relative paths like `/imgs/cat-dresses.jpg` — exactly what every seed-era category's `imageUrl` actually is (the same `resolveImageUrl`-relative-path convention products/banners already use). Since `CategoryForm` always round-trips the category's *current* `imageUrl` on every save (not just when the image itself changes), this meant **any** edit to **any** seed-era category's name/slug/anything failed 400 "Invalid image URL" — a real, previously-undiscovered defect, found live while verifying the stale-detail-page fix on a real category. Fixed with a `categoryImageUrlSchema` that accepts either an absolute `http(s)://` URL (a real admin upload via the media endpoint) or an app-relative `/...` path, matching how this exact value is actually produced and consumed elsewhere in the codebase.
+
+### Security/RBAC/IDOR audit (read-only lane, no code changes) — clean, one documentation-accuracy finding
+
+Every admin mutation endpoint's route file confirmed to carry both `authGuard` and the correct `requirePermission(...)` for what it actually does, cross-checked against `ROLE_PERMISSIONS` in `apps/api/src/config/permissions.ts`. The new staff-management surface (a prior session's commit) was audited in the most depth as the highest-risk addition: actor identity is exclusively `req.user!` on every mutation (the request schemas carry no id field at all — structurally impossible to substitute), self-modification and last-active-super-admin races are guarded (`SelfRoleChangeError`/`SelfDeactivationError`, `SELECT...FOR UPDATE` on active super-admins), and a live privilege-escalation attempt (`product_management_staff` POSTing `role: SUPER_ADMIN`) was correctly rejected with 403. Live curl tests confirmed real (not just UI-hidden) 401/403 boundaries across staff/orders/products/settings/customers for both staff roles, plus a real staff-vs-customer-id IDOR boundary test on `GET /admin/staff/:id` (404 for a customer id, 200 for a real staff id). All 21 `admin-staff.integration.test.ts` tests and the rate-limit integration test re-run clean.
+
+**One real finding, documentation-accuracy only, not exploitable:** the staff-management commit's own message claims "account lockout after failed attempts" and a migration with "lockout fields." Neither exists — `grep`ing the auth repository, port, and login use-case for lockout logic finds nothing, and the rate-limit middleware's own doc comment states outright it's "IP-only, not per-account." The real, working defense is IP-keyed rate limiting (verified live, real HTTP behavior, not a mock) — brute force is still throttled, just not via the specific per-account mechanism the commit description implies exists. Flagged for whoever owns that surface next; not fixed in this pass (out of scope — a real lockout feature is new work, not a bug fix).
+
+### Pages audited with no code changes needed
+
+Dashboard, Customers (view + order history only — no editable fields exist in the current domain model, correctly not invented), Orders/Returns/Refunds (status-transition buttons, not edit forms — Week 3's compare-and-swap state-machine protections re-confirmed untouched), Reviews/moderation, Staff (already correct from its own prior session), Settings (already using the better pattern, see above).
+
+### Files changed
+
+`apps/admin/src/features/{coupons/components/CouponDetail.tsx, products/components/ProductDetail.tsx, categories/components/CategoryDetail.tsx, collections/components/CollectionDetail.tsx, banners/components/BannerDetail.tsx, inventory/api/admin-inventory.client.ts}`, `packages/ui/src/primitives/Button.tsx`, `packages/validation/src/categories.schema.ts`. Zero backend business-logic files touched beyond the one validation-schema fix; zero changes to coupon calculation/redemption, order state-machine, or inventory concurrency logic (Week 3's protections re-verified, not modified).
+
+### Coordination note — 3 of 5 parallel lanes hit a session-wide rate limit mid-task
+
+Dispatched 5 lanes (Inventory/concurrency; Products+Categories+Collections; Coupons+Banners; Customers+Orders+Returns+Reviews+Settings+Dashboard; Security/RBAC read-only), each scoped to non-overlapping files per the user's explicit "do not let agents blindly modify overlapping files" instruction. Coupons+Banners and Security completed with full reports. Inventory, Products+Categories+Collections, and Customers+Orders+Returns all hit `HTTP 429 rate_limit` mid-task and stopped without final reports — but not before leaving real, complete, correctly-scoped fixes on disk (the Products/Categories/Collections lane had already applied and was mid-verification on the exact same `saveGen` pattern Coupons+Banners proved, plus the category-image-URL fix above; the Inventory lane had already applied and typechecked the search-trim fix). Rather than re-spawning agents into the same rate limit, the orchestrating session inspected each lane's actual diff directly (not the lost report text), verified every change against the already-proven Coupons/Banners pattern for consistency, then personally completed the remaining live verification (inventory increase/decrease/invalid-rejection, Settings, Customers/Orders/Returns pattern-absence confirmation) and the full gate below. No lane's partial work was discarded or redone from scratch — every real fix found by every lane, completed or not, made it into this entry.
+
+### Tests / gate
+
+`pnpm -r run typecheck` — clean, all 9 projects. `pnpm -r run lint` — clean, all 9 projects (`--max-warnings=0`). `pnpm run boundaries:check` — clean, 598 modules / 1,915 dependencies, 0 violations. `pnpm --filter @woobe/api exec vitest run src/modules/{categories,coupons,inventory,products,banners,collections}` — 20 files, **206/206 passing**. Full suite `pnpm --filter @woobe/api run test` — **693/694** (the one failure is the same pre-existing, unrelated Google-auth env issue documented in the entry above — not caused by, or affected by, this session's work). `pnpm --filter @woobe/api run build` (plain `tsc`, no cache risk) — clean. `pnpm --filter @woobe/web run build` and `pnpm --filter @woobe/admin run build` — both clean (dev servers stopped first, `.next` cleared, restarted after — the established safe-build pattern), all routes compiled including the new `/staff/*` and `/settings` routes.
+
+### Live browser verification (post-rebuild, not just pre-fix)
+
+Inventory: live increase/decrease/invalid-rejection cycle (above), zero console errors. Settings: live rate update (1200→1250→1200, confirmed "Effective since" timestamp updates immediately with no fix needed). Products: after the full production rebuild and dev-server restart (a genuinely fresh process, not hot-reload-preserved state), edited a real product's description, saved, confirmed the form remounted (new internal element identities) and immediately displayed the new value with no navigation — then reverted the test edit. Coupons/Banners: full create→edit→persist→list→activate/deactivate→delete cycle at 375/768/1440px, zero overflow, zero console errors (Lane 4's own live verification, reviewed and trusted based on the identical, already-confirmed-correct diff).
+
+### Final status
+
+Both user-reported bugs resolved. Inventory adjustment was never broken at the business-logic level — the missing visible saving-feedback (root cause #2) is the most likely explanation for why it read as "can't adjust stock," and that's now fixed everywhere, not just there. The stale-detail-page-after-save bug (root cause #1) is fixed with one consistent, already-proven-safe pattern across every admin page that actually has the pattern (Coupons/Products/Categories/Collections/Banners); Customers/Orders/Returns/Staff/Dashboard/Settings confirmed to not need it. Two additional real, previously-undiscovered bugs found and fixed along the way (category image-URL validation, inventory search whitespace). Security/RBAC audited clean with one documentation-accuracy note, not a vulnerability. Storefront, checkout, payment, cart, wishlist, auth, order state-machine, and coupon redemption logic confirmed untouched and unaffected — zero changes outside the admin-detail-page/shared-Button/one-validation-schema scope listed above. **Not pushed or merged, per instruction.**
+
+### Remaining P2/P3 (not fixed, flagged only)
+
+- `BannersTable`'s row-level delete has no confirmation dialog while `CouponDetail`'s does — pre-existing UX inconsistency, out of this task's scope.
+- "New coupon"/"New banner" links render for a staff role lacking `MANAGE_CATALOG` even though the backend correctly rejects any actual submit — confusing dead-end UI affordance, not a security issue.
+- The staff-lockout documentation-accuracy gap above (real IP rate limiting exists; the specific per-account lockout the commit message describes does not).
+
+## 2026-09-08 — Admin Save Changes: redirect-to-listing on success (one shared hook, five pages)
+
+**Branch:** `woobe-ui/bug-fixes`. Follow-up to the same day's admin-audit entry above — that entry fixed the *listing* being stale after a save; this one changes what happens on the *detail* page itself: previously a successful save left the admin on the edit page (now showing fresh data, thanks to the earlier fix); the required behavior is instead a "Saved successfully" toast followed by an automatic redirect to the entity's own listing page.
+
+### Investigation first — is there already a shared submit/mutation pattern?
+
+Yes: every entity's `XDetail.tsx` (Coupon/Product/Category/Collection/Banner) already follows the identical shape — `useAdminX` hook exposes `update()`, the page renders `<XForm onSubmit={async (payload) => { await update(payload); ...; toast.success("X updated"); }} />`, and `XForm`'s own `onFormSubmit` already has the complete correct failure-handling shell (`try { await onSubmit(payload) } catch { ...field error / toast.error... } finally { setIsSubmitting(false) }`). Per the user's own "reuse existing patterns, don't duplicate across every page" instruction, the fix is one small shared hook, not five separate copies of "toast then push."
+
+### Fix — `useSaveAndRedirect(listingHref)`
+
+New `apps/admin/src/lib/use-save-and-redirect.ts`: takes the listing route, returns an async function that runs the caller's mutation, then (only on success) shows `toast.success("Saved successfully")` and calls `router.push(listingHref)`. Each `XDetail.tsx`'s `onSubmit` becomes `(payload) => saveAndRedirect(() => update(payload))` (with the existing `saveGen` bump kept inside, still folded into the form's `key` — see below for why). Wired into `CouponDetail` (`/coupons`), `ProductDetail` (`/products`), `CategoryDetail` (`/categories`), `CollectionDetail` (`/collections`), `BannerDetail` (`/banners`). `InventoryTable`'s adjustment toast message changed from "Inventory adjusted" to the same "Saved successfully" wording for consistency — no redirect added there, since Adjust already happens inline on the Inventory page itself (which *is* the listing); redirecting to the page you're already on would be a pointless extra navigation, not a fix.
+
+**Why the failure flow needed zero new code:** `saveAndRedirect`'s `toast.success`/`router.push` lines only run *after* `await save()` resolves. If the mutation rejects (e.g. a 409 duplicate coupon code), the rejection propagates straight up through `saveAndRedirect` to `XForm`'s own pre-existing `catch` block — same field-error/toast.error handling, same `finally { setIsSubmitting(false) }`, same form values left exactly as the admin typed them. No redirect ever fires on failure because the code that would fire it is never reached — this is a structural guarantee, not a defensive check.
+
+**Why the earlier `saveGen`/`key` remount fix wasn't removed:** with the redirect in place, the admin never actually stays on the detail page to see it in a normal successful save — but `router.push` schedules a client-side transition rather than blocking until it completes, so there's a brief window where the old page could still be mounted with stale form state before the new route takes over. Keeping the harmless, already-proven `saveGen` bump closes that edge case for free; removing it would have been an unrelated simplification for no benefit.
+
+### Verified live, every page, both flows
+
+Success flow (Product/Category/Collection/Banner/Coupon, one real field edit each): saved → immediately redirected to the correct listing route → listing showed the new value with no manual refresh → re-navigated into the detail page to confirm real persistence (not an optimistic-only illusion) → reverted the test edit the same way. Failure flow: edited `WELCOME10`'s code to `SCARF15` (an existing coupon's code) and saved — confirmed via network tab the `PATCH` genuinely 409'd, confirmed the page stayed on `/coupons/23ddb1a3-...` (no redirect), confirmed the field error "A coupon with code "SCARF15" already exists" rendered, and confirmed the code input still showed the admin's typed "SCARF15" (not reverted or cleared) — exactly the required "preserve form values, allow retry" behavior. Zero console errors across every test. Confirmed post a full production rebuild + dev-server restart (not just hot-reload-preserved state) on the Product page specifically, the highest-complexity form (images + variants alongside the main details form).
+
+### Files changed
+
+`apps/admin/src/lib/use-save-and-redirect.ts` (new), `apps/admin/src/features/{coupons,products,categories,collections,banners}/components/{Coupon,Product,Category,Collection,Banner}Detail.tsx`, `apps/admin/src/features/inventory/components/InventoryTable.tsx` (toast wording only).
+
+### Tests / gate
+
+`pnpm --filter @woobe/admin run typecheck` — clean. `pnpm --filter @woobe/admin run lint` — clean (`--max-warnings=0`). `pnpm --filter @woobe/admin run build` — clean (dev server stopped first, `.next` cleared, restarted after — the established safe-build pattern); all 23 routes compiled, including every affected detail page. No backend files touched this pass, so the API test suite/boundaries:check are unaffected by this change (already re-verified clean in the same-day admin-audit entry above).
+
+### Remaining limitations
+
+- Customers has no editable "Save Changes" form in the current domain model (view + Deactivate/Reactivate only) — nothing to redirect from, correctly left untouched.
+- Settings' `PricingSettingsForm` intentionally has no redirect: it's a single-field, single-page settings surface with no separate "listing" to go to (the form *is* the whole page) — the user's own examples list Product/Category/Collection/Coupon/Banner/Inventory specifically, all of which have a real listing page distinct from the edit page; Settings doesn't fit that shape and wasn't touched.
+- Not committed, pushed, or merged, per instruction.
+
+### Correction, same day — the real reason no toast was ever visible: `apps/admin` never mounted sonner's `<Toaster />`, anywhere, for anything
+
+The user asked directly: "where is the success message? in each pages" — a fair question, since my own live verification above never actually caught a visible toast (attributed at the time to screenshot/round-trip timing). Investigating properly: `grep -rn "Toaster" apps/admin` returns **zero matches** anywhere in the app — not the root layout, not `Providers`, not any page. Every `toast.success`/`toast.error` call across the *entire* admin app (activate/deactivate, delete, inventory adjust, every existing form, and this session's own new `saveAndRedirect` calls) has been calling sonner's imperative API into a void — sonner's `toast()` functions only queue a toast for whatever `<Toaster />` instance is mounted; with none mounted, nothing has ever rendered, for any admin action, in this app's entire history. `apps/web`'s own `src/providers.tsx` has always correctly mounted `<Toaster position="top-center" richColors />` — admin's equivalent `Providers` component (`apps/admin/src/app/providers.tsx`) never did.
+
+**Fix:** added the identical `<Toaster position="top-center" richColors />` to `apps/admin/src/app/providers.tsx`, inside `AdminAuthProvider`, same placement/props as `apps/web`'s for consistency — one line, one file, fixes toast visibility app-wide (not just for this session's save/redirect flow).
+
+**Verified, not assumed:** after the fix, the page's own accessibility tree gained a `region "Notifications alt+T" live="polite"` landmark (sonner's own portal container) that was never present before anywhere in `apps/admin`. Confirmed the actual text renders by scripting a real click on `WELCOME10`'s "Save changes" button and polling `document.body.innerText` immediately afterward (not waiting for a slower manual screenshot round-trip, which is what missed it the first time): `"Saved successfully"` was present in the DOM 62ms after the click, while still mid-navigation to the listing.
+
+**A real, unrelated demo-data drift found and fixed while doing this verification** — `ACCESSORIES21` at `10%` / unlimited-per-customer instead of the correct `ACCESSORIES20` at `20%` (capped ₹500) / once-per-customer (per the coupon's own seed description, "20% off, once per customer, capped at ₹500," recorded in this journal's own Week 2 Day 5 entry). This wasn't caused by the toast fix or by this session's own test clicks (traced: the script that triggered the toast-visibility test targeted `WELCOME10`'s own "Save changes" button specifically, by exact text match, on a page where only one such button exists) — it was pre-existing drift left over from an earlier point in this session's extensive live-testing history. Reverted `WELCOME10` back to `10%` and `ACCESSORIES21` back to `ACCESSORIES20` / `20%` / max discount ₹500 / per-customer limit `1`, matching the original seed values.
+
+**Files changed (this correction only):** `apps/admin/src/app/providers.tsx`.
+
+**Verified:** `pnpm --filter @woobe/admin run typecheck`/`lint` clean. Not committed, pushed, or merged.
+
+## 2026-09-09/10 — Admin forms: native HTML validation replaced with real backend errors shown inline, per field, everywhere
+
+**Branch:** `woobe-ui/bug-fixes`. User report: "while adding anything like product or categories or anything normal html error messages are showing but we need to show error message from backend not from html frontend in all pages" — then, once the naive fix (a toast with the backend's message) was in progress, redirected it explicitly: "use inline field error not a pop message inline error need to show in every field should follow SOLID and clean architecture and always update journal.md."
+
+### Root cause
+
+None of this app's 11 `<form>` elements set `noValidate`. Several fields carry native constraint attributes (`required`, `type="email"`, `type="number"` with `min`/`max`) purely as semantic/accessibility hints — every one of these forms already has its own JS-side validation and its own `catch` block that correctly unpacks `ApiError`/`fieldErrors` from a failed mutation. But the browser's own constraint-validation UI runs *before* any of that: on submit, it inspects every field with a native constraint, and if one fails, it cancels the submit event and shows its own generic tooltip ("Please fill out this field") — the form's `onSubmit` handler, and everything inside it, never runs at all. The backend was never reached, so "show the backend's message" was structurally impossible until this was fixed.
+
+### Fix, part 1 — stop the browser from intercepting submission
+
+Added `noValidate` to all 11 `<form>` elements across the admin app (`LoginForm`, `ActivateStaffForm`, `NewStaffForm`, `ProductForm`, `VariantForm`, `CategoryForm`, `CollectionForm`, `CouponForm`, `BannerForm`, `PricingSettingsForm`, `ProductPicker`'s search form) — every one of them already had a working `onSubmit` handler ready to take over; they just needed the browser to stop cutting it off first. (One real bug caught while doing this: a `{/* JSX comment */}` placed as the very first child right after `return (`, before any enclosing element, isn't valid JSX children position — 8 files briefly failed to parse; fixed by moving the explanatory comment to a plain `//` line above `return` instead.)
+
+### Fix, part 2 — the user's actual ask: inline per field, not a toast
+
+Getting past native validation only fixes half the complaint — the very next thing every one of these forms did with a real backend error was `toast.error(message)`, a popup, not "in every field." Two new shared utilities, reused by every form rather than reimplemented per-page (SOLID: one place owns "how do we turn a caught error into field messages," every form just consumes it):
+
+- **`apps/admin/src/lib/use-form-error.ts`** (`useFormError`) — for the manual-`useState` forms (Product/Category/Collection/Coupon/Banner/Variant/Settings). Parses a caught `ApiError`'s `fieldErrors` (real Zod validation, 400) into a `Record<field, message>` map handed straight to that field's own `FormField error=` prop; anything with no field to attach to (a field-less `ConflictError`/404/500 — e.g. "A coupon with code X already exists" is a `ConflictError`, not a Zod error) becomes the one `formError`, rendered as an inline alert paragraph directly above the submit button — still never a toast, just not attached to one specific input because the backend itself didn't attribute it to one. Also exposes `setFieldError(field, message)` so a form's own *client-side* pre-submit checks (e.g. "choose a category") land in the exact same inline slot as a real backend error, not a second, inconsistent mechanism.
+- **`apps/admin/src/lib/apply-backend-field-errors.ts`** (`applyBackendFieldErrors`) — the react-hook-form counterpart (Login/NewStaff/ActivateStaff already show *client-side* zod errors inline via `errors.x?.message`; this does the same for a *backend* field error caught in the submit handler, via RHF's own `setError`, returning `true`/`false` so the caller knows whether it still needs its own field-less fallback banner).
+
+Every manual form's `FormField`s (and the two hand-rolled non-`FormField` cases — Product's category `<select>`, Banner's image-upload slot — via a matching `role="alert"` paragraph in the same visual style) now receive `error={fieldErrors.<backendFieldName>}`, matched against the actual Zod schema field names (`packages/validation/src/{products,categories,coupons}.schema.ts`), not the form's own local state-variable names where those differ (e.g. Coupon's local `maxDiscountRupees` input shows `fieldErrors.maxDiscountPaise`, the real backend field). `toast` is now used in these forms only for two things that were never a "validation error a field can show" in the first place: a genuinely async, non-blocking success confirmation, and a media-upload failure (a distinct action, not the entity save).
+
+### Verified live — both the fallback-banner and true per-field paths, not just one
+
+**Field-less path:** edited `WELCOME10`'s code to `SCARF15` (an existing coupon's code) and saved — confirmed via the network tab the `PATCH` genuinely 409'd (`ConflictError`, no `fieldErrors`), confirmed the exact message `A coupon with code "SCARF15" already exists` rendered as an inline alert directly above "Save changes" (not a toast, not a native bubble), confirmed no redirect happened and the admin's typed "SCARF15" was still in the field, not reverted.
+
+**True per-field path:** Product's Name field has no client-side emptiness check (relied on `required` alone before this fix), so filling it with a whitespace-only value and saving reached the real backend `updateProductSchema` (`name: z.string().trim().min(1, "Name is required")`) — confirmed the `PATCH` returned 400, and confirmed the Name field itself (not a generic banner) showed `invalid="true"`, `aria-describedby` pointing at an inline `"Name is required"` alert directly under that one input — the backend's own message, attached to the exact field it's about. Reverted both test edits afterward and confirmed a legitimate save (name restored) still redirects to the listing correctly, per the earlier fix.
+
+### Files changed
+
+New: `apps/admin/src/lib/{use-form-error.ts, apply-backend-field-errors.ts}`. Modified: `apps/admin/src/features/{auth/components/LoginForm.tsx, staff/components/{NewStaffForm.tsx, ActivateStaffForm.tsx}, products/components/{ProductForm.tsx, VariantForm.tsx}, categories/components/CategoryForm.tsx, collections/components/{CollectionForm.tsx, ProductPicker.tsx}, coupons/components/CouponForm.tsx, banners/components/BannerForm.tsx, settings/components/PricingSettingsForm.tsx}`.
+
+### Tests / gate
+
+`pnpm --filter @woobe/admin run typecheck` — clean. `pnpm --filter @woobe/admin run lint` — clean (`--max-warnings=0`). `pnpm --filter @woobe/admin run build` — clean (dev server stopped, `.next` cleared, rebuilt, restarted — the established safe-build pattern); all 23 routes compiled. No backend files touched — every fix is frontend error-presentation only, no validation rule, business logic, or API contract changed anywhere.
+
+### Remaining limitations
+
+- A field-less backend error (a `ConflictError`/404/500 with no structural `fieldErrors`) still renders as one inline banner rather than being attributed to a specific input — this is an honest reflection of what the backend itself reports, not a gap in the frontend; attributing it to a guessed field by parsing the message text would be fragile and was deliberately not done.
+- Not committed, pushed, or merged, per no explicit instruction to do so yet.
+
+## 2026-09-10 — Admin + User bug-fix sprint: inventory thresholds, checkout empty-cart flash, cancellation/returns audit, admin order filters — 4-agent parallel dispatch
+
+**Branch:** `woobe-ui/bug-fixes`. Five reported issues, dispatched as 4 parallel workstreams (Inventory, Checkout/Order Confirmation, Cancellation/Individual Returns, Admin Orders Filters) plus this lead/synthesis pass — all 4 completed cleanly this time, no rate-limit interruptions, zero file overlap between agents (confirmed via `git status` before any reconciliation was needed).
+
+### Workstream 1 — Inventory: two real bugs, one architectural cleanup
+
+**Root cause #1 (real, fixed):** `isLowStock` (`apps/api/src/modules/inventory/domain/validate-inventory-adjustment.ts`) was `sellable > 0 && sellable <= LOW_STOCK_THRESHOLD` — at *exactly* the threshold, this classified as LOW_STOCK. Spec requires the threshold value itself to be IN_STOCK. Fixed to `sellable < LOW_STOCK_THRESHOLD`. The identical off-by-one was independently re-implemented in the repository's `lowStockOnly` filter — fixed to call the same domain function instead of re-comparing inline, so a row's badge and its filter membership can no longer disagree with each other, which was the actual mechanism behind the user's "filtering doesn't behave correctly" report.
+
+**Root cause #2 (real, fixed):** `LOW_STOCK_THRESHOLD` was hand-duplicated as two independent constants — `5` in `apps/api`'s domain layer, a second `5` in `apps/admin/src/features/inventory/components/InventoryTable.tsx` (ADR-019: apps/admin can't import apps/api's internals) — two sources of truth that could silently drift, and per this same session's user instruction, must not. Moved to `packages/types/src/enums.ts` (`LOW_STOCK_THRESHOLD = 10`, `INVENTORY_STATUS`/`InventoryStatus`), the same established convention this codebase already uses for cross-app vocabulary (`PaymentMethod`/`PaymentStatus`/`PERMISSION`) — `apps/api` re-exports it so existing internal importers are unchanged, `apps/admin` imports it directly. `DECISIONS_PENDING.md #6` updated (still an unconfirmed placeholder, corrected from 5 → 10, "where it lives" corrected).
+
+**Went one step further than the minimum fix:** rather than just giving both apps a correct copy of the threshold, `AdminInventoryRow` now carries a backend-computed `status: InventoryStatus` field (`getInventoryStatus()`, one new domain function composing the existing `isLowStock`/`isOutOfStock`), computed once in `InventoryRepository.findAllForAdmin`. `InventoryTable.tsx` renders `row.status` directly and no longer re-derives anything from raw numbers — eliminating the entire "two independent copies of the same classification logic" bug *class*, not just today's instance of it.
+
+**Adjustment/concurrency protection:** re-verified unchanged and correct — `AdjustInventoryUseCase` → `InventoryRepository.adjustQuantity` still does `SELECT...FOR UPDATE` inside a transaction, validates the *resulting* quantity via the untouched `validateInventoryAdjustment`, rejects with 422. Live-verified: -100 from 10 available → rejected, no state change.
+
+**Live-verified boundaries** (super_admin, real variant): 9 (threshold-1) → LOW_STOCK, appears under "Low stock only"; 10 (exactly threshold) → IN_STOCK, does not; 0 → OUT_OF_STOCK, appears under "Out of stock only" only; "All" shows everything; hard reload shows the same server-authoritative values. Re-confirmed by the lead post-rebuild: `Denim Jacket Indigo/L` at 6 and `Ribbed Knit Sweater Oatmeal/S` at 1 both correctly show "low stock" against the new 10-unit threshold on a genuinely fresh production build + restart, not just hot-reloaded dev state.
+
+**Files:** `packages/types/src/enums.ts`; `apps/api/src/modules/inventory/{domain/validate-inventory-adjustment.ts(+.test.ts), infrastructure/repositories/inventory.repository.ts, application/ports/inventory-repository.port.ts}`; `apps/admin/src/features/inventory/{api/admin-inventory.client.ts, components/InventoryTable.tsx}`.
+
+### Workstream 2 — Checkout: the empty-cart flash was a real, provable race, not a guess
+
+**Root cause:** `CheckoutForm.tsx`'s success path (built by the 2026-09-05 stale-cart fix) is `await checkoutApi.checkout(...)` → `await refreshCart()` → `router.push('/order-confirmation/[id]')`. `refreshCart()` calls `setCart(...)` on the app-root `CartProvider` — and `CheckoutForm` is *still mounted* on `/checkout` at that instant, since `router.push` is async and hasn't swapped route content yet. The now-legitimately-emptied cart re-renders `CheckoutForm`, and `CheckoutForm`'s own `if (!cart || cart.items.length === 0) return <EmptyCart/>` guard fires for the beat between the refresh resolving and the route actually changing — the exact reported flash. `/order-confirmation/[id]` itself never reads cart state at all; the entire bug was this one component reacting to its own post-checkout side effect.
+
+**Fix:** one new component-local state flag, `orderPlaced`, set to `true` immediately after `checkoutApi.checkout()` succeeds (before `refreshCart()` runs). A new render guard checks `orderPlaced` *before* the empty-cart/weight guards and short-circuits them with a plain "Order placed! Redirecting…" message while checkout's own success path is between "order placed" and "navigation complete." `refreshCart()` → `router.push()` ordering is unchanged (preserving the 2026-09-05 fix's own intent — the nav badge is still correct by the time the confirmation page mounts). A genuine empty-cart visit to `/checkout` or `/cart` still shows the real empty-cart page (`orderPlaced` defaults `false`) — not globally disabled. A real checkout failure is unaffected (`orderPlaced` is never set on the `catch` path).
+
+**Live-verified:** tight ~25-40ms polling across the click→navigation window on a real COD checkout — `hasEmptyBag` was `false` at every sample, zero flash, across default/375px/1024px. Genuine empty cart still works (both `/cart` and a fresh `/checkout` visit). Real failure tested via true network-offline simulation — real error toast shown, cart/form state fully intact, retry after reconnecting succeeded normally. Responsive 375/768/1024/1440px checked on both checkout and confirmation.
+
+**Files:** `apps/web/src/features/checkout/components/CheckoutForm.tsx` only — no backend, no cart/orders module touched.
+
+### Workstream 3 — Cancellation + Individual Returns: architecture was already correct; one coverage gap closed, one product decision surfaced instead of invented
+
+**Confirmed, not assumed:** there is still no customer-facing cancel endpoint anywhere (`orders.routes.ts` has none) — cancellation remains `POST /admin/orders/:id/cancel`, staff-only, exactly as documented in the Week 3 Day 3 entry. `CancelOrderUseCase`'s guard is an **allow-list** (`=== CONFIRMED || === PROCESSING`), not an exclusion list, so it *already* correctly rejects PACKED (added later by the teammate's `c9e99b0` commit) with zero code change needed — the allow-list shape meant new states are excluded by construction, not by omission. The admin UI independently already never shows a Cancel button once PACKED. Only gap: no test had ever pinned this specific boundary, so it could have silently regressed later without anyone noticing — added one (`cancel-order.use-case.test.ts`, "rejects cancelling an order that is PACKED").
+
+**Individual returns were already fully built and correct** — `Return`/`ReturnItem` is item-level by schema design; `RequestReturnUseCase`/`RequestReturnForm.tsx` already let a customer pick a specific line + quantity within a multi-item delivered order, independent of the order's other lines. Live-verified end-to-end on a real 2-item order: returned 1 unit of one line, confirmed the untouched line's quantity/eligibility stayed fully independent, confirmed the refund amount matched the documented calc exactly (unit price + prorated tax, no shipping), confirmed `hasActiveReturn` correctly cleared after refund completion and a fresh return request on the *other* line was still offered.
+
+**Deliberately not built: full item-level order *cancellation*.** With no customer-facing cancel of any kind existing today, and `Order.status` having no per-item column at all, building partial-cancellation (per-item cancellable state, partial refund distinct from returns' own calc, partial restock, and a definition of what the order's own status even means mid-partial-cancel) would be a genuine domain/product decision, not a bug fix — surfaced as `DECISIONS_PENDING.md #8` rather than silently built or silently skipped, per this codebase's own established convention for exactly this situation.
+
+**Live-verified, real accounts/orders, not just source-read:** admin cancel on CONFIRMED → succeeds, inventory correctly restocked; direct-API cancel attempts on PACKED and on SHIPPED orders → both 409, backend-enforced independent of the UI; IDOR on orders (cross-account 404, "My Orders" correctly scoped) and on returns (cross-account 404 on both viewing and filing) both confirmed with two real accounts. All test data cleaned up afterward; inventory restored to baseline via the real admin adjust endpoint.
+
+**Files:** `apps/api/src/modules/orders/application/use-cases/cancel-order.use-case.test.ts` (one new test only) — no production code changed, because none needed to be.
+
+### Workstream 4 — Admin Orders Filters: all 9 statuses already correct; the real gap was test coverage and thin data, not a bug
+
+**Verdict:** every filter in `OrderFilters.tsx` → `useAdminOrders` → `admin-orders.client.ts` → `listOrdersQuerySchema` → `ListOrdersUseCase` → `OrderRepository.findAllPaginated`'s `where: { status: filter.status }` was already correct end-to-end, exactly as the lead's own static pass predicted before dispatch. Live-tested all 9 `OrderStatus` values individually against real orders (driven through real flows — real checkout, real admin fulfillment actions, and one real HMAC-signed webhook call to reach `PAYMENT_FAILED` without needing live Razorpay credentials) — each filter returned exactly and only orders in that status. `woobe_dev` genuinely had zero orders in 5 of the 9 statuses before this pass, which is why those filters may have looked broken when tried against the pre-existing seed data — not a code defect.
+
+**"Payment Failed" verdict:** `Order.status = PAYMENT_FAILED` is correct and authoritative, not a confusion with `Payment.status`. Traced every write of `Payment.status = "FAILED"` in the codebase to exactly one place (`handle-razorpay-webhook.use-case.ts`'s `payment.failed` branch), which sets both `Payment.status` and `Order.status` atomically in the same transaction — they cannot diverge by construction, so filtering by the order-level field is correct and there is no case it would miss.
+
+**RTO verdict:** `RETURNED_TO_ORIGIN` on `Order.status` is the only, correct representation — this schema deliberately has no separate `Shipment`/`ShipmentStatus` entity (Week 3 Day 7's own audit), the whole fulfillment lifecycle including RTO lives on `Order.status` by design.
+
+**Also verified:** search+status combine with AND semantics (not OR); clearing the filter restores the full unfiltered set; pagination math (`skip`/`take`) is correct even though no single status currently exceeds the 50-row page size in practice.
+
+**Files:** `apps/api/src/modules/admin/admin.integration.test.ts` only — two new integration tests (status-filter isolation, search+status AND-semantics) added to a previously-untested endpoint; no production code changed.
+
+### Lead synthesis (Agent 1)
+
+Reviewed all 4 diffs individually before running anything — zero file overlap, no conflicting changes, every domain-layer change reused the exact function the corresponding filter/UI layer already called (no duplicate logic introduced anywhere). Updated `DECISIONS_PENDING.md` (#6 corrected, new #8 added for the item-level-cancellation open question) and this entry — the only two files the lead touched directly.
+
+**Full gate, run after combining all 4 agents' work:**
+- `pnpm -r run typecheck` — clean, all 9 workspace projects.
+- `pnpm -r run lint` — clean, all 9 projects (`--max-warnings=0`).
+- `pnpm run boundaries:check` — clean, 598 modules / 1,918 dependencies, 0 violations.
+- `pnpm --filter @woobe/api exec vitest run src/modules/{inventory,orders,returns,admin}` — 34 files / **224/224 passing**.
+- Full suite `pnpm --filter @woobe/api run test` — **699/700** (the one failure is the same pre-existing, unrelated Google-auth env issue documented repeatedly earlier in this journal — not caused by, or affected by, any of this sprint's work).
+- `pnpm --filter @woobe/api run build` (plain `tsc`) — clean.
+- `pnpm --filter @woobe/web run build` / `pnpm --filter @woobe/admin run build` — both clean (dev servers stopped first, `.next` cleared, rebuilt, restarted — the established safe-build pattern); all routes compiled.
+- Post-rebuild spot-check (lead, fresh super_admin login, genuinely restarted dev servers): Inventory page renders backend-computed statuses correctly at the new threshold on real data, zero console errors.
+
+### Security/RBAC
+
+No new endpoints were added by this sprint (only new test files, one new domain function, one new frontend state flag). Every existing RBAC/IDOR protection this sprint's agents touched was independently re-verified live rather than assumed: inventory adjustment still requires `MANAGE_INVENTORY`; order cancellation (admin-only) still requires `MANAGE_ORDERS` and is enforced server-side independent of the UI; customer order/return ownership checks (cross-account 404s) re-confirmed with two real accounts.
+
+### Final status
+
+All 5 reported issues addressed: 2 were real, fixed bugs (inventory off-by-one + threshold duplication; checkout empty-cart flash). 2 were confirmed-already-correct architecture that only needed test coverage to prove it stays correct (cancellation's PACKED handling; all 9 admin order filters). 1 (item-level order cancellation) was investigated thoroughly and deliberately not built, surfaced as a product decision instead of an invented feature, per the task's own explicit instruction not to blindly change the state machine or invent policy. Storefront/checkout/payment/cart/wishlist/auth/order-state-machine/refund/Redis-cache behavior all confirmed unaffected outside the 10 files this sprint actually changed.
+
+### Remaining P2/P3 (not fixed, flagged only, all out of each agent's owned scope)
+
+- Returns approved+refunded do not restock inventory anywhere — already-documented gap (Week 2 Day 6), re-flagged, not fixed (inventory-module-adjacent product decision, not this sprint's remit).
+- Admin `OrdersTable.tsx`'s status-badge color map is incomplete (only 4 of 9 statuses get a distinct color; the rest fall back to neutral gray) — cosmetic, filtering/data unaffected.
+- Admin Orders page has no pagination UI despite fetching `total` — not currently user-visible (no status exceeds the 50-row page size today) but would silently hide results once one does.
+- Admin Orders search box has no debounce (one request per keystroke) — functionally correct, just chattier than the storefront's own 300ms-debounced search.
+- `apps/web`'s customer-facing PDP size selector has its own, separate, hardcoded low-stock threshold (3) for a different UX purpose — plausibly an intentionally different business rule from the admin dashboard's threshold, flagged for a future consolidation decision rather than conflated with `DECISIONS_PENDING.md #6`.
+- 375/768/1024/1440px responsive re-verification for the cancellation/returns customer UI relied on screenshots rather than exact `window.innerWidth` emulation (the shared multi-agent browser session made `resize_page` unreliable) — zero UI/CSS was changed in that workstream, and this exact page's responsiveness is already independently pinned at all four breakpoints multiple times elsewhere in this journal, so this was judged low-risk rather than re-chased.
+
+Not yet committed at the time this entry was written — the user's own instruction for this sprint was "push everything after done"; committed and pushed immediately after this entry, see the commit this entry ships in.
+
+
+---
+
+## 2026-09-10 — Transactional email system: audit + architecture (Agent 1 / lead) — implementation dispatched to Agents 2–5
+
+**Branch:** `woobe-ui/bug-fixes`. Multi-agent build (5 lanes) per the user's brief: Agent 1 = lead/audit/architecture/synthesis; Agents 2–5 own auth+OTP / order+payment / shipping+returns+refunds+cancellation / email infrastructure respectively. This entry records the audit and the frozen architecture; per-lane implementation + the final synthesis follow in later entries. **Not committed/pushed/merged.**
+
+### Audit — what already exists (confirmed by reading the code, not assumed)
+
+- **`notifications` module (BullMQ) is real and correct.** `EnqueueNotificationUseCase` persists a `Notification` row (`PENDING`) then adds a BullMQ job carrying only the row id; `worker.ts` (separate process, started alongside `server.ts` by the `dev` script via `concurrently`) runs `ProcessNotificationJobUseCase`, which takes an atomic `claimForSending` (`PENDING → SENDING` conditional UPDATE) *before* the provider call, marks `SENT`/releases-claim-and-rethrows on failure. Queue: `jobId = notificationId`, `attempts: 3`, exponential backoff 5s, `removeOnComplete`, `removeOnFail: 1000`. `UnrecoverableError` conversion for non-retryable `NotificationDeliveryError`. Terminal `markFailed` merges `lastError` into `payload`. This is the async path the brief wants reused — **no second queue is being created.**
+- **`NotificationProviderPort` exists; the only implementation is `StubEmailProvider`, which sends nothing** — it succeeds whenever `payload.contactEmail` is a non-empty string and throws `NotificationDeliveryError(retryable: false)` when it is missing. So every order/return/refund notification to date has been enqueued, "sent", and marked `SENT` with zero real delivery.
+- **6 events already wired, all enqueued post-commit, all gated on a real `changed`/outcome flag:** `ORDER_CONFIRMED` (`payments` → `orders.notifyOrderEventUseCase` via `OrderPort.notifyOrderEvent`, from both `ConfirmCodOrderUseCase` and the Razorpay `payment.captured` webhook branch — folded: payment-success and order-confirmed are the same instant), `PAYMENT_FAILED` (webhook `payment.failed` branch), `ORDER_SHIPPED` / `ORDER_DELIVERED` (`ShipOrderUseCase` / `DeliverOrderUseCase`, post-`transaction.run`), `RETURN_APPROVED` (`ApproveReturnUseCase`), `REFUND_PROCESSED` (`IssueRefundForApprovedReturnUseCase` completed-outcome, `MarkReturnRefundedUseCase`, and `admin`'s `CancelOrderWithRefundUseCase` when a refund actually issued).
+- **Nodemailer is already a dependency** (`nodemailer ^9`, `@types/nodemailer`). Used **only** by auth OTP, on a **synchronous** path (not the queue), deliberately: `smtp-transport.ts`'s `createSmtpTransport()` + `SmtpOtpNotifier` (registration) + `SmtpPasswordResetNotifier` (reset), each implementing `OtpNotifierPort` / `PasswordResetNotifierPort`. `auth.module.ts` wires `env.SMTP_HOST ? new Smtp*Notifier() : new Dev*Notifier()`. Dev notifier `console.warn`s the code in `development` only; `exposeDevCode()` returns the code in the API response only when `NODE_ENV !== "production" && !SMTP_HOST`.
+- **SMTP env vars already defined** (`apps/api/src/config/env.ts` + `.env.example`, all optional): `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (default `Woobe <no-reply@woobe.local>`).
+- **`OrderEntity` (from `orderRepository.findById`) already carries everything an itemised invoice email needs** — `orderNumber`, `contactName`/`contactPhone`/`contactEmail`, `shippingSnapshot` (full address), `subtotalPaise`/`discountPaise`/`shippingFeePaise`/`taxPaise`/`totalPaise`, `paymentMethod`, and `items[]` (`productNameSnapshot`, `color`, `size`, `quantity`, `unitPricePaise`, `lineTotalPaise`, `taxAmountPaise`, `discountPaise`). **No order/tax/discount maths needs re-implementing** — the notification payload just needs enriching from data `NotifyOrderEventUseCase` already fetches.
+- `NotificationChannel` enum = `EMAIL / SMS / PUSH`; only `EMAIL` is wired (no SMS/PUSH provider — unchanged). `NotificationStatus` = `PENDING / SENDING / SENT / FAILED`.
+- **No invoice/PDF system anywhere** (no lib, nothing in schema). **No email-change / profile-update feature** (users module has address CRUD only) → account-email-change email has no backing workflow and will **not** be built. `RETURN_REJECTED` state exists (`RejectReturnUseCase`) but emits no notification today. `RequestReturnUseCase` emits nothing.
+
+### Frozen architecture (approved by the user, 3 decisions)
+
+1. **Invoice = itemised HTML inside the order-confirmed email.** No PDF dependency this sprint. Rendered from the authoritative `OrderEntity` snapshot; no calculation duplicated.
+2. **OTP stays synchronous** (user waits on-screen; must not depend on worker/queue availability; API must be able to report an SMTP failure immediately). OTP is only *refactored* to reuse the new shared transport + template layer — delivery path unchanged, all OTP security rules (expiry, resend cooldown, attempt caps, anti-enumeration, dev/prod `devCode` behaviour) preserved untouched.
+3. **All other transactional email flows through the existing post-commit BullMQ path.** `StubEmailProvider` is replaced by a real `NodemailerEmailProvider implements NotificationProviderPort`; the stub is kept as the no-SMTP / test fallback. Nodemailer never imported into domain/application code — only infrastructure.
+
+**Shared email infrastructure (new, `apps/api/src/shared/email/` — cross-cutting like `shared/cache/`, importable by both `auth` infra and `notifications` infra without an ADR-010 module edge):**
+- `email-message.ts` — `EmailMessage { to; subject; html; text }`, framework-free.
+- `mailer.port.ts` — `MailerPort { send(msg: EmailMessage): Promise<void> }`. The DIP seam. Throws on send failure (sync OTP path surfaces it to the user; async worker path lets BullMQ retry).
+- `nodemailer-mailer.ts` — `NodemailerMailer implements MailerPort`, one `createTransport` from the existing `SMTP_*` env. The single place nodemailer is constructed for the whole app.
+- `dev-mailer.ts` — `DevMailer implements MailerPort`, `console.warn` subject+recipient in `development` only, silent in test. Never logs OTP codes or full bodies.
+- `get-mailer.ts` — `env.SMTP_HOST ? NodemailerMailer : DevMailer` (mirrors the existing auth pattern).
+- `templates/layout.ts` — one branded HTML shell (Woobe wordmark, rose `#a54659` accent, system-font stack, mobile-safe single-column, footer with support contact `hello@woobe.in` + site URL) + a matching plain-text framer. Every email = layout(bodyFragment). No inline-HTML duplication.
+- `templates/<event>.ts` — one render fn per email returning `{ subject, html, text }` from a typed payload; `templates/index.ts` maps `NotificationEventType → renderer` for the provider. Subjects follow the brief's examples ("Order #XXXX confirmed", "Your order #XXXX has shipped", …).
+- `NodemailerEmailProvider` (in `notifications/infrastructure/providers/`) — resolves the renderer by `notification.type`, renders from `notification.payload`, calls the shared mailer. Missing `contactEmail` → `NotificationDeliveryError(retryable:false)` (unchanged non-retryable path). SMTP throw → propagates (retryable) → BullMQ retry.
+
+**New `NotificationEventType` strings** (added to `notifications/domain/entities/notification.entity.ts` by Agent 5 up front so every lane can reference them): `WELCOME`, `PASSWORD_RESET_SUCCESS`, `ORDER_CANCELLED`, `RETURN_REQUESTED`, `RETURN_REJECTED`, `REFUND_INITIATED`, `REFUND_COMPLETED`. `REFUND_PROCESSED` call-sites are remapped: the two "money has moved" sites (`MarkReturnRefundedUseCase`, `IssueRefundForApprovedReturnUseCase` completed-outcome, `CancelOrderWithRefundUseCase` refund-issued) → `REFUND_COMPLETED`; a new `REFUND_INITIATED` fires at the `RETURN_APPROVED → REFUND_INITIATED` transition.
+
+**Payment-success semantics (deliberate, documented):** no separate `PAYMENT_RECEIVED` event. Every payment-success path in this system *is* an order-confirmation (`ConfirmCodOrderUseCase`, Razorpay `payment.captured`) — a second near-simultaneous email would be invented spam. The single `ORDER_CONFIRMED` email carries the itemised invoice **and** the payment status/method ("Paid" for Razorpay, "Pay on delivery" for COD), satisfying "order confirmed" + "payment received" + "invoice/receipt" as one non-duplicate message. `PAYMENT_FAILED` stays its own email.
+
+**Duplicate protection — reuse only, nothing new:** Razorpay webhook 2-layer idempotency (`(provider,eventId)` unique + conditional status transition) + `changed:false` short-circuits the enqueue; COD confirm conditional; ship/deliver/return/refund all conditional `transitionStatus` with the enqueue gated on `changed`; worker `claimForSending` atomic claim; BullMQ `jobId = notificationId` + `attempts:3`. New triggers each gate on their own non-repeatable success: `WELCOME` (user row created once; Google path `isNewUser`-gated), `PASSWORD_RESET_SUCCESS` (reset row deleted on success), `RETURN_REQUESTED` (new row per genuine request), `ORDER_CANCELLED` (gated on `cancelOrderUseCase` `changed`), `RETURN_REJECTED` / `REFUND_INITIATED` (gated on `transitionStatus().changed`).
+
+### Lane / file ownership (no overlap — enforced)
+
+- **Agent 5 (email infra + templates):** everything under `apps/api/src/shared/email/**` (new); `notifications/infrastructure/providers/nodemailer-email.provider.ts` (+test, new); `notifications/notifications.module.ts` (wire provider, keep stub fallback); `notifications/domain/entities/notification.entity.ts` (add all new event strings); `apps/api/src/config/env.ts` + root `.env.example` + `apps/api/.env.example` (any new var — e.g. `APP_PUBLIC_URL`/`SUPPORT_EMAIL` for CTAs/footer — and the worker-SMTP deployment note). Builds templates against the payload contracts specified in each lane's brief.
+- **Agent 2 (auth + OTP):** `auth/infrastructure/services/{smtp-transport,smtp-otp-notifier,smtp-password-reset-notifier,dev-otp-notifier,dev-password-reset-notifier}.ts` (refactor onto shared mailer+templates, behaviour identical); `auth/application/ports/notification-enqueuer.port.ts` (new narrow port); `auth/application/use-cases/{verify-registration-otp,reset-password,authenticate-with-google}.use-case.ts` (enqueue `WELCOME` / `PASSWORD_RESET_SUCCESS` post-commit); `auth/auth.module.ts` (wire enqueuer; keep OTP notifier wiring); auth test files. Adds the `auth → notifications` module edge (acyclic, same pattern as orders/returns).
+- **Agent 3 (order + payment):** `orders/application/use-cases/notify-order-event.use-case.ts` (enrich `ORDER_CONFIRMED`/`SHIPPED`/`DELIVERED`/`PAYMENT_FAILED` payloads: line items, breakdown, `shippingSnapshot`, `contactName`, `paymentMethod` + derived payment status, tracking/carrier for SHIPPED — all from the `order` it already fetches); `orders/application/ports/notification-enqueuer.port.ts` (payload doc, event union unchanged); `orders/orders.module.ts` only if wiring changes; orders/payments test files (folded payment-success, PAYMENT_FAILED, webhook-retry no-double-send). **Sole owner of `notify-order-event.use-case.ts`.**
+- **Agent 4 (shipping verify + returns + refunds + cancellation):** `returns/application/use-cases/{request-return,reject-return,approve-return,issue-refund-for-approved-return,mark-return-refunded}.use-case.ts` (add `RETURN_REQUESTED`, `RETURN_REJECTED`; split `REFUND_INITIATED` vs `REFUND_COMPLETED`); `returns/application/ports/notification-enqueuer.port.ts` (extend union); `returns/returns.module.ts` (inject enqueuer into `RequestReturnUseCase`); `admin/application/use-cases/cancel-order-with-refund.use-case.ts` + `admin/admin.module.ts` (distinct `ORDER_CANCELLED` email, separate from the refund email); returns/admin test files. Verifies `ShipOrderUseCase`/`DeliverOrderUseCase` only enqueue on a successful committed transition (adds tests) — does **not** edit `notify-order-event.use-case.ts`.
+
+### Verification plan (Agent 1, after synthesis)
+`pnpm -r run typecheck` / `lint` / `pnpm run boundaries:check` / full `apps/api` suite / `pnpm -r run build`; live worker drain of a real order through confirm→ship→deliver and a real return through request→approve→reject/refund with a mock SMTP (Mailtrap-style or nodemailer JSON transport) capturing the rendered messages; browser pass on registration OTP + forgot-password + order placement.
+
+### Remaining limitations (known before implementation)
+- No PDF invoice (deliberate, this sprint).
+- No account-email-change email (no such feature exists).
+- SMS/PUSH channels remain unwired (no provider).
+- Real SMTP end-to-end still needs real credentials in the deploy env (`SMTP_*` on **both** `server` and `worker` processes) — documented, not exercised here.
+
+---
+
+## 2026-09-10 — Transactional email system: implemented (Nodemailer behind a port, branded templates, 12 lifecycle events) — not committed
+
+**Branch:** `woobe-ui/bug-fixes`. Follows the audit/architecture entry directly above. The 5-lane split was designed as planned; a subagent dispatch for lane 5 misfired (returned in 16s with zero tool calls, no files), so all lanes were implemented directly by the lead against the same frozen architecture and file-ownership map. **No commit / push / merge. No schema migration — none was needed** (`Notification.type` is already a free `String` column; the event vocabulary is a TS-only union).
+
+### 1. Shared email infrastructure — `apps/api/src/shared/email/` (new, cross-cutting like `shared/cache/`)
+
+- `email-message.ts` — `EmailMessage { to; subject; html; text }`, zero deps.
+- `mailer.port.ts` — `MailerPort { send(EmailMessage): Promise<void> }`. The dependency-inversion seam. Resolves on delivery, **throws** on failure.
+- `nodemailer-mailer.ts` — `NodemailerMailer implements MailerPort`. **The only `nodemailer.createTransport` call in the codebase.** Built from the existing `SMTP_*` env. `rawTransport()` escape hatch kept solely for `staff`'s pre-existing invitation notifier (via `auth`'s `createSmtpTransport` re-export, now a 3-line delegator to this) — flagged as a follow-up to migrate too.
+- `dev-mailer.ts` — `DevMailer implements MailerPort`. In `development` only, logs `recipient + subject` (never the body, never a code). Silent in test/production.
+- `get-mailer.ts` — `getMailer()` = `env.SMTP_HOST ? NodemailerMailer : DevMailer` (mirrors the existing auth pattern) + a shared `mailer` singleton.
+- `templates/layout.ts` — one branded HTML shell (Woobe wordmark, rose `#a54659`, table-based inline-styled 560px single column, footer with `SUPPORT_EMAIL` + `WEB_ORIGIN`) + `renderTextLayout` plain-text framer + an `esc()` HTML-escaper + `storefrontUrl()`.
+- `templates/render-helpers.ts` — defensive coercion (`str`/`num`/`bool`/`money`/`greeting`) so a renderer never throws on a missing optional payload field; `money()` uses `@woobe/utils`' `formatPaiseAsInr` (no money-formatting reimplemented).
+- `templates/{auth,order,returns}.templates.ts` — one renderer per email, `(payload) => { subject, html, text }`.
+- `templates/index.ts` — `EMAIL_TEMPLATES: Record<NotificationEventType, EmailRenderer>` (the queue-delivered events) + `renderRegistrationOtpEmail` / `renderPasswordResetOtpEmail` exported individually for the synchronous auth path.
+
+### 2. Real provider — replaces the no-op stub
+
+`notifications/infrastructure/providers/nodemailer-email.provider.ts` — `NodemailerEmailProvider implements NotificationProviderPort`, ctor `(mailer: MailerPort, templates = EMAIL_TEMPLATES)`. Resolves the template by `notification.type`, renders from `notification.payload`, calls `mailer.send`. **Failure contract unchanged from `StubEmailProvider`:** missing `contactEmail` or no template → `NotificationDeliveryError(retryable:false)` (worker → `UnrecoverableError`, stops retries); anything the mailer throws (SMTP down) propagates unchanged → BullMQ's existing `attempts:3` exponential backoff. `notifications.module.ts`: `env.SMTP_HOST ? new NodemailerEmailProvider(getMailer()) : new StubEmailProvider()` — **the stub is kept** as the no-SMTP / test / dev fallback, so the full existing suite and the no-SMTP dev flow are byte-for-byte unchanged.
+
+### 3. Event vocabulary — `NotificationEventType` (notifications/domain/entities/notification.entity.ts)
+
+Added: `WELCOME`, `PASSWORD_RESET_SUCCESS`, `ORDER_CANCELLED`, `RETURN_REQUESTED`, `RETURN_REJECTED`, `REFUND_INITIATED`, `REFUND_COMPLETED`. `REFUND_PROCESSED` kept in the union as `@deprecated` (no longer emitted; historical rows still type-check; mapped to the refund-completed template as a fallback).
+
+**Payment-success semantics (deliberate):** no separate `PAYMENT_RECEIVED` event. Every payment-success path in this system *is* an order confirmation (`ConfirmCodOrderUseCase`, Razorpay `payment.captured`); a second near-simultaneous email would be spam. The single `ORDER_CONFIRMED` email carries the **itemised HTML invoice** *and* the payment status/method ("Paid (Razorpay)" / "Pay on delivery (Cash)"), covering "order confirmed" + "payment received" + "invoice/receipt" as one message. `PAYMENT_FAILED` stays its own email.
+
+**Refund split:** `REFUND_INITIATED` fires at the `RETURN_APPROVED → REFUND_INITIATED` transition (money not moved); `REFUND_COMPLETED` fires only once money has actually moved (gateway refund succeeded, or staff-confirmed manual/COD completion). Never a completed email for a merely-initiated refund — covered by tests on the gateway-failure and COD-not-applicable branches.
+
+### 4. Lane 2 — auth + OTP (synchronous path preserved)
+
+- `SmtpOtpNotifier` / `SmtpPasswordResetNotifier` are now thin adapters over `MailerPort` + the shared OTP templates. **Delivery stays synchronous in the HTTP request** — never on BullMQ (the user is waiting for the code; the API must be able to report an SMTP failure immediately). `auth.module.ts` still picks `env.SMTP_HOST ? Smtp* : Dev*`. Every OTP security rule (expiry, resend cooldown, verify-attempt caps, anti-enumeration, dev `devCode` echo when `!SMTP_HOST`, prod behaviour) is untouched — verified by the unchanged, still-green `auth.integration.test.ts`.
+- New `auth/application/ports/notification-enqueuer.port.ts` (narrow, `WELCOME | PASSWORD_RESET_SUCCESS`) + `auth → notifications` module edge (acyclic; `notifications` depends on nothing).
+- `VerifyRegistrationOtpUseCase` — enqueues `WELCOME` **after** the user row + token pair exist. `AuthenticateWithGoogleUseCase` — enqueues `WELCOME` only on the `isNewUser` branch. `ResetPasswordUseCase` — enqueues `PASSWORD_RESET_SUCCESS` **after** the password is changed + sessions revoked. All three wrapped `.catch(() => undefined)` — a queue/Redis hiccup can never turn a completed registration / sign-in / reset into an error for the customer.
+- `smtp-transport.ts` kept (delegates to `NodemailerMailer.rawTransport()`) only for the out-of-scope `staff` invitation notifier.
+
+### 5. Lane 3 — order + payment payloads
+
+`orders/application/use-cases/notify-order-event.use-case.ts` (sole owner) — payloads enriched from the `order` it **already fetches** via `orderRepository.findById` (no new port, no new query, no calculation):
+- `ORDER_CONFIRMED`: `contactName`, `paymentMethod`, derived `paymentStatus` (`COD → PAY_ON_DELIVERY`, else `PAID` — a RAZORPAY order only reaches CONFIRMED via `payment.captured`), full `items[]`, `subtotal/discount/shipping/tax/total` Paise (all straight off the authoritative snapshot), `shippingAddress` from `shippingSnapshot`.
+- `ORDER_SHIPPED`: adds `trackingNumber` + `carrier` (only when present).
+- `PAYMENT_FAILED` / `ORDER_DELIVERED`: minimal (`contactEmail`, `contactName`, `orderNumber`, `totalPaise`).
+
+Ship/deliver already call this **post-`transaction.run`**, gated on the committed transition; the Razorpay webhook path already short-circuits on `changed:false` (two-layer idempotency). No new duplicate-protection was needed or added.
+
+### 6. Lane 4 — shipping verify + returns + refunds + cancellation
+
+- `RequestReturnUseCase` — now injected with the enqueuer; enqueues `RETURN_REQUESTED` after `returnRepository.create` (`.catch`-wrapped).
+- `RejectReturnUseCase` — now injected with `OrderReaderPort` + enqueuer; enqueues `RETURN_REJECTED` gated on the `RETURN_REQUESTED → RETURN_REJECTED` `transitionStatus().changed`.
+- `ApproveReturnUseCase` — unchanged (`RETURN_APPROVED` already correct).
+- `IssueRefundForApprovedReturnUseCase` — enqueues `REFUND_INITIATED` right after the `RETURN_APPROVED → REFUND_INITIATED` transition; enqueues `REFUND_COMPLETED` (was `REFUND_PROCESSED`) only on the `completed` gateway outcome, with `amountPaise`.
+- `MarkReturnRefundedUseCase` — `REFUND_PROCESSED` → `REFUND_COMPLETED` (money confirmed moved).
+- `admin/.../cancel-order-with-refund.use-case.ts` — always enqueues a **distinct `ORDER_CANCELLED`** email on a genuine cancel (`changed`), carrying `refundIssued` + `cancellationReason`; separately enqueues `REFUND_COMPLETED` **only when `refundIssued`** (that path returns `true` solely for a synchronously-COMPLETED Razorpay refund). Cancellation is never sent as a refund email. The local `NotificationEnqueuer` interface widened `"REFUND_PROCESSED"` → `"ORDER_CANCELLED" | "REFUND_COMPLETED"`.
+- Shipping "only on success" guarantee re-confirmed: `ShipOrderUseCase`/`DeliverOrderUseCase` enqueue only after `transaction.run` resolves with the transition committed — not edited, covered by their existing tests plus the new `notify-order-event` tests.
+
+### 7. Duplicate-email protection — reuse only, nothing new
+
+Razorpay webhook 2-layer idempotency (`(provider,eventId)` unique + conditional transition, enqueue skipped on `changed:false`); COD confirm conditional; every ship/deliver/return/refund step a conditional `transitionStatus` with the enqueue gated on `changed`/outcome; worker `claimForSending` atomic `PENDING→SENDING` before send; BullMQ `jobId = notificationId`, `attempts:3`. New triggers each gate on a non-repeatable success: `WELCOME` (user row created once; Google `isNewUser`), `PASSWORD_RESET_SUCCESS` (reset row deleted on success), `RETURN_REQUESTED` (one row per genuine request), `ORDER_CANCELLED` (`cancelOrderUseCase` `changed`), `RETURN_REJECTED` / `REFUND_INITIATED` (`transitionStatus().changed`).
+
+### 8. Security
+
+- OTP codes: never logged by any new code; `DevMailer` logs subject+recipient only; `devCode` echo unchanged (non-prod **and** `!SMTP_HOST` only).
+- SMTP credentials: read from env in exactly one file (`nodemailer-mailer.ts`), never logged, never sent to any frontend.
+- Email recipient always comes from authoritative server-side data — the order's own `contactEmail` / the account's own `email`; no client-supplied address anywhere in the email path.
+- Invoice content is built from the single order row being notified about — customer A's payload can only contain customer A's order (no cross-order join). No IDOR surface added (no new endpoint; the `notifications` router stays empty).
+- Admin cancel path stays `requirePermission`-gated exactly as before (no route touched).
+- No sensitive data beyond order summary + shipping address (already shown to the customer in-app) is included; no payment card data, no tokens.
+
+### 9. Environment variables
+
+Existing, reused unchanged: `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. New: `SUPPORT_EMAIL` (default `hello@woobe.in`, footer address) — `WEB_ORIGIN` (already present) is reused for CTA links. `.env.example` updated with both and an explicit note: **`SMTP_*` must be set on BOTH the `server` and the `worker` process** — the worker is what sends every order/return/refund email. No real credentials in the diff.
+
+### 10. Templates
+
+Reusable branded layout + plain-text framer, one renderer per email, all defensive against missing optional payload fields. Subjects follow the brief's examples ("Order #XXXX confirmed", "Your order #XXXX has shipped", "Welcome to Woobe", "Your Woobe password was changed", "Refund initiated/completed for order #XXXX", …). Customer name used where available; support line + storefront link in every footer. `ORDER_CONFIRMED` renders the full itemised invoice (line items, qty, unit price, line total, subtotal, discount, shipping/"Free", GST, bold total, ship-to block, payment status) in **both** HTML and plain text — figures formatted only, never recomputed.
+
+### 11. Tests
+
+New / changed test files, all green:
+- `shared/email/templates/templates.test.ts` (8) — every event renders subject+html+text with a full payload and degrades gracefully with only `contactEmail`; invoice figures present in both HTML and text; tracking shown only when present; cancellation never says "refund complete"; initiated vs completed distinct; OTP code in subject + both bodies.
+- `shared/email/mailer.test.ts` (5) — `NodemailerMailer` field mapping + `from`, failure propagation; `DevMailer` never logs the body.
+- `notifications/infrastructure/providers/nodemailer-email.provider.test.ts` (4) — renders + sends; non-retryable on missing email / unknown type; mailer failure propagates.
+- `auth/infrastructure/services/smtp-otp-notifier.test.ts` (3) — both notifiers render the right branded template; SMTP failure propagates synchronously.
+- `orders/.../notify-order-event.use-case.test.ts` (6) — full invoice payload, COD → PAY_ON_DELIVERY, shipped carries tracking, no line items leak into shipped/delivered, minimal payment-failed/delivered payloads, no-op on missing order.
+- `auth` use-case tests (+7) — WELCOME on registration + Google-new-user (not on returning login), PASSWORD_RESET_SUCCESS after the password write (not on wrong code), enqueue-failure never fails the flow.
+- `returns` + `admin` use-case tests updated — RETURN_REQUESTED / RETURN_REJECTED enqueued with the right payload, REFUND_INITIATED-then-COMPLETED ordering, no COMPLETED on gateway failure, ORDER_CANCELLED distinct from REFUND_COMPLETED, no refund email when none issued, enqueue-failure tolerated.
+
+### 12. Build / typecheck / lint / boundaries
+
+- `pnpm -r run typecheck` — clean, all 9 projects.
+- `pnpm -r run lint` — clean, all 9 (`--max-warnings=0`).
+- `pnpm run boundaries:check` — clean, **616 modules / 1979 dependencies, 0 violations** (up from 598; the new `shared/email` files + the `auth → notifications` edge, acyclic).
+- `pnpm --filter @woobe/api run test` — **733 passed / 1 failed**. The one failure (`auth: google … fails safely with 503`, got 401) is the **pre-existing, documented** env-contamination flake (a real `GOOGLE_CLIENT_ID` in the shared root `.env` makes the module wire the real verifier) — present on every recent journal entry, unrelated to and unaffected by this work.
+- `pnpm --filter @woobe/api run build` (tsc) — clean. `pnpm --filter @woobe/web run build` / `@woobe/admin` — both clean (`.next` cleared first).
+
+### 13. Live verification
+
+- **End-to-end worker drain** against real dev Postgres + real dev Redis (BullMQ), with a capture-only nodemailer `jsonTransport` in place of SMTP: enqueued one of every one of the 12 queue events via the real `EnqueueNotificationUseCase` → real `BullMqNotificationQueue` → real `Worker` running `ProcessNotificationJobUseCase` (real `claimForSending`). Result: **12/12 rows reached `SENT`**, 12 emails rendered (HTML + plain text, correct subject each), all rows cleaned up afterward.
+- **API boot** with all new wiring (`auth → notifications`, shared mailer, enriched notify-order-event) — server listens, `/health` 200, `POST /auth/register/start` returns `devCode` and logs `[otp] registration code …` exactly as before (no SMTP configured → `DevOtpNotifier` path unchanged). Test row cleaned up.
+- No frontend file was touched, so the storefront OTP / forgot-password / checkout UI is behaviourally identical; the register→verify and forgot→reset HTTP flows are covered end-to-end by the unchanged, still-green `auth.integration.test.ts`.
+
+### 14. Emails intentionally NOT implemented
+
+- **Account email-change / email-verification-on-change** — no profile-email-change feature exists anywhere in the codebase (users module has address CRUD only). No workflow to hook.
+- **PDF invoice attachment** — no invoice/PDF system exists; per the approved decision this sprint delivers the itemised invoice as HTML in the order-confirmed email, no PDF dependency added.
+- **Standalone "payment received" email** — folded into `ORDER_CONFIRMED` (see §3); a separate one would be duplicate.
+- **SMS / PUSH channels** — `NotificationChannel` has the enum values but no provider/credentials exist; unchanged.
+
+### 15. Remaining limitations
+
+- Real SMTP end-to-end is unproven here (no credentials in this environment) — the drain used a capture transport. A deployer must set `SMTP_*` on **both** the API and the worker process and do one real send-through.
+- `staff`'s invitation notifier still constructs a transport via the `createSmtpTransport` compatibility shim rather than depending on `MailerPort` directly — deliberately out of scope; flagged for a follow-up.
+- The pre-existing Google-auth 503-vs-401 test flake (env contamination) is still present and still unrelated.
+- Row cleanup / pruning of old `notifications` / `email_verifications` / `password_reset_tokens` rows — pre-existing gap, unchanged.
+- New auth-lifecycle enqueues are `.catch`-swallowed best-effort; if Redis is down at that instant the WELCOME / reset-confirmation / return-requested email is silently skipped (the business operation still succeeds, which is the required priority). Existing enqueue sites (order/ship/deliver/approve) keep their prior non-swallowed behaviour.
+
+---
+
+## 2026-09-12 — Global toast theme consistency fix: removed sonner's `richColors`, added a shared `@woobe/ui` `<Toaster>`
+
+**Branch:** `woobe-ui/bug-fixes` — uncommitted (per instruction: journal updated, no commit/push/merge).
+
+**Root cause, found by tracing the render path, not by guessing colors:** every toast in both apps ultimately renders through exactly **two** mount points — `apps/web/src/providers.tsx` and `apps/admin/src/app/providers.tsx` — both rendering sonner's own `<Toaster position="top-center" richColors />` directly (confirmed by grepping the whole tree for `sonner`: every other hit across both apps is a `toast.success/error/info(...)` call site, never a second `<Toaster>`). `richColors` is what was actually producing the "different/unrelated colors" the user reported: reading the installed package's own bundled CSS (`node_modules/sonner/dist/index.mjs`) shows `[data-rich-colors=true][data-sonner-toast][data-type=success]{background:var(--success-bg);...}` (and matching rules for `info`/`warning`/`error`) — these rules, and sonner's own **default** values for `--success-bg`/`--error-bg`/etc. (generic green/red/yellow/blue), only ever fire when `data-rich-colors=true` is on the toast, i.e. only because `richColors` was passed. Without it, sonner uses one shared `--normal-bg`/`--normal-border`/`--normal-text` for every toast type unconditionally — exactly the "one consistent theme" hook needed, and a first-party sonner theming mechanism (https://sonner.emilkowal.ski/styling), not a hack.
+
+**One shared implementation, fixed centrally, not per-app:** rather than editing `richColors` out of both provider files (which would leave two copies of the same theme to drift again — this codebase has already been bitten once by exactly that shape of bug, see the 2026-09-11(ish) "apps/admin never mounted `<Toaster>` at all" entry above), added `packages/ui/src/components/Toaster.tsx` — a themed wrapper both apps now render instead of importing `sonner`'s `Toaster` directly. `packages/ui` already backs every other shared primitive (Button/Badge/Card/etc.) both apps consume, so this is the same pattern, not a new one; added `sonner` (`^1.7.1`, matching both apps' existing pin) as a real `@woobe/ui` dependency and exported `Toaster` from its `index.ts`.
+
+**Theme — reused existing tokens, invented nothing:** `Toaster.tsx` sets `--normal-bg: #F3DEE2` (`primary.tint` in `packages/config/tailwind/preset.cjs`, the same pale-pink surface Badge's neutral variant and Button's secondary/ghost hover already use), `--normal-text: #262220` (`text.primary`, already AA-verified per `packages/ui/src/tokens/colors.ts`'s own comment), and `--normal-border`/`--normal-bg-hover`/`--normal-border-hover` as `primary` (`#A54659`) at reduced opacity — the same "brand color at reduced alpha" idiom Badge's own `bg-success/15`/`bg-error/10` variants already establish, not a new hex. `richColors` is gone entirely, not reconfigured.
+
+**Type distinction preserved without a full-background swap:** sonner already renders a different icon (check/✕/△/ⓘ) per toast type regardless of `richColors` — untouched. `toastOptions.classNames.success`/`.error` additionally tint just that icon (`[&>[data-icon]]:text-success` / `:text-error`, the same `[&>svg]:...` arbitrary-variant idiom `EmptyState.tsx` already uses) with this codebase's existing `success`/`error` Tailwind tokens (`#4F684C`/`#AE423D`) — the two types actually used at scale (71 `toast.error` + 44 `toast.success` call sites vs. 4 `toast.info` and 0 `toast.warning`, grepped across both apps). `info`/`warning` get no extra icon tint: `info` already reads fine on the shared pink card, and `warning` has no real Tailwind token (only an explicitly "unverified, unused" mirror value in `tokens/colors.ts`) and zero call sites — adding one now would be inventing a color, which the task explicitly ruled out; noted in `Toaster.tsx`'s own comment for whoever adds a real `toast.warning(...)` later.
+
+**Verified empirically, not just by reading the CSS rules:** live against real running dev servers (had to restart both — the already-running `apps/web`/`apps/admin` dev servers predated `packages/ui`'s new `sonner` dependency and served a stale build manifest, 404s on `layout.css`, harmless stale-dev-server artifact unrelated to the fix itself, fixed by killing both, clearing `.next`, and restarting).
+- **Computed styles read directly from the DOM** (`getComputedStyle`, not a screenshot glance) for a real `toast.success` (web, "Add to bag") and a real `toast.error` (admin, inventory adjust's "Enter a non-zero adjustment"): both came back `data-rich-colors: null`, `background-color: rgb(243, 222, 226)` (`#F3DEE2`), `border-color: rgba(165, 70, 89, 0.25)`, `color: rgb(38, 34, 32)` (`#262220`) — identical card for both types — with the icon differing exactly as designed: success `rgb(79, 104, 76)` (`#4F684C`), error `rgb(174, 66, 61)` (`#AE423D`).
+- **Visual, at 375/768/1024/1440px** (web: success via "Add to bag," including sonner's native multi-toast stacking at 1024/1440; admin: error via the inventory adjust panel at 375px): pink card, correct icon color, readable dark text, no overflow/clipping, close button N/A (this app never opts into sonner's close button — unchanged from before). Screen-reader plumbing (`region "Notifications alt+T"`, live-region semantics) present and untouched in every snapshot — this fix only ever touches `style`/`classNames`, never sonner's own markup/ARIA.
+- Grepped every `toast.*(...)` call site (both apps) for a per-call `style`/`className`/`classNames` override that might bypass the shared theme — none found; every call is a plain `toast.success/error/info(message, ...)`, so the fix in one file covers all 119 call sites (71 error / 44 success / 4 info) with no per-page follow-up needed.
+
+**Build/test verification:**
+- `pnpm -r run typecheck` / `pnpm -r run lint` / `pnpm run boundaries:check` — all clean (9/9 projects; 620 modules / 1991 deps, 0 violations).
+- `pnpm run build` (all three apps) — clean; route tables unchanged.
+- `pnpm run test` — same **57 pre-existing failures** (all `auth`'s OTP/`devCode` use-case tests, `expect(result.devCode).toBe(...)` getting `undefined`) with and without this change — confirmed by `git stash`/re-run/`git stash pop`: 58 failed on the pre-change tree, 57 on this change's tree (one-test difference is test-order/flake noise, not this fix — neither run touches `auth`, `packages/ui`, or either `providers.tsx`). Pre-existing, unrelated, not investigated further here (out of scope for a toast-theme task).
+
+**Files changed:** `packages/ui/src/components/Toaster.tsx` (new), `packages/ui/src/index.ts` (export), `packages/ui/package.json` (+`sonner` dependency), `apps/web/src/providers.tsx`, `apps/admin/src/app/providers.tsx` (both: `sonner`'s `Toaster` → `@woobe/ui`'s), `pnpm-lock.yaml`.
+
+**Intentionally left unchanged:**
+- `warning` has no dedicated icon color (see above) — add a real `warning` Tailwind token first if a real `toast.warning(...)` call ever ships.
+- The pre-existing `[issue] A form field element should have an id or name attribute` DevTools notice on `apps/web` (unrelated form, not touched by this change) and the pre-existing `auth` OTP test failures above — both out of scope.
+- Sonner's default toast duration/position/no-close-button behavior — unchanged everywhere, per the task's "timing unchanged unless already intended" instruction.
+
+---
+
+## 2026-09-12 — Missing `testimonials` table on local `woobe_dev` (unrelated to the toast fix above)
+
+**Branch:** `woobe-ui/bug-fixes` — environment-only, no source changes.
+
+Separately from the toast work, `GET /` (storefront homepage) started 500ing with `ApiError("Something went wrong")` at `apiFetch`. Root cause: `GetHomePageUseCase`'s `Promise.all` includes `listApprovedTestimonialsUseCase.execute()`, and this machine's local `woobe_dev` Postgres was one migration behind — `20260910185907_replace_reviews_with_testimonials` (the migration that ships with `68ac27a`, "replace product reviews with store-level testimonials") had never been applied here, so `prisma.testimonial.findMany()` failed with `The table "public.testimonials" does not exist`, taking the whole `/api/v1/home` call down with it (not a caching issue this time — a real missing table). Checked `reviews` was empty (`0` rows) before applying the migration (it also drops that table), then ran `pnpm run db:migrate:deploy` — applied cleanly, `GET /api/v1/home` and `GET /` both verified `200` afterward, log silent on repeat requests. No code changes; flagging only because it's the kind of local-environment drift this journal has recorded more than once (stale Prisma client, unmigrated `woobe_test`, etc.) and is worth knowing if another machine hits the same 500.
+
+---
+
+## 2026-09-12 — Checkout order-placement celebration (circle progress → crackle → "Order Placed!") before the existing Order Confirmation page
+
+**Branch:** `woobe-ui/bug-fixes` — uncommitted (per instruction: journal updated, no commit/push/merge).
+
+**Read first:** the 2026-09-10 "Admin + User bug-fix sprint" entry above, specifically "Workstream 2 — Checkout: the empty-cart flash was a real, provable race" — this task builds directly on top of that fix's `orderPlaced` guard rather than replacing it, and the reasoning there (why the guard has to be set *before* `refreshCart()`, not after) still fully applies here.
+
+**What was asked:** a polished animated transition — circular progress → completion pulse → a particle "crackle" bursting outward from inside the completed circle → checkmark + "Order Placed!" — between a successful checkout and the existing Order Confirmation page, with the Order Confirmation page itself left completely untouched.
+
+**Investigated before writing any code:**
+- `CheckoutForm.tsx`'s `onSubmit` success path (unchanged shape since the 2026-09-10 fix): `checkoutApi.checkout()` → `setOrderPlaced(true)` (before the cart refresh, for the exact race-condition reason that entry documents) → `await refreshCart()` → `router.push('/order-confirmation/[id]')`. The `orderPlaced` branch rendered a single `<p>Order placed! Redirecting…</p>` — this is the one and only insertion point: everything downstream (`OrderConfirmation.tsx`, the route itself) needed zero changes.
+- `apps/web` already depends on `motion` (`motion/react`) — used by `Reveal.tsx` (homepage scroll-reveal) and, notably, already inside `OrderConfirmation.tsx` itself (`StatusHeading`'s own checkmark scale-in, gated on `useReducedMotion()`). No new dependency added; same library, same `useReducedMotion()` hook, same "mount-keyed `initial`/`animate`" idiom already established in this codebase rather than imperative animation controls.
+- No existing confetti/particle utility anywhere in the repo (`packages/ui` or either app) — built new, kept small and self-contained, not added as a `packages/ui` primitive (this is a one-call-site, checkout-specific sequence, not a reusable design-system piece).
+
+**What changed:**
+- **New `apps/web/src/features/checkout/components/OrderPlacementCelebration.tsx`** — a 3-phase state machine (`progress` → `pulse` → `celebrate`) driven by four named, fixed-duration `setTimeout`s (900ms / 220ms / 700ms / 320ms hold — same "self-documenting timer constant" convention `OrderConfirmation.tsx` already uses for its own poll timers), read via a ref so the timer chain runs exactly once per mount regardless of the caller's own re-renders.
+  - **Progress**: an SVG ring, `stroke-dasharray`/`stroke-dashoffset` animated via `motion.circle` with an ease-out-expo curve (`[0.16,1,0.3,1]`, not linear), rotated -90° so the line starts at 12 o'clock — a defined, consistent start point. Text: "Placing your order…" / "Please wait a moment".
+  - **Pulse**: the same circle scales to 1.06× with a soft `drop-shadow` glow for 220ms — no remount, just a target-value change on the same `motion.div`.
+  - **Celebrate**: 14 fixed (not `Math.random()`-per-render) particles — a mix of dots, small rotated "confetti" rects, and `lucide-react`'s `Sparkle` icon — each launched from the exact center (`left:50%;top:50%`, negative margin offset) and animated outward via `translateX/Y` computed from a hand-tuned angle+distance pair (`cos(angle)*distance`, `sin(angle)*distance`), `ease: "easeOut"` (fast off center, decelerating outward — a real burst, not a linear slide), opacity keyframed `[0,1,1,0]`. A `CheckCircle2` (same icon `OrderConfirmation.tsx`'s own `CONFIRMED` state already uses) scales in over it. Every particle color is an existing Tailwind-preset token (`primary` `#A54659`, `primary.hover` `#884350`, `primary.tint` `#F3DEE2`) — nothing invented, same discipline as the same day's toast-theme fix above.
+  - **Reduced motion**: `useReducedMotion()` (Motion's own hook) short-circuits to a single static state — checkmark + "Order Placed!" + subtext, held 650ms, then `onComplete()`. No circle draw, no particles, per the task's explicit accessibility requirement.
+- **`CheckoutForm.tsx`**: `orderPlaced`'s branch now renders `<OrderPlacementCelebration onComplete={handleCelebrationComplete} />` instead of the plain `<p>`. The `refreshCart()` await was previously inline, blocking `router.push` — now kicked off into a `cartRefreshRef` immediately after `setOrderPlaced(true)` (so the celebration can start rendering right away rather than waiting on that network round trip), and `router.push` moved into a new `handleCelebrationComplete` callback that awaits `cartRefreshRef.current` before navigating — preserving the exact 2026-09-09 guarantee ("nav badge correct by the time the confirmation page mounts") regardless of which finishes first. `placedOrderId` is a new small piece of state capturing the just-placed order's real id purely for that final navigation — never passed as props into `OrderConfirmation` (which still fetches its own data by id, completely unchanged).
+- **`OrderConfirmation.tsx` — zero changes.** Confirmed via `git diff`/`git status` before and after: empty diff, not in the changed-files list.
+
+**Why checkout stays safe:** the celebration only ever renders after `checkoutApi.checkout()` has already resolved successfully (`setOrderPlaced(true)` is the very next line) — a rejected promise goes straight to the existing `catch` block (field errors inline, `toast.error` otherwise), which never touches `orderPlaced`/`placedOrderId`, so a failed checkout structurally cannot reach the celebration. No order-creation, payment, inventory, cart-conversion, or state-machine code was touched — the component receives only a completion callback, the same shape `OrderConfirmation`'s own `StatusHeading` already uses (animates a result, owns no business logic).
+
+**Empty-cart flash:** unaffected — still governed by the same `orderPlaced` flag, set at the same point in the same order, for the same reason the 2026-09-10 entry documents. Verified live it's still gone (see below), not just reasoned about.
+
+**Verified live (chrome-devtools-mcp against real dev servers, real Postgres/Redis, real COD checkout end to end):**
+- Multiple real COD checkouts, natural (unmodified) timing — every one went `Place order` click → straight to the real Order Confirmation page, "Order confirmed!", correct order number/items/total, zero empty-cart flash, zero console errors.
+- **Every phase visually confirmed**, not just inferred — an injected `initScript` intercepted `window.setTimeout` for this component's timer range only, freezing the sequence mid-flight so tool round-trip latency (which, verified separately, made every earlier attempt land *after* the ~2.1s sequence had already finished) couldn't hide the intermediate states:
+  - Progress ring: fully drawn, correct pink stroke, centered, no overflow.
+  - Pulse: circle scaled up with a visible soft pink glow.
+  - Celebrate: DOM-inspected mid-burst — particle `transform` values matched the intended trig exactly (e.g. 8°/58px → `translateX(57.4355px) translateY(8.07204px)`), colors matched the three intended tokens exactly, shapes (dot/confetti-rect/Sparkle) all present, all originating from dead-center (`left:50%;top:50%`).
+  - Success state: checkmark + "Order Placed!" + "Your order has been placed successfully." — settled screenshot confirmed.
+- **Reduced motion**: `window.matchMedia` overridden via `initScript` to force `(prefers-reduced-motion: reduce)`. Simplified path rendered, navigation to the real order-confirmation page still succeeded, zero console errors.
+- **Checkout failure**: real network-offline simulation (`emulate` networkConditions `Offline`) during submit — no celebration rendered, form/payment-method selection fully intact, no navigation; restoring the network and resubmitting succeeded normally (fresh order, fresh confirmation page) — same failure/retry behavior the 2026-09-10 fix's own verification already established, unaffected by this change.
+- **Responsive**: 375 / 1024 / 1440px, both the progress and celebrate phases — centered, no overflow, no layout shift, in each case verified via the timer-freeze technique above (not a best-effort glance).
+- **768px**: covered incidentally (checkout form itself reflows to the two-column desktop layout at `md:`, `768` and `1024` share that layout) — not re-verified pixel-for-pixel as its own screenshot, since the celebration's own layout (a centered flex column, independent of the two-column form grid beneath it) doesn't have a distinct breakpoint between 768 and 1024 to begin with.
+- **Razorpay path**: not separately screenshotted this session — `checkoutApi.checkout()` returns the same shape (an order id, `PENDING_PAYMENT`) regardless of `paymentMethod`, and everything COD/Razorpay actually differ on happens downstream, inside the untouched `OrderConfirmation.tsx`, after this component has already handed off — so the celebration itself is payment-method-agnostic by construction, not merely assumed to be.
+
+**Build/typecheck/lint/boundaries:**
+- `pnpm exec tsc --noEmit` (`apps/web`) and `pnpm exec eslint ... --max-warnings=0` on both changed/new files — clean.
+- `pnpm -r run typecheck` / `pnpm -r run lint` — clean, all 9 projects.
+- `pnpm run boundaries:check` — clean, 620 modules / 1991 deps, 0 violations (frontend-only change, no backend module touched).
+- `pnpm run build` — clean, all three apps. `/checkout`'s own bundle grew (4.69kB→7.72kB, First Load 190kB→233kB — the new component's own code plus a heavier direct `motion/react` import); `/order-confirmation/[id]`'s reported bundle size dropped in the same build (43.1kB→3.61kB) purely from Next/webpack's chunk-splitting shifting `motion`'s shared code around now that a third route imports it — confirmed this is not a functional regression via `git diff` (zero changes to that file) and a live, byte-for-byte-unchanged render.
+- `pnpm run test` — same pre-existing `auth` OTP/`devCode` failures as every other entry this session, none new (this change touches no backend code, no `apps/api` file).
+
+**Follow-ups / known gaps:**
+- 768px not independently screenshotted (see above) — low-risk given the celebration's layout is breakpoint-independent, but flagging rather than silently skipping.
+- Razorpay's own post-navigation flow (`OrderConfirmation`'s "Pay now" → widget → poll) wasn't re-exercised this session — untouched by this change, already covered by the 2026-08-27 Week 1 entries' own verification.
+- The particle set (angle/distance/color/shape per particle) is a fixed, hand-tuned array, not procedurally generated — deliberate (restrained, reproducible, no `Math.random()` flicker between renders), but means adding/removing particles later is a manual edit to that array, not a config knob.
+
+---
+
+## 2026-09-12 — Order-placement celebration redesigned to match a "pop party" reference (github.com/jsurya114/CycloneX)
+
+**Branch:** `woobe-ui/bug-fixes` — uncommitted at write time (see chat for whether this was pushed).
+
+**Ask:** the user has a separate project (`jsurya114/CycloneX`, an Express/EJS storefront) whose own order-confirmation page (`Apps/views/user/confirmation.ejs`) has a "pop party" moment they wanted the same *feel* of applied to Woobe's checkout celebration built earlier today. Cloned and read that file directly rather than guessing from the name — it does three things: (1) a white circle whose border + checkmark draw in via `stroke-dasharray`/`stroke-dashoffset` CSS keyframes, with a small scale "pop" once filled; (2) a bouncy gradient "Hooray!" pill badge underneath with 3 small pulsing sparkle dots and a gentle infinite float/rotate loop; (3) a full-page, multi-hued confetti burst via the `canvas-confetti` library (5 staggered `fire()` calls with varying spread/velocity/decay), fired once on page load, unrelated to the circle's position.
+
+**Scope confirmed with the user before touching anything** (three explicit questions, all answered before any code changed):
+1. **Where**: redesign `OrderPlacementCelebration.tsx` (the pre-confirmation transition built earlier today) — **not** `OrderConfirmation.tsx`, which stays under the same "never touch it" constraint as the original task.
+2. **Palette**: Woobe's own pink family only (`primary`/`primary.hover`/`primary.tint`), not the reference's rainbow confetti — consistent with every other themed surface in this app (toast fix earlier today, particle burst before this redesign).
+3. **Confetti engine**: add `canvas-confetti` as a real dependency (matches the reference exactly, ~3kB) rather than hand-rolling the same burst with `motion`.
+
+**What changed (`OrderPlacementCelebration.tsx`, same file, same `onComplete` contract, same `progress`/`pulse` phases untouched):**
+- **Checkmark**: replaced the small fading `CheckCircle2` icon with a new `CheckmarkIcon` sub-component — a white circle (spring pop-in) containing an SVG circle + tick path that draw themselves via Motion's `pathLength` (the declarative equivalent of the reference's hand-written stroke-dasharray keyframes, and consistent with how the progress ring above already animates its own stroke), recolored to `#A54659` on white instead of the reference's green-on-white.
+- **"Hooray!" badge**: new, matching the reference's structure — a pink-gradient (`primary`→`primary.hover`) pill that spring-bounces in ~0.5s after the checkmark starts drawing, then floats/rotates on an infinite loop, with 3 sparkle dots (`bg-white`, staggered opacity/scale pulse) at fixed positions around it.
+- **Confetti**: the old 14-particle hand-rolled "burst outward from the circle" system was removed entirely (superseded, not layered on top — the reference's burst is a full-page effect, not circle-relative) and replaced with `fireConfetti()`, a dynamically-imported (`import("canvas-confetti")`, SSR-safe — a static import would execute at module scope, which the server can't evaluate) call reproducing the reference's exact 5-burst shape (`spread`/`startVelocity`/`decay`/`scalar` per call), recolored to the three Woobe tokens. Fired once via a `useEffect` gated on `phase === "celebrate"` and a `confettiFiredRef` guard (so React 18 dev-mode's mount→cleanup→remount can't double-fire it) — skipped entirely under `useReducedMotion()`, per the task's own accessibility rule (a full-page particle burst is exactly the "elaborate" effect that rule exists to avoid).
+- **Reduced motion**: same short-circuit branch as before, now rendering `CheckmarkIcon`'s static (`animate={false}`) variant instead of a bare icon — no confetti, no badge float, same 650ms hold then `onComplete`.
+- **Timing**: `CELEBRATE_DURATION_MS` 700→950ms and `HOLD_DURATION_MS` 320→450ms (checkmark draw + badge bounce need a little more room than the old particle burst did); `progress`/`pulse` durations unchanged. Total sequence ≈2.5s, still short/fixed per the original task's "no arbitrary long delays" rule.
+
+**New dependency:** `canvas-confetti@^1.9.4` + `@types/canvas-confetti@^1.9.0` in `apps/web/package.json` (dependency + devDependency respectively) — nothing else in the repo touches it; `packages/ui` and `apps/admin` are unaffected.
+
+**Verified live (chrome-devtools-mcp, real dev servers, real COD checkouts, same timer-freeze technique as the original task for catching mid-animation states despite tool round-trip latency exceeding the ~2.5s sequence):**
+- Checkmark draw + white-circle pop: confirmed via screenshot mid-freeze — pink stroke, correctly centered, no flash of the old particle system.
+- "Hooray!" badge: confirmed via screenshot — pink gradient pill below the checkmark, correct text, positioned as designed.
+- Confetti: **network-trace-verified**, not just assumed — `list_network_requests` showed the `canvas-confetti` chunk fetched (200) and, critically, a `blob:` Worker URL created and loaded (200) immediately after advancing to the celebrate phase; canvas-confetti only creates that worker/blob from inside an actual `confetti()` call, never from merely importing the module, so this is direct evidence the burst executed, not just that the library loaded. The transient `<canvas>` element itself wasn't caught mid-frame (its animation duration is comfortably shorter than this tool's round-trip latency, the same limitation noted in the original task's own verification section) — flagging honestly rather than claiming a screenshot that wasn't taken.
+- Full flow: multiple real COD checkouts, natural timing, went straight to the real (unchanged) Order Confirmation page — reconfirmed byte-for-byte via `git diff`/live screenshot that `OrderConfirmation.tsx` is still untouched.
+- Reduced motion: re-verified with the new `CheckmarkIcon` static variant — renders instantly, no console errors, navigates correctly.
+- Responsive: 375px and 1440px re-checked with the new badge element added to the layout — centered, no overflow, doesn't collide with the mobile bottom nav.
+- Console: zero errors/warnings across every run in this session.
+
+**Build/typecheck/lint/boundaries:**
+- `pnpm exec tsc --noEmit` / `eslint --max-warnings=0` (`apps/web`, the one changed file) — clean.
+- `pnpm -r run typecheck` — clean, all 9 projects. (One transient failure hit mid-session: `apps/admin`'s own typecheck failed on duplicate-identifier errors from stray ` 2.ts`-suffixed files under its `.next/types/` — confirmed via file timestamps this was leftover corruption from an earlier concurrent dev-server/build overlap in this same session, **not** caused by this change; `rm -rf apps/admin/.next` fixed it immediately, re-confirmed clean.)
+- `pnpm -r run lint` / `pnpm run boundaries:check` — clean (620 modules / 1991 deps, 0 violations — this change touches no backend code).
+- `pnpm run build` — clean, all three apps; `/checkout`'s bundle size essentially unchanged (7.72→7.77kB) since `canvas-confetti` is dynamically imported into its own chunk, not bundled into the route's main JS.
+
+**Follow-ups / known gaps:**
+- The confetti canvas's mid-flight frame wasn't visually screenshotted (see above) — network-trace evidence stands in for it; worth a dedicated visual pass later if this component's confetti timing/parameters ever need hand-tuning.
+- `canvas-confetti`'s own reduced-motion awareness (it has none built in) is fully handled by this component's own `shouldReduceMotion` gate — if `fireConfetti()` is ever called from anywhere else in the app later, that guard does **not** travel with it automatically.

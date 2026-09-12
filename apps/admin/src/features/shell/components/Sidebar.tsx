@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   LogOut,
+  MessageSquareQuote,
   Package,
   RotateCcw,
   Settings,
@@ -35,6 +36,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/inventory": Package,
   "/staff": Users,
   "/returns": RotateCcw,
+  "/testimonials": MessageSquareQuote,
   "/settings": Settings,
 };
 

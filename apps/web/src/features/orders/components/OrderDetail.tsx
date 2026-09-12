@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { RequestReturnForm } from "@/features/returns/components/RequestReturnForm";
+import { TestimonialCta } from "@/features/testimonials/components/TestimonialCta";
 import * as returnsApi from "@/features/returns/api/returns.client";
 import type { ReturnSummary } from "@/features/returns/api/returns.client";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
@@ -123,6 +124,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           ) : (
             <RequestReturnForm orderId={order.id} items={order.items} onRequested={() => void refetch()} />
           )}
+        </Card>
+      ) : null}
+
+      {order.status === "DELIVERED" ? (
+        <Card className="p-4">
+          <TestimonialCta orderId={order.id} />
         </Card>
       ) : null}
     </div>

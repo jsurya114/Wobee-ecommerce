@@ -1,6 +1,7 @@
 import { UnprocessableEntityError } from "../../../../shared/errors";
 import type { ReturnEntity } from "../../domain/entities/return.entity";
 import { resolveReturnEligibility } from "../../domain/resolve-return-eligibility";
+import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
 import type { OrderReaderPort } from "../ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "../ports/order-return-flag-writer.port";
 import type { CreateReturnItemInput, ReturnRepositoryPort } from "../ports/return-repository.port";
@@ -24,6 +25,7 @@ export class RequestReturnUseCase {
     private readonly orderReader: OrderReaderPort,
     private readonly returnRepository: ReturnRepositoryPort,
     private readonly orderReturnFlagWriter: OrderReturnFlagWriterPort,
+    private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
   async execute(input: RequestReturnInput): Promise<ReturnEntity> {
@@ -48,6 +50,23 @@ export class RequestReturnUseCase {
     // itself, but there's no real failure mode expected of a plain update,
     // so this is not wrapped defensively the way e.g. markRefunded is.
     await this.orderReturnFlagWriter.setHasActiveReturn(input.orderId, true);
+
+    // Best-effort confirmation email — the return row exists; a queue
+    // failure must not fail the request the customer just made.
+    await this.notificationEnqueuer
+      .enqueue({
+        userId: order.userId,
+        type: "RETURN_REQUESTED",
+        channel: "EMAIL",
+        payload: {
+          contactEmail: order.contactEmail,
+          orderNumber: order.orderNumber,
+          returnId: created.id,
+          itemCount: input.items.reduce((sum, line) => sum + line.quantity, 0),
+        },
+      })
+      .catch(() => undefined);
+
     return created;
   }
 }

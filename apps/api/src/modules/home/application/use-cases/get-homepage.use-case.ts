@@ -5,7 +5,8 @@ import type { ListProductsResult } from "../../../products/application/use-cases
 import type { ProductSummaryWithStatus } from "../../../products/application/ports/product-repository.port";
 import type { ProductSummaryEntity } from "../../../products/domain/entities/product.entity";
 import type { VariantSaleQuantity } from "../../../orders/application/ports/order-repository.port";
-import type { ReviewEntity } from "../../../reviews/domain/entities/review.entity";
+import type { AggregateRatingView } from "../../../testimonials/application/use-cases/get-aggregate-rating.use-case";
+import type { PublicTestimonialView } from "../../../testimonials/application/use-cases/list-approved-testimonials.use-case";
 
 const NEW_ARRIVALS_LIMIT = 8;
 const BEST_SELLERS_LIMIT = 8;
@@ -36,10 +37,8 @@ const BUDGET_TILE_DEFS = [
   { label: "Under ₹799", maxPricePaise: 79_900 },
   { label: "Under ₹999", maxPricePaise: 99_900 },
 ];
-const CUSTOMER_REVIEWS_LIMIT = 6;
-// Same reasoning as best sellers: a review's product can since have gone
-// inactive, so overfetch reviews before filtering down to CUSTOMER_REVIEWS_LIMIT.
-const CUSTOMER_REVIEWS_OVERFETCH = CUSTOMER_REVIEWS_LIMIT * 3;
+/** "Loved by Our Customers" rail (2026-09-11, replaces the old per-product Customer Reviews rail) — up to this many APPROVED testimonials, newest/highest-rated first. */
+const TESTIMONIALS_LIMIT = 6;
 
 /**
  * Matches `ListProductsUseCase`'s own `execute` signature — only the fields
@@ -72,9 +71,14 @@ interface ActiveCollectionsLister {
   execute(): Promise<CollectionEntity[]>;
 }
 
-/** Matches `ListTopApprovedReviewsUseCase`'s own `execute` signature. */
-interface TopApprovedReviewsReader {
-  execute(limit: number): Promise<ReviewEntity[]>;
+/** Matches `ListApprovedTestimonialsUseCase`'s own `execute` signature. */
+interface ApprovedTestimonialsReader {
+  execute(limit: number): Promise<PublicTestimonialView[]>;
+}
+
+/** Matches `GetAggregateTestimonialRatingUseCase`'s own `execute` signature. */
+interface AggregateTestimonialRatingReader {
+  execute(): Promise<AggregateRatingView>;
 }
 
 /** Matches `ListCategoriesUseCase`'s own `execute` signature (redesign §B — the category rail). */
@@ -132,13 +136,18 @@ export interface HomeBudgetTile {
   imageUrl: string | null;
 }
 
-export interface HomeReviewView {
+export interface HomeTestimonialView {
   id: string;
   rating: number;
-  title: string | null;
-  body: string | null;
+  text: string;
   createdAt: Date;
-  product: { id: string; slug: string; name: string; image: string | null };
+  displayName: string;
+  images: { id: string; url: string }[];
+}
+
+export interface HomeTestimonialAggregate {
+  averageRating: number;
+  approvedCount: number;
 }
 
 export interface HomeSizeOption {
@@ -160,7 +169,10 @@ export interface HomePageView {
    */
   bestSellers: ProductSummaryEntity[];
   featuredCollections: CollectionEntity[];
-  customerReviews: HomeReviewView[];
+  /** "Loved by Our Customers" — APPROVED store-experience testimonials only, never product reviews (2026-09-11). */
+  testimonials: HomeTestimonialView[];
+  /** null when there are zero APPROVED testimonials yet — the storefront omits the aggregate display entirely rather than show a fabricated 0/5. */
+  testimonialAggregate: HomeTestimonialAggregate | null;
   budgetTiles: HomeBudgetTile[];
   /** "Shop your size" rail — one entry per `CURATED_CLOTHING_SIZES` value with at least one matching live variant; a size with none is simply absent. */
   sizeAvailability: HomeSizeOption[];
@@ -199,9 +211,14 @@ export interface HomePageView {
  *   Collections"/"New Drops" implying a recency lifecycle this data never
  *   had — see the homepage audit's finding I — so the label changed, not
  *   this resolution logic.)
- * - Customer Reviews: `reviews`' highest-rated APPROVED reviews, enriched
- *   with just the reviewed product's name/slug/image — never a reviewer
- *   name, matching the product-page review card's own existing convention.
+ * - "Loved by Our Customers" (2026-09-11, replaces the old per-product
+ *   "Customer Reviews" rail): `testimonials`' highest-rated APPROVED store-
+ *   experience testimonials — server-derived "First L." identity, never a
+ *   raw customer name/id, and never a product reference at all (a
+ *   testimonial belongs to CUSTOMER + ORDER + the Woobe experience, not to
+ *   any one inventory item, per that module's own doc comment). The
+ *   aggregate rating alongside it is computed from APPROVED testimonials
+ *   only and is `null` (never a fabricated number) when none exist yet.
  * - Shop your size: a live variant count per `CURATED_CLOTHING_SIZES` entry
  *   (2026-09-06) — a discovery/navigation rail, not a product grid; each
  *   entry links to the PLP's existing `?size=` filter, never a second size-
@@ -223,7 +240,8 @@ export class GetHomePageUseCase {
     private readonly variantProductResolver: VariantProductResolver,
     private readonly productsByIdsReader: ProductsByIdsReader,
     private readonly activeCollectionsLister: ActiveCollectionsLister,
-    private readonly topApprovedReviewsReader: TopApprovedReviewsReader,
+    private readonly approvedTestimonialsReader: ApprovedTestimonialsReader,
+    private readonly aggregateTestimonialRatingReader: AggregateTestimonialRatingReader,
     private readonly categoriesLister: CategoriesLister,
     private readonly categoryImageResolver: CategoryImageResolver,
     private readonly visibleBannersLister: VisibleBannersLister,
@@ -233,19 +251,29 @@ export class GetHomePageUseCase {
   ) {}
 
   async execute(): Promise<HomePageView> {
-    const [banners, categoryTiles, newArrivals, bestSellers, featuredCollections, customerReviews, budgetTiles, sizeAvailability] =
-      await Promise.all([
-        this.visibleBannersLister.execute(),
-        this.resolveCategoryTiles(),
-        this.newArrivalsLister
-          .execute({ sort: "newest", page: 1, limit: NEW_ARRIVALS_LIMIT, inStockOnly: true })
-          .then((result) => result.products),
-        this.resolveBestSellers(),
-        this.activeCollectionsLister.execute(),
-        this.resolveCustomerReviews(),
-        this.resolveBudgetTiles(),
-        this.resolveSizeAvailability(),
-      ]);
+    const [
+      banners,
+      categoryTiles,
+      newArrivals,
+      bestSellers,
+      featuredCollections,
+      testimonials,
+      testimonialAggregate,
+      budgetTiles,
+      sizeAvailability,
+    ] = await Promise.all([
+      this.visibleBannersLister.execute(),
+      this.resolveCategoryTiles(),
+      this.newArrivalsLister
+        .execute({ sort: "newest", page: 1, limit: NEW_ARRIVALS_LIMIT, inStockOnly: true })
+        .then((result) => result.products),
+      this.resolveBestSellers(),
+      this.activeCollectionsLister.execute(),
+      this.approvedTestimonialsReader.execute(TESTIMONIALS_LIMIT),
+      this.resolveTestimonialAggregate(),
+      this.resolveBudgetTiles(),
+      this.resolveSizeAvailability(),
+    ]);
 
     return {
       banners,
@@ -253,7 +281,8 @@ export class GetHomePageUseCase {
       newArrivals,
       bestSellers,
       featuredCollections: featuredCollections.slice(0, FEATURED_COLLECTIONS_LIMIT),
-      customerReviews,
+      testimonials,
+      testimonialAggregate,
       budgetTiles,
       sizeAvailability,
     };
@@ -342,27 +371,10 @@ export class GetHomePageUseCase {
     );
   }
 
-  private async resolveCustomerReviews(): Promise<HomeReviewView[]> {
-    const reviews = await this.topApprovedReviewsReader.execute(CUSTOMER_REVIEWS_OVERFETCH);
-    if (reviews.length === 0) return [];
-
-    const productIds = Array.from(new Set(reviews.map((review) => review.productId)));
-    const products = await this.productsByIdsReader.execute(productIds);
-
-    const result: HomeReviewView[] = [];
-    for (const review of reviews) {
-      const product = products.get(review.productId);
-      if (!product?.isActive) continue; // Same "no dead-end links" rule as best sellers.
-      result.push({
-        id: review.id,
-        rating: review.rating,
-        title: review.title,
-        body: review.body,
-        createdAt: review.createdAt,
-        product: { id: product.id, slug: product.slug, name: product.name, image: product.primaryImage?.url ?? null },
-      });
-      if (result.length === CUSTOMER_REVIEWS_LIMIT) break;
-    }
-    return result;
+  /** null when there are zero APPROVED testimonials — never a fabricated "0.0 / 5" (2026-09-11 design's own "do not fabricate data" rule). */
+  private async resolveTestimonialAggregate(): Promise<HomeTestimonialAggregate | null> {
+    const { approvedCount, averageRating } = await this.aggregateTestimonialRatingReader.execute();
+    if (approvedCount === 0 || averageRating === null) return null;
+    return { approvedCount, averageRating };
   }
 }

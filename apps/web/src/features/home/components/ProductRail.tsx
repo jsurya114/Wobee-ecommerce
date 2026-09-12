@@ -5,6 +5,7 @@ import useEmblaCarousel from "embla-carousel-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { Children, useCallback, useEffect, useState, type ReactNode } from "react";
+import { SITE_HEADER_HEIGHT_REM } from "@/lib/layout-constants";
 
 /**
  * A compact horizontal product rail (redesign spec §B/§M) on Embla
@@ -22,10 +23,13 @@ export function ProductRail({
   title,
   children,
   seeAllHref,
+  id,
 }: {
   title: string;
   children: ReactNode;
   seeAllHref?: string;
+  /** Anchor id (e.g. the hamburger's `/#loved-by-customers` link) — `scroll-margin-top` keeps the sticky `SiteHeader` from covering the section title on landing. */
+  id?: string;
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ align: "start", dragFree: true, containScroll: "trimSnaps" });
   const [canScrollPrev, setCanScrollPrev] = useState(false);
@@ -46,7 +50,7 @@ export function ProductRail({
   if (Children.count(children) === 0) return null;
 
   return (
-    <section className="px-4 py-section sm:px-6">
+    <section id={id} style={id ? { scrollMarginTop: SITE_HEADER_HEIGHT_REM } : undefined} className="px-4 py-section sm:px-6">
       <div className="mx-auto max-w-6xl">
         <SectionHeader
           action={

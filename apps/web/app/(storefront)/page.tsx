@@ -1,6 +1,6 @@
 import { getHomePage } from "@/features/home/api/home.client";
 import { CategoryRail } from "@/features/home/components/CategoryRail";
-import { CustomerReviewsSection } from "@/features/home/components/CustomerReviewsSection";
+import { TestimonialsSection } from "@/features/home/components/TestimonialsSection";
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
 import { CompactSearchBar } from "@/features/catalog/components/CompactSearchBar";
 import { ProductRail } from "@/features/home/components/ProductRail";
@@ -9,6 +9,7 @@ import { ShopByBudget } from "@/features/home/components/ShopByBudget";
 import { ShopYourSize } from "@/features/home/components/ShopYourSize";
 import { ProductCard } from "@/features/catalog/components/ProductCard";
 import type { ProductSummary } from "@/features/catalog/api/products.client";
+import { ScrollToHashOnLoad } from "@/features/home/components/ScrollToHashOnLoad";
 
 /** Server-rendered per rail item — the same sizing wrapper `ProductRail`'s track previously applied itself, now built by this (server) caller so `ProductCard` never enters `ProductRail`'s client bundle. */
 function railItem(product: ProductSummary) {
@@ -21,8 +22,10 @@ function railItem(product: ProductSummary) {
 /**
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
  * every section: the category rail, Shop your size, a New Arrivals rail,
- * Shop by Budget, Loved by Customers, Curated Collections, Customer
- * Reviews, and a thin trust line above the footer.
+ * Shop by Budget, Loved by Customers, Curated Collections, "What Our
+ * Customers Say" (2026-09-11, replaces the old per-product Customer
+ * Reviews rail with store-experience testimonials), and a thin trust line
+ * above the footer.
  *
  * Merchandising logic corrections (2026-09-06, homepage audit): "Fresh
  * picks" is gone — it was never a distinct query, just `newArrivals`
@@ -53,6 +56,7 @@ export default async function HomePage() {
 
   return (
     <main>
+      <ScrollToHashOnLoad />
       <CompactSearchBar />
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
@@ -61,9 +65,11 @@ export default async function HomePage() {
         {home.newArrivals.map(railItem)}
       </ProductRail>
       <ShopByBudget tiles={home.budgetTiles} />
-      <ProductRail title="Loved by customers">{home.bestSellers.map(railItem)}</ProductRail>
+      <ProductRail id="loved-by-customers" title="Loved by customers">
+        {home.bestSellers.map(railItem)}
+      </ProductRail>
       <FeaturedCollections collections={home.featuredCollections} />
-      <CustomerReviewsSection reviews={home.customerReviews} />
+      <TestimonialsSection testimonials={home.testimonials} aggregate={home.testimonialAggregate} />
     </main>
   );
 }
