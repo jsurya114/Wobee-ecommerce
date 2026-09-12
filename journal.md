@@ -3678,3 +3678,14 @@ Separately from the toast work, `GET /` (storefront homepage) started 500ing wit
 
 **Why:** Documenting the investigation and resolution for the record. The root cause (accessing `.length` on a potentially-undefined API response field) is a recurring risk whenever new fields are added to a cached endpoint response — `TestimonialsSection`'s own guard and `home.module.ts`'s cache-key schema versioning are the two-layer defense against this class of bug going forward.
 
+
+---
+
+## 2026-09-12 — Fix: missing `canvas-confetti` dependency (build error)
+
+**Branch/commit:** `main`
+
+**What changed:**
+- **`apps/web/package.json`** — added `canvas-confetti` (runtime) and `@types/canvas-confetti` (devDependency). `OrderPlacementCelebration.tsx` dynamically imports `canvas-confetti` for the checkout celebration animation, but the package was never added to `apps/web`'s own dependencies — it was likely installed at the root or in a different workspace during the feature's development session and worked locally via hoisting, but fails on a clean install or CI build where only declared dependencies are resolved.
+
+**Why:** `Module not found: Can't resolve 'canvas-confetti'` build error blocking `apps/web` from compiling.
