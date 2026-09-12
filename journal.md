@@ -3623,3 +3623,44 @@ Separately from the toast work, `GET /` (storefront homepage) started 500ing wit
 - 768px not independently screenshotted (see above) — low-risk given the celebration's layout is breakpoint-independent, but flagging rather than silently skipping.
 - Razorpay's own post-navigation flow (`OrderConfirmation`'s "Pay now" → widget → poll) wasn't re-exercised this session — untouched by this change, already covered by the 2026-08-27 Week 1 entries' own verification.
 - The particle set (angle/distance/color/shape per particle) is a fixed, hand-tuned array, not procedurally generated — deliberate (restrained, reproducible, no `Math.random()` flicker between renders), but means adding/removing particles later is a manual edit to that array, not a config knob.
+
+---
+
+## 2026-09-12 — Order-placement celebration redesigned to match a "pop party" reference (github.com/jsurya114/CycloneX)
+
+**Branch:** `woobe-ui/bug-fixes` — uncommitted at write time (see chat for whether this was pushed).
+
+**Ask:** the user has a separate project (`jsurya114/CycloneX`, an Express/EJS storefront) whose own order-confirmation page (`Apps/views/user/confirmation.ejs`) has a "pop party" moment they wanted the same *feel* of applied to Woobe's checkout celebration built earlier today. Cloned and read that file directly rather than guessing from the name — it does three things: (1) a white circle whose border + checkmark draw in via `stroke-dasharray`/`stroke-dashoffset` CSS keyframes, with a small scale "pop" once filled; (2) a bouncy gradient "Hooray!" pill badge underneath with 3 small pulsing sparkle dots and a gentle infinite float/rotate loop; (3) a full-page, multi-hued confetti burst via the `canvas-confetti` library (5 staggered `fire()` calls with varying spread/velocity/decay), fired once on page load, unrelated to the circle's position.
+
+**Scope confirmed with the user before touching anything** (three explicit questions, all answered before any code changed):
+1. **Where**: redesign `OrderPlacementCelebration.tsx` (the pre-confirmation transition built earlier today) — **not** `OrderConfirmation.tsx`, which stays under the same "never touch it" constraint as the original task.
+2. **Palette**: Woobe's own pink family only (`primary`/`primary.hover`/`primary.tint`), not the reference's rainbow confetti — consistent with every other themed surface in this app (toast fix earlier today, particle burst before this redesign).
+3. **Confetti engine**: add `canvas-confetti` as a real dependency (matches the reference exactly, ~3kB) rather than hand-rolling the same burst with `motion`.
+
+**What changed (`OrderPlacementCelebration.tsx`, same file, same `onComplete` contract, same `progress`/`pulse` phases untouched):**
+- **Checkmark**: replaced the small fading `CheckCircle2` icon with a new `CheckmarkIcon` sub-component — a white circle (spring pop-in) containing an SVG circle + tick path that draw themselves via Motion's `pathLength` (the declarative equivalent of the reference's hand-written stroke-dasharray keyframes, and consistent with how the progress ring above already animates its own stroke), recolored to `#A54659` on white instead of the reference's green-on-white.
+- **"Hooray!" badge**: new, matching the reference's structure — a pink-gradient (`primary`→`primary.hover`) pill that spring-bounces in ~0.5s after the checkmark starts drawing, then floats/rotates on an infinite loop, with 3 sparkle dots (`bg-white`, staggered opacity/scale pulse) at fixed positions around it.
+- **Confetti**: the old 14-particle hand-rolled "burst outward from the circle" system was removed entirely (superseded, not layered on top — the reference's burst is a full-page effect, not circle-relative) and replaced with `fireConfetti()`, a dynamically-imported (`import("canvas-confetti")`, SSR-safe — a static import would execute at module scope, which the server can't evaluate) call reproducing the reference's exact 5-burst shape (`spread`/`startVelocity`/`decay`/`scalar` per call), recolored to the three Woobe tokens. Fired once via a `useEffect` gated on `phase === "celebrate"` and a `confettiFiredRef` guard (so React 18 dev-mode's mount→cleanup→remount can't double-fire it) — skipped entirely under `useReducedMotion()`, per the task's own accessibility rule (a full-page particle burst is exactly the "elaborate" effect that rule exists to avoid).
+- **Reduced motion**: same short-circuit branch as before, now rendering `CheckmarkIcon`'s static (`animate={false}`) variant instead of a bare icon — no confetti, no badge float, same 650ms hold then `onComplete`.
+- **Timing**: `CELEBRATE_DURATION_MS` 700→950ms and `HOLD_DURATION_MS` 320→450ms (checkmark draw + badge bounce need a little more room than the old particle burst did); `progress`/`pulse` durations unchanged. Total sequence ≈2.5s, still short/fixed per the original task's "no arbitrary long delays" rule.
+
+**New dependency:** `canvas-confetti@^1.9.4` + `@types/canvas-confetti@^1.9.0` in `apps/web/package.json` (dependency + devDependency respectively) — nothing else in the repo touches it; `packages/ui` and `apps/admin` are unaffected.
+
+**Verified live (chrome-devtools-mcp, real dev servers, real COD checkouts, same timer-freeze technique as the original task for catching mid-animation states despite tool round-trip latency exceeding the ~2.5s sequence):**
+- Checkmark draw + white-circle pop: confirmed via screenshot mid-freeze — pink stroke, correctly centered, no flash of the old particle system.
+- "Hooray!" badge: confirmed via screenshot — pink gradient pill below the checkmark, correct text, positioned as designed.
+- Confetti: **network-trace-verified**, not just assumed — `list_network_requests` showed the `canvas-confetti` chunk fetched (200) and, critically, a `blob:` Worker URL created and loaded (200) immediately after advancing to the celebrate phase; canvas-confetti only creates that worker/blob from inside an actual `confetti()` call, never from merely importing the module, so this is direct evidence the burst executed, not just that the library loaded. The transient `<canvas>` element itself wasn't caught mid-frame (its animation duration is comfortably shorter than this tool's round-trip latency, the same limitation noted in the original task's own verification section) — flagging honestly rather than claiming a screenshot that wasn't taken.
+- Full flow: multiple real COD checkouts, natural timing, went straight to the real (unchanged) Order Confirmation page — reconfirmed byte-for-byte via `git diff`/live screenshot that `OrderConfirmation.tsx` is still untouched.
+- Reduced motion: re-verified with the new `CheckmarkIcon` static variant — renders instantly, no console errors, navigates correctly.
+- Responsive: 375px and 1440px re-checked with the new badge element added to the layout — centered, no overflow, doesn't collide with the mobile bottom nav.
+- Console: zero errors/warnings across every run in this session.
+
+**Build/typecheck/lint/boundaries:**
+- `pnpm exec tsc --noEmit` / `eslint --max-warnings=0` (`apps/web`, the one changed file) — clean.
+- `pnpm -r run typecheck` — clean, all 9 projects. (One transient failure hit mid-session: `apps/admin`'s own typecheck failed on duplicate-identifier errors from stray ` 2.ts`-suffixed files under its `.next/types/` — confirmed via file timestamps this was leftover corruption from an earlier concurrent dev-server/build overlap in this same session, **not** caused by this change; `rm -rf apps/admin/.next` fixed it immediately, re-confirmed clean.)
+- `pnpm -r run lint` / `pnpm run boundaries:check` — clean (620 modules / 1991 deps, 0 violations — this change touches no backend code).
+- `pnpm run build` — clean, all three apps; `/checkout`'s bundle size essentially unchanged (7.72→7.77kB) since `canvas-confetti` is dynamically imported into its own chunk, not bundled into the route's main JS.
+
+**Follow-ups / known gaps:**
+- The confetti canvas's mid-flight frame wasn't visually screenshotted (see above) — network-trace evidence stands in for it; worth a dedicated visual pass later if this component's confetti timing/parameters ever need hand-tuning.
+- `canvas-confetti`'s own reduced-motion awareness (it has none built in) is fully handled by this component's own `shouldReduceMotion` gate — if `fireConfetti()` is ever called from anywhere else in the app later, that guard does **not** travel with it automatically.
