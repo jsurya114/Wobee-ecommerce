@@ -1,3 +1,4 @@
+-- accept-data-loss: intentional, per the feature this migration ships (see the commit "feat: replace product reviews with store-level testimonials" and this migration's own name) — per-product reviews are retired in favor of store-level testimonials (Testimonial/TestimonialImage below), not an accidental drop. Verified the `reviews` table held 0 rows in this environment's dev database (`woobe_dev`) before applying.
 /*
   Warnings:
 
