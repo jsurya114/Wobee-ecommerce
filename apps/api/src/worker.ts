@@ -45,7 +45,22 @@ const worker = new Worker(
       throw error;
     }
   },
-  { connection: notificationQueueConnection },
+  {
+    connection: notificationQueueConnection,
+    // Forensic-review fix (2026-09-13): was previously unset, defaulting to
+    // BullMQ's own concurrency of 1 — every notification serialized behind
+    // whichever one was currently sending. At the traffic this app targets
+    // (order confirmations + status/return/refund notices), estimated
+    // volume doesn't need this on its own, but a single hung SMTP connection
+    // used to be able to block the entire queue for however long the
+    // (previously unbounded) SMTP timeout took. Now that
+    // nodemailer-mailer.ts bounds a single send to ~15s worst case, a modest
+    // concurrency lets a handful of sends proceed in parallel without
+    // exceeding this app's one SMTP account's realistic connection budget.
+    // Revisit only alongside the SMTP/ESP provider's own concurrent-
+    // connection limit if send volume grows materially.
+    concurrency: 5,
+  },
 );
 
 worker.on("failed", (job, error) => {

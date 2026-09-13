@@ -1,4 +1,5 @@
 import { redis } from "../../config/redis";
+import { logError } from "../logger";
 
 const CATALOG_VERSION_KEY = "cache:catalog:version";
 
@@ -48,7 +49,7 @@ export async function getCatalogCacheVersion(): Promise<number> {
     const value = await redis.get(CATALOG_VERSION_KEY);
     return value ? Number(value) || 0 : 0;
   } catch (err) {
-    console.error("[catalog-cache] version read failed, treating as v0:", err instanceof Error ? err.message : err);
+    logError("catalog_cache_version_read_failed", { fallbackVersion: 0, message: err instanceof Error ? err.message : String(err) });
     return 0;
   }
 }
@@ -61,7 +62,7 @@ export async function bumpCatalogCacheVersion(): Promise<void> {
     // Worst case: reads keep serving the previous version's cache for up to
     // its own TTL — the admin write that triggered this has already
     // committed to Postgres by the time this runs, so this never undoes it.
-    console.error("[catalog-cache] version bump failed:", err instanceof Error ? err.message : err);
+    logError("catalog_cache_version_bump_failed", { message: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -69,7 +70,7 @@ async function safeGet(key: string): Promise<string | null> {
   try {
     return await redis.get(key);
   } catch (err) {
-    console.error(`[catalog-cache] read failed for "${key}", falling back live:`, err instanceof Error ? err.message : err);
+    logError("catalog_cache_read_failed", { key, fallback: "live", message: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
@@ -78,7 +79,7 @@ function safeParse<T>(raw: string, key: string): T | undefined {
   try {
     return JSON.parse(raw) as T;
   } catch (err) {
-    console.error(`[catalog-cache] malformed cache value for "${key}", ignoring:`, err instanceof Error ? err.message : err);
+    logError("catalog_cache_malformed_value", { key, message: err instanceof Error ? err.message : String(err) });
     return undefined;
   }
 }
@@ -87,7 +88,7 @@ async function safeSet(key: string, value: unknown, ttlSeconds: number): Promise
   try {
     await redis.set(key, JSON.stringify(value), "EX", ttlSeconds);
   } catch (err) {
-    console.error(`[catalog-cache] write failed for "${key}":`, err instanceof Error ? err.message : err);
+    logError("catalog_cache_write_failed", { key, message: err instanceof Error ? err.message : String(err) });
   }
 }
 

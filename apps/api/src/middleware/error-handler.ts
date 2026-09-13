@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { DomainError } from "../shared/errors";
+import { logError } from "../shared/logger";
 
 /**
  * Central error-handler — the last middleware mounted in app.ts. Every
@@ -10,7 +11,7 @@ import { DomainError } from "../shared/errors";
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof DomainError) {
     if (err.httpStatus >= 500) {
-      console.error(`[${req.id}] ${err.code}:`, err.message);
+      logError("domain_error_5xx", { requestId: req.id, code: err.code, message: err.message, path: req.path, statusCode: err.httpStatus });
     }
     res.status(err.httpStatus).json({
       error: {
@@ -23,6 +24,12 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   }
 
   const message = err instanceof Error ? err.message : "Unknown error";
-  console.error(`[${req.id}] UNHANDLED_ERROR:`, message, err instanceof Error ? err.stack : "");
+  logError("unhandled_error", {
+    requestId: req.id,
+    message,
+    path: req.path,
+    statusCode: 500,
+    stack: err instanceof Error ? err.stack : undefined,
+  });
   res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "Something went wrong" } });
 }

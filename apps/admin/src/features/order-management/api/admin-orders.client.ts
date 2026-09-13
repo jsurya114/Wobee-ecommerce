@@ -79,8 +79,12 @@ function toQuery(params: ListOrdersParams): string {
   return query.toString();
 }
 
-export function listOrders(params: ListOrdersParams, accessToken: string): Promise<{ items: AdminOrderSummaryView[]; total: number }> {
-  return apiFetch(`/api/v1/admin/orders?${toQuery(params)}`, { accessToken });
+export function listOrders(
+  params: ListOrdersParams,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<{ items: AdminOrderSummaryView[]; total: number }> {
+  return apiFetch(`/api/v1/admin/orders?${toQuery(params)}`, { accessToken, signal });
 }
 
 export function getOrder(id: string, accessToken: string): Promise<AdminOrderView> {

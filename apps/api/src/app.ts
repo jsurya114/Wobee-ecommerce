@@ -10,7 +10,24 @@ import { notFoundHandler } from "./middleware/not-found";
 import { requestId } from "./middleware/request-id";
 import { moduleRouters } from "./modules";
 
-export function createApp(): Application {
+export interface ReadinessResult {
+  ready: boolean;
+  details?: Record<string, boolean>;
+}
+
+export interface CreateAppOptions {
+  /**
+   * Injected from server.ts, the one file (besides worker.ts) ADR-010
+   * exempts to import @woobe/database/redis directly — keeps app.ts itself
+   * DB/Redis-agnostic and testable without either (see app.test.ts, which
+   * constructs the app with no options and expects `/ready` to report ready
+   * unconditionally). Defaults to "always ready" for exactly that reason.
+   */
+  checkReadiness?: () => Promise<ReadinessResult>;
+}
+
+export function createApp(options: CreateAppOptions = {}): Application {
+  const checkReadiness = options.checkReadiness ?? (async (): Promise<ReadinessResult> => ({ ready: true }));
   const app = express();
 
   app.use(helmet());
@@ -27,8 +44,21 @@ export function createApp(): Application {
   app.use(cookieParser(env.COOKIE_SECRET));
   app.use(requestId);
 
+  // Liveness only — deliberately does no I/O, so it can never itself become
+  // the reason a healthy-but-overloaded process gets killed.
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "@woobe/api", timestamp: new Date().toISOString() });
+  });
+
+  // Readiness — a cheap DB+Redis ping so a Kubernetes readiness probe (or
+  // any load balancer) stops routing traffic to a pod that's up but can't
+  // actually reach its dependencies. Deliberately does NOT check BullMQ
+  // queue depth or SMTP reachability here — those matter operationally but
+  // would make this probe itself slow/flaky; track them as separate metrics
+  // instead (see the forensic review's Observability section).
+  app.get("/ready", async (_req, res) => {
+    const result = await checkReadiness();
+    res.status(result.ready ? 200 : 503).json({ status: result.ready ? "ready" : "not-ready", ...result.details });
   });
 
   // Serves what LocalDiskMediaStorage.getUrl() points at (Week 2 Day 4,
@@ -44,7 +74,18 @@ export function createApp(): Application {
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       next();
     },
-    express.static(path.resolve(process.cwd(), env.MEDIA_UPLOAD_DIR)),
+    express.static(path.resolve(process.cwd(), env.MEDIA_UPLOAD_DIR), {
+      // Every key here is a randomUUID() minted once at upload time and
+      // never reused or overwritten (local-disk-media-storage.service.ts) —
+      // these URLs are content-immutable by construction, so a long,
+      // immutable cache lifetime is safe (unlike serve-static's `maxAge: 0`
+      // default, which forces a conditional GET, and therefore a disk
+      // `stat()`, on every single repeat image view). Also the setting a
+      // future CloudFront distribution in front of this needs to actually
+      // cache effectively at the edge instead of revalidating on every hit.
+      maxAge: "365d",
+      immutable: true,
+    }),
   );
 
   // Every module mounts at /api/v1/<module-name> — see src/modules/index.ts.

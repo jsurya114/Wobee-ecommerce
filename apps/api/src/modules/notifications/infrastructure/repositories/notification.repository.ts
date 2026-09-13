@@ -21,9 +21,13 @@ export class NotificationRepository implements NotificationRepositoryPort {
     return notification ? toEntity(notification) : null;
   }
 
-  async claimForSending(id: string): Promise<boolean> {
+  async claimForSending(id: string, staleAfterMs: number): Promise<boolean> {
+    const staleCutoff = new Date(Date.now() - staleAfterMs);
     const { count } = await prisma.notification.updateMany({
-      where: { id, status: "PENDING" },
+      where: {
+        id,
+        OR: [{ status: "PENDING" }, { status: "SENDING", createdAt: { lt: staleCutoff } }],
+      },
       data: { status: "SENDING" },
     });
     return count === 1;

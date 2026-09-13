@@ -15,7 +15,7 @@ export function useAdminOrders(filter: ListOrdersParams) {
 
   const query = useQuery({
     queryKey: ordersQueryKey(filter),
-    queryFn: () => withFreshToken((token) => ordersApi.listOrders(filter, token)),
+    queryFn: ({ signal }) => withFreshToken((token) => ordersApi.listOrders(filter, token, signal)),
   });
 
   // A role with no MANAGE_ORDERS permission (product_management_staff) gets a

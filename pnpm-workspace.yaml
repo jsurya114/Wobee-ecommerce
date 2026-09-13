@@ -17,6 +17,24 @@ overrides:
   # forcing this, so the pinned version stays inside Next's own supported
   # range instead of drifting outside it.
   sharp: ">=0.35.0"
+  # Security audit fix (2026-09-13): three postcss GHSAs (arbitrary file
+  # read / path traversal via source maps, incomplete-fix XSS) inherited
+  # transitively through next's own bundled postcss in both apps/web and
+  # apps/admin. Build/dev-time surface (source-map + CSS processing, not a
+  # request-handling runtime path), but forced anyway since a pure-JS bump
+  # is free and this is the same technique already used for qs/sharp above.
+  postcss: ">=8.5.23"
+  # Security audit fix (2026-09-13): deepmerge-ts stack-exhaustion DoS,
+  # pulled in transitively via prisma's own CLI config tooling
+  # (@prisma/client > prisma > @prisma/config). Dev/build-time only (Prisma
+  # CLI, never in the running server/worker process) — forced for
+  # completeness, not because it's reachable from a request.
+  deepmerge-ts: ">=8.0.0"
+  # Security audit fix (2026-09-13): js-yaml CPU-exhaustion DoS via
+  # maxTotalMergeKeys, pulled in transitively via eslint's own config
+  # loader. Dev-tooling only (lint runs in CI/local dev, never in the
+  # running server/worker process) — forced for completeness.
+  js-yaml: ">=4.3.2"
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true

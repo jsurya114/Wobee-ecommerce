@@ -103,8 +103,12 @@ function toQuery(params: ListProductsParams): string {
   return query.toString();
 }
 
-export function listProducts(params: ListProductsParams, accessToken: string): Promise<{ items: AdminProductSummary[]; total: number }> {
-  return apiFetch(`/api/v1/admin/products?${toQuery(params)}`, { accessToken });
+export function listProducts(
+  params: ListProductsParams,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<{ items: AdminProductSummary[]; total: number }> {
+  return apiFetch(`/api/v1/admin/products?${toQuery(params)}`, { accessToken, signal });
 }
 
 export function getProduct(id: string, accessToken: string): Promise<{ product: AdminProductDetail }> {

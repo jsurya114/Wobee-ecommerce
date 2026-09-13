@@ -60,8 +60,12 @@ function toQuery(params: ListCustomersParams): string {
   return query.toString();
 }
 
-export function listCustomers(params: ListCustomersParams, accessToken: string): Promise<{ items: AdminCustomerSummary[]; total: number }> {
-  return apiFetch(`/api/v1/admin/customers?${toQuery(params)}`, { accessToken });
+export function listCustomers(
+  params: ListCustomersParams,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<{ items: AdminCustomerSummary[]; total: number }> {
+  return apiFetch(`/api/v1/admin/customers?${toQuery(params)}`, { accessToken, signal });
 }
 
 export function getCustomer(id: string, accessToken: string): Promise<AdminCustomerDetail> {

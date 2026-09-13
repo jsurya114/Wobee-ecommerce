@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import * as cartApi from "../api/cart.client";
 import type { CartView } from "../api/cart.client";
@@ -144,11 +144,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCart(result);
   }, [accessToken]);
 
-  return (
-    <CartContext.Provider value={{ cart, isLoading, addItem, updateItem, changeItemVariant, removeItem, applyCoupon, removeCoupon, refresh }}>
-      {children}
-    </CartContext.Provider>
+  // Memoized (mirrors SelectedVariantProvider's own pattern) so a fresh
+  // object literal here doesn't force every consumer to re-render on every
+  // CartProvider render — only when one of these values actually changes.
+  const value = useMemo<CartContextValue>(
+    () => ({ cart, isLoading, addItem, updateItem, changeItemVariant, removeItem, applyCoupon, removeCoupon, refresh }),
+    [cart, isLoading, addItem, updateItem, changeItemVariant, removeItem, applyCoupon, removeCoupon, refresh],
   );
+
+  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
 export function useCart(): CartContextValue {

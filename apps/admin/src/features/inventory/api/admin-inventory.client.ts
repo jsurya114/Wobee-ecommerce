@@ -44,8 +44,12 @@ function toQuery(params: ListInventoryParams): string {
   return query.toString();
 }
 
-export function listInventory(params: ListInventoryParams, accessToken: string): Promise<{ items: AdminInventoryRow[]; total: number }> {
-  return apiFetch(`/api/v1/admin/inventory?${toQuery(params)}`, { accessToken });
+export function listInventory(
+  params: ListInventoryParams,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<{ items: AdminInventoryRow[]; total: number }> {
+  return apiFetch(`/api/v1/admin/inventory?${toQuery(params)}`, { accessToken, signal });
 }
 
 export function adjustInventory(variantId: string, delta: number, reason: string, accessToken: string): Promise<AdjustInventoryResult> {

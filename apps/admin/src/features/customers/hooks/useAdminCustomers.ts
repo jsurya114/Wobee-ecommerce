@@ -15,7 +15,7 @@ export function useAdminCustomers(filter: ListCustomersParams) {
 
   const query = useQuery({
     queryKey: customersQueryKey(filter),
-    queryFn: () => withFreshToken((token) => customersApi.listCustomers(filter, token)),
+    queryFn: ({ signal }) => withFreshToken((token) => customersApi.listCustomers(filter, token, signal)),
   });
 
   const error = query.error

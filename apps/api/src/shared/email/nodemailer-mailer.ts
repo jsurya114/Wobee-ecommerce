@@ -31,6 +31,17 @@ export class NodemailerMailer implements MailerPort {
         port: env.SMTP_PORT,
         secure: env.SMTP_SECURE,
         auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+        // Nodemailer's own defaults (2min/30s/10min) are far too generous for
+        // this codebase's two callers: the synchronous registration-OTP path
+        // (a real user is waiting on the HTTP response) and the BullMQ
+        // notification worker (default concurrency 1 — one hung send blocks
+        // every other queued notification behind it for the full timeout).
+        // Bounding these to single-digit seconds makes a slow/unresponsive
+        // SMTP endpoint fail fast and retry (worker) or surface an error
+        // (OTP) instead of hanging the request or stalling the whole queue.
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 15_000,
       });
     this.from = env.SMTP_FROM;
   }

@@ -196,6 +196,12 @@ model User {
   staffInvitation      StaffInvitation?   @relation("StaffInvitationUser")
   sentStaffInvitations StaffInvitation[]  @relation("StaffInvitationInviter")
 
+  /// Forensic review (2026-09-13): the admin customer list unconditionally
+  /// filters `role: CUSTOMER` and always sorts by `createdAt desc` — with no
+  /// index behind either, that page was a full sequential scan + in-memory
+  /// sort of the whole table on every load. Invisible at today's row count,
+  /// real once signups accumulate at the traffic this app targets.
+  @@index([role, createdAt])
   @@map("users")
 }
 
@@ -885,6 +891,12 @@ model Order {
 
   @@index([userId])
   @@index([status])
+  /// Forensic review (2026-09-13): the admin order search filter does
+  /// `contactEmail: { contains, mode: "insensitive" }` (order.repository.ts)
+  /// with nothing backing it — `orderNumber`'s own index is a plain unique
+  /// btree, useful for an exact match, not a substring search. Same pattern
+  /// as Product.name's trigram index above, for the same reason.
+  @@index([contactEmail(ops: raw("gin_trgm_ops"))], type: Gin, map: "orders_contactEmail_trgm_idx")
   @@map("orders")
 }
 

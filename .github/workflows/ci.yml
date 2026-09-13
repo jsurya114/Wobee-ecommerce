@@ -48,6 +48,14 @@ jobs:
         with:
           fetch-depth: 0 # full history — needed to diff new migrations against origin/main
 
+      # Forensic review (2026-09-13): catches a committed secret before merge
+      # — cheap, no project-specific config needed, nothing else in this
+      # pipeline checked for this before.
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -57,6 +65,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Forensic review (2026-09-13): this pipeline had no automated
+      # dependency-vulnerability gate — the qs/sharp overrides above were
+      # both found and fixed by hand. `--prod` scopes this to what's actually
+      # shipped/run (dependencies, not devDependencies) so a lint/test-tool
+      # CVE with no runtime exposure doesn't block every PR.
+      - name: Audit production dependencies
+        run: pnpm audit --prod
 
       # ADR-013: destructive migrations require an explicit, human-reviewed flag.
       - name: Check for unreviewed destructive migrations

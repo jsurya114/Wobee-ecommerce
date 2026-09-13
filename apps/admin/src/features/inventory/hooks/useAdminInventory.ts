@@ -16,7 +16,7 @@ export function useAdminInventory(filter: ListInventoryParams) {
 
   const query = useQuery({
     queryKey: inventoryQueryKey(filter),
-    queryFn: () => withFreshToken((token) => inventoryApi.listInventory(filter, token)),
+    queryFn: ({ signal }) => withFreshToken((token) => inventoryApi.listInventory(filter, token, signal)),
   });
 
   const adjustMutation = useMutation({

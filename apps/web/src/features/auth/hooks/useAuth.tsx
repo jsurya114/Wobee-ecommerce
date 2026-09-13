@@ -6,6 +6,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -133,22 +134,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(freshUser);
   }, [accessToken]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        accessToken,
-        status,
-        login,
-        verifyRegistrationOtp,
-        authenticateWithGoogle,
-        logout,
-        refreshUser,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  // Memoized (mirrors SelectedVariantProvider's own pattern) so a fresh
+  // object literal here doesn't force every consumer to re-render on every
+  // AuthProvider render — only when one of these values actually changes.
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      accessToken,
+      status,
+      login,
+      verifyRegistrationOtp,
+      authenticateWithGoogle,
+      logout,
+      refreshUser,
+    }),
+    [user, accessToken, status, login, verifyRegistrationOtp, authenticateWithGoogle, logout, refreshUser],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

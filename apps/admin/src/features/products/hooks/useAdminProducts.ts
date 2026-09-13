@@ -15,7 +15,7 @@ export function useAdminProducts(filter: ListProductsParams) {
 
   const query = useQuery({
     queryKey: productsQueryKey(filter),
-    queryFn: () => withFreshToken((token) => productsApi.listProducts(filter, token)),
+    queryFn: ({ signal }) => withFreshToken((token) => productsApi.listProducts(filter, token, signal)),
   });
 
   const error = query.error

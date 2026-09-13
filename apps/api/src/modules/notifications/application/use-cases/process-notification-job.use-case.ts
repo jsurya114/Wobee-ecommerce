@@ -22,6 +22,16 @@ import type { NotificationRepositoryPort } from "../ports/notification-repositor
  * returns false and this run does nothing; only the claim winner sends.
  * A retryable failure releases the claim so a genuine retry still works.
  */
+/**
+ * How long a row may sit in SENDING before a redelivered/retried job is
+ * allowed to reclaim it as orphaned rather than treating it as someone
+ * else's in-flight send. Chosen to comfortably exceed BullMQ's own
+ * stalled-job detection + the full 3-attempt/exponential-backoff window
+ * configured on this queue (worst case well under 2 minutes) — see
+ * NotificationRepositoryPort.claimForSending's doc comment.
+ */
+export const STUCK_SENDING_THRESHOLD_MS = 10 * 60 * 1000;
+
 export class ProcessNotificationJobUseCase {
   constructor(
     private readonly notificationRepository: NotificationRepositoryPort,
@@ -38,8 +48,9 @@ export class ProcessNotificationJobUseCase {
       return;
     }
     // Atomic claim. Lost the race (another worker/redelivery already claimed,
-    // or it's mid-send) -> stop here so the provider is never called twice.
-    const claimed = await this.notificationRepository.claimForSending(notification.id);
+    // or it's mid-send and not yet stale) -> stop here so the provider is
+    // never called twice.
+    const claimed = await this.notificationRepository.claimForSending(notification.id, STUCK_SENDING_THRESHOLD_MS);
     if (!claimed) {
       return;
     }
