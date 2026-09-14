@@ -25,6 +25,7 @@ function makeUseCase(overrides: {
   categories?: { id: string; name: string; slug: string; sortOrder: number; imageUrl: string | null }[];
   categoryImages?: Map<string, string>;
   banners?: unknown[];
+  activeOffers?: unknown[];
   budgetProducts?: unknown[];
   /** Defaults to "every product id that appears in variantToProduct" — the common case where nothing is deliberately out of stock. */
   inStockProductIds?: Set<string>;
@@ -42,6 +43,7 @@ function makeUseCase(overrides: {
   const categoriesLister = { execute: vi.fn().mockResolvedValue(overrides.categories ?? []) };
   const categoryImageResolver = { execute: vi.fn().mockResolvedValue(overrides.categoryImages ?? new Map()) };
   const visibleBannersLister = { execute: vi.fn().mockResolvedValue(overrides.banners ?? []) };
+  const activeOffersLister = { execute: vi.fn().mockResolvedValue(overrides.activeOffers ?? []) };
   const budgetProductsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.budgetProducts ?? [], page: 1, limit: 1, total: 0 }) };
   const inStockProductIdsProvider = {
     execute: vi.fn().mockResolvedValue(overrides.inStockProductIds ?? new Set((overrides.variantToProduct ?? new Map()).values())),
@@ -59,6 +61,7 @@ function makeUseCase(overrides: {
     categoriesLister,
     categoryImageResolver,
     visibleBannersLister,
+    activeOffersLister,
     budgetProductsLister,
     inStockProductIdsProvider,
     sizeAvailabilityReader,
@@ -76,6 +79,7 @@ function makeUseCase(overrides: {
     categoriesLister,
     categoryImageResolver,
     visibleBannersLister,
+    activeOffersLister,
     budgetProductsLister,
     inStockProductIdsProvider,
     sizeAvailabilityReader,
@@ -254,6 +258,7 @@ describe("GetHomePageUseCase", () => {
 
     expect(result).toEqual({
       banners: [],
+      activeOffers: [],
       categoryTiles: [],
       newArrivals: arrivals,
       bestSellers: [],
@@ -288,6 +293,16 @@ describe("GetHomePageUseCase", () => {
       { size: "M", count: 7 },
       { size: "L", count: 3 },
     ]);
+  });
+
+  it("composes the active-offers list into the homepage payload unchanged (Phase 2, 2026-09-14 offer strip)", async () => {
+    const activeOffers = [{ id: "o1", name: "20% off Dresses", discountType: "PERCENTAGE" as const, discountValue: 20, scope: "CATEGORY" as const }];
+    const { useCase, activeOffersLister } = makeUseCase({ activeOffers });
+
+    const result = await useCase.execute();
+
+    expect(activeOffersLister.execute).toHaveBeenCalled();
+    expect(result.activeOffers).toEqual(activeOffers);
   });
 
   it("resolves each budget tile's cover image from the cheapest qualifying product", async () => {

@@ -140,7 +140,8 @@ export function CartLineItem({ line }: { line: CartLine }) {
               <Plus className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
-          <PriceTag pricePaise={line.subtotalPaise} />
+          {/* Phase 2 (2026-09-14) — `subtotalPaise` is already OFFER-adjusted (unitPricePaise x quantity, server-resolved); the strikethrough compares against the pre-offer line total so the discount reads clearly even at quantity > 1. */}
+          <PriceTag pricePaise={line.subtotalPaise} compareAtPricePaise={line.offer ? line.basePricePaise * line.quantity : null} />
         </div>
       </div>
 

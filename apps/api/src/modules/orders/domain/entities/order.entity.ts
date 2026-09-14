@@ -1,4 +1,4 @@
-import type { OrderStatus, PaymentMethod, PricingMode } from "@woobe/types";
+import type { OfferDiscountType, OrderStatus, PaymentMethod, PricingMode } from "@woobe/types";
 
 export interface OrderAddressSnapshot {
   fullName: string;
@@ -22,12 +22,21 @@ export interface OrderItemEntity {
   pricingMode: PricingMode;
   /** Null for FIXED lines. */
   unitRatePerKgPaise: number | null;
+  /** Phase 2 (2026-09-14) — the BASE price per unit, before any automatic Offer discount. Equal to `unitPricePaise` when no offer applied (including every order placed before this field existed). */
+  basePricePaise: number;
   unitPricePaise: number;
   quantity: number;
   lineTotalPaise: number;
   taxAmountPaise: number;
   /** Coupon discount allocated to this line at checkout (snapshot). 0 when no coupon applied. Week 2 review fix (P0) — returns/refunds subtract this so they never refund more than was paid. */
   discountPaise: number;
+  /** Phase 2 (2026-09-14) — snapshot of the automatic Offer applied to this line at checkout, if any. Null when no offer applied — including every order placed before this feature existed. Never re-derived from the current (possibly since-changed/deleted) Offer row. */
+  offerId: string | null;
+  offerNameSnapshot: string | null;
+  offerDiscountType: OfferDiscountType | null;
+  offerDiscountValue: number | null;
+  /** The actual paise amount the offer deducted from this line. 0 when no offer applied. Returns/refunds read this the same way they already read `discountPaise` for the coupon. */
+  offerDiscountPaise: number;
 }
 
 /**

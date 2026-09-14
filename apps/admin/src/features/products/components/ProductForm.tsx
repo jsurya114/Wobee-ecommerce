@@ -11,15 +11,37 @@ export interface ProductFormValues {
   name: string;
   slug: string;
   categoryId: string;
+  /** Product-level (2026-09-14, moved off Category — see PricingMode's own doc comment in schema.prisma). Independent of category: two products in the same category may use different modes. */
+  pricingMode: "WEIGHT_BASED" | "FIXED";
   description: string;
   brand: string;
   metaTitle: string;
   metaDescription: string;
 }
 
-const EMPTY_VALUES: ProductFormValues = { name: "", slug: "", categoryId: "", description: "", brand: "", metaTitle: "", metaDescription: "" };
+const EMPTY_VALUES: ProductFormValues = {
+  name: "",
+  slug: "",
+  categoryId: "",
+  pricingMode: "WEIGHT_BASED",
+  description: "",
+  brand: "",
+  metaTitle: "",
+  metaDescription: "",
+};
 
-/** Shared by the "New product" page and the product-detail page's own metadata-edit section (week2 (1).md §16). */
+/**
+ * Shared by the "New product" page and the product-detail page's own
+ * metadata-edit section (week2 (1).md §16).
+ *
+ * `pricingMode` (2026-09-14): switching an EXISTING product's mode is
+ * validated server-side against its variants (UpdateProductUseCase) —
+ * WEIGHT_BASED -> FIXED is rejected with a field error here if any active
+ * variant has no fixed price set yet (surfaced via the existing
+ * `useFormError` plumbing below, same as any other field error this form
+ * already handles). A brand-new product has no variants yet, so the choice
+ * here is unconstrained either way.
+ */
 export function ProductForm({
   categories,
   initialValues,
@@ -66,6 +88,7 @@ export function ProductForm({
         name: values.name,
         slug: values.slug,
         categoryId: values.categoryId,
+        pricingMode: values.pricingMode,
         description: values.description || undefined,
         brand: values.brand || undefined,
         metaTitle: values.metaTitle || undefined,
@@ -124,6 +147,42 @@ export function ProductForm({
           </p>
         ) : null}
       </div>
+
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="font-body text-sm font-medium text-text-primary">Pricing mode</legend>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 font-body text-sm text-text-primary">
+            <input
+              type="radio"
+              name="pricingMode"
+              value="WEIGHT_BASED"
+              checked={values.pricingMode === "WEIGHT_BASED"}
+              onChange={() => set("pricingMode", "WEIGHT_BASED")}
+            />
+            Weight based
+          </label>
+          <label className="flex items-center gap-2 font-body text-sm text-text-primary">
+            <input
+              type="radio"
+              name="pricingMode"
+              value="FIXED"
+              checked={values.pricingMode === "FIXED"}
+              onChange={() => set("pricingMode", "FIXED")}
+            />
+            Fixed price
+          </label>
+        </div>
+        <p className="font-body text-xs text-text-secondary">
+          {values.pricingMode === "FIXED"
+            ? "Each variant's own fixed price is the selling price — weight is stored for shipping only and never affects it."
+            : "Price is derived from each variant's weight × the global ₹/kg rate set in Settings."}
+        </p>
+        {fieldErrors.pricingMode ? (
+          <p role="alert" className="font-body text-sm text-error">
+            {fieldErrors.pricingMode}
+          </p>
+        ) : null}
+      </fieldset>
 
       <FormField
         label="Brand (optional)"

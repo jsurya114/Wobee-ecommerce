@@ -261,6 +261,7 @@ export class CheckoutUseCase {
       weightGrams: line.weightGrams,
       pricingMode: line.pricingMode,
       unitRatePerKgPaise: line.ratePerKgPaise,
+      basePricePaise: line.basePricePaise,
       unitPricePaise: line.unitPricePaise,
       quantity: line.quantity,
       lineTotalPaise: line.subtotalPaise,
@@ -269,6 +270,16 @@ export class CheckoutUseCase {
       // line (already computed above for the GST recompute, previously discarded).
       // returns/refunds subtract it so a refund never exceeds what was paid.
       discountPaise: lineDiscounts.get(line.variantId) ?? 0,
+      // Phase 2 (2026-09-14) — snapshot the automatic Offer already applied
+      // to this line by cart's own GetCartUseCase (CartReaderPort.getCart,
+      // called at the top of `execute` above) — checkout never resolves
+      // offers itself, it snapshots what the SAME live pricing pass already
+      // decided, same as pricingMode/unitRatePerKgPaise above.
+      offerId: line.offer?.offerId ?? null,
+      offerNameSnapshot: line.offer?.name ?? null,
+      offerDiscountType: line.offer?.discountType ?? null,
+      offerDiscountValue: line.offer?.discountValue ?? null,
+      offerDiscountPaise: (line.offer?.discountPaise ?? 0) * line.quantity,
     }));
   }
 

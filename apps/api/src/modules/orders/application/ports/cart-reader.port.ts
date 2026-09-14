@@ -1,4 +1,13 @@
-import type { PricingMode } from "@woobe/types";
+import type { OfferDiscountType, PricingMode } from "@woobe/types";
+
+/** Phase 2 (2026-09-14) — mirrors AppliedOfferLineView (cart module). Null when no offer currently applies to this line. */
+export interface CheckoutAppliedOffer {
+  offerId: string;
+  name: string;
+  discountType: OfferDiscountType;
+  discountValue: number;
+  discountPaise: number;
+}
 
 export interface CheckoutCartLine {
   itemId: string;
@@ -15,11 +24,16 @@ export interface CheckoutCartLine {
   weightGrams: number;
   /** Null for FIXED lines. */
   ratePerKgPaise: number | null;
+  /** Phase 2 (2026-09-14) — the BASE price per unit, before any automatic Offer discount. Snapshotted onto OrderItem.basePricePaise. */
+  basePricePaise: number;
+  /** OFFER-adjusted price per unit (pipeline: BASE -> OFFER -> COUPON) — what the coupon/GST/checkout totals below are computed from, same as before this phase. */
   unitPricePaise: number;
   quantity: number;
   subtotalPaise: number;
   availableQuantity: number;
   isAvailable: boolean;
+  /** Null when no offer currently applies to this line. Snapshotted onto OrderItem.offer* at checkout. */
+  offer: CheckoutAppliedOffer | null;
 }
 
 export interface CheckoutCartView {

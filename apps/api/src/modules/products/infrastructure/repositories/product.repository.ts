@@ -68,7 +68,7 @@ export class ProductRepository implements ProductRepositoryPort {
           brand: true,
           categoryId: true,
           minPricePaiseCache: true,
-          category: { select: { pricingMode: true } },
+          pricingMode: true,
           images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
           // Cheapest active variant — its weight + rate override feed the
           // "from 38g · ₹1,180/kg" line every card now shows. The rate is
@@ -93,7 +93,7 @@ export class ProductRepository implements ProductRepositoryPort {
       categoryId: row.categoryId,
       minPricePaiseCache: row.minPricePaiseCache,
       primaryImage: row.images[0] ?? null,
-      pricingMode: row.category.pricingMode,
+      pricingMode: row.pricingMode,
       representativeVariant: row.variants[0]
         ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
         : null,
@@ -150,7 +150,7 @@ export class ProductRepository implements ProductRepositoryPort {
     const row = await prisma.product.findUnique({
       where: { slug, isActive: true },
       include: {
-        category: { select: { id: true, name: true, slug: true, pricingMode: true } },
+        category: { select: { id: true, name: true, slug: true } },
         images: { orderBy: { sortOrder: "asc" }, select: { url: true, altText: true, sortOrder: true } },
         variants: {
           orderBy: { createdAt: "asc" },
@@ -179,6 +179,7 @@ export class ProductRepository implements ProductRepositoryPort {
       description: row.description,
       brand: row.brand,
       category: row.category,
+      pricingMode: row.pricingMode,
       images: row.images,
       variants: row.variants,
       metaTitle: row.metaTitle,
@@ -211,7 +212,7 @@ export class ProductRepository implements ProductRepositoryPort {
         brand: true,
         categoryId: true,
         minPricePaiseCache: true,
-        category: { select: { pricingMode: true } },
+        pricingMode: true,
         images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
         variants: {
           where: { isActive: true },
@@ -229,7 +230,7 @@ export class ProductRepository implements ProductRepositoryPort {
       categoryId: row.categoryId,
       minPricePaiseCache: row.minPricePaiseCache,
       primaryImage: row.images[0] ?? null,
-      pricingMode: row.category.pricingMode,
+      pricingMode: row.pricingMode,
       representativeVariant: row.variants[0]
         ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
         : null,
@@ -293,7 +294,7 @@ export class ProductRepository implements ProductRepositoryPort {
             name: true,
             slug: true,
             categoryId: true,
-            category: { select: { pricingMode: true } },
+            pricingMode: true,
             images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } },
           },
         },
@@ -314,7 +315,7 @@ export class ProductRepository implements ProductRepositoryPort {
       isActive: row.isActive,
       productId: row.product.id,
       categoryId: row.product.categoryId,
-      pricingMode: row.product.category.pricingMode,
+      pricingMode: row.product.pricingMode,
       productName: row.product.name,
       productSlug: row.product.slug,
       image: row.product.images[0]?.url ?? null,
@@ -333,7 +334,7 @@ export class ProductRepository implements ProductRepositoryPort {
         categoryId: true,
         isActive: true,
         minPricePaiseCache: true,
-        category: { select: { pricingMode: true } },
+        pricingMode: true,
         images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
         variants: {
           where: { isActive: true },
@@ -352,7 +353,7 @@ export class ProductRepository implements ProductRepositoryPort {
       isActive: row.isActive,
       minPricePaiseCache: row.minPricePaiseCache,
       primaryImage: row.images[0] ?? null,
-      pricingMode: row.category.pricingMode,
+      pricingMode: row.pricingMode,
       representativeVariant: row.variants[0]
         ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
         : null,
@@ -452,6 +453,7 @@ export class ProductRepository implements ProductRepositoryPort {
             description: input.description,
             brand: input.brand,
             categoryId: input.categoryId,
+            pricingMode: input.pricingMode,
             metaTitle: input.metaTitle,
             metaDescription: input.metaDescription,
           },
@@ -474,6 +476,7 @@ export class ProductRepository implements ProductRepositoryPort {
             description: input.description,
             brand: input.brand,
             categoryId: input.categoryId,
+            pricingMode: input.pricingMode,
             metaTitle: input.metaTitle,
             metaDescription: input.metaDescription,
           },
@@ -566,9 +569,32 @@ export class ProductRepository implements ProductRepositoryPort {
   async findProductPricingMode(productId: string): Promise<PricingMode | null> {
     const row = await prisma.product.findUnique({
       where: { id: productId },
-      select: { category: { select: { pricingMode: true } } },
+      select: { pricingMode: true },
     });
-    return row?.category.pricingMode ?? null;
+    return row?.pricingMode ?? null;
+  }
+
+  async findVariantsForPricingModeSwitch(
+    productId: string,
+  ): Promise<{ id: string; weightGrams: number; fixedPricePaise: number | null; isActive: boolean }[]> {
+    return prisma.productVariant.findMany({
+      where: { productId },
+      select: { id: true, weightGrams: true, fixedPricePaise: true, isActive: true },
+    });
+  }
+
+  async repriceVariantsForPricingModeSwitch(
+    updates: { id: string; fixedPricePaise: number | null; effectivePricePaiseCache: number }[],
+  ): Promise<void> {
+    if (updates.length === 0) return;
+    await prisma.$transaction(
+      updates.map((update) =>
+        prisma.productVariant.update({
+          where: { id: update.id },
+          data: { fixedPricePaise: update.fixedPricePaise, effectivePricePaiseCache: update.effectivePricePaiseCache },
+        }),
+      ),
+    );
   }
 
   async recomputeMinPrice(productId: string): Promise<void> {
@@ -629,7 +655,6 @@ export class ProductRepository implements ProductRepositoryPort {
 }
 
 const ADMIN_DETAIL_INCLUDE = {
-  category: { select: { pricingMode: true } },
   images: { orderBy: { sortOrder: "asc" as const }, select: ADMIN_IMAGE_SELECT },
   variants: { orderBy: { createdAt: "asc" as const }, select: ADMIN_VARIANT_SELECT },
 } satisfies Prisma.ProductInclude;
@@ -644,7 +669,7 @@ function toAdminDetail(row: AdminProductRow): AdminProductDetailEntity {
     description: row.description,
     brand: row.brand,
     categoryId: row.categoryId,
-    categoryPricingMode: row.category.pricingMode,
+    pricingMode: row.pricingMode,
     isActive: row.isActive,
     minPricePaiseCache: row.minPricePaiseCache,
     metaTitle: row.metaTitle,

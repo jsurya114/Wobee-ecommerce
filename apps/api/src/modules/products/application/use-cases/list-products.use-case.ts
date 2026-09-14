@@ -4,6 +4,7 @@ import type { ProductSummaryEntity } from "../../domain/entities/product.entity"
 import type { CategoryReaderPort } from "../ports/category-reader.port";
 import type { CollectionReaderPort } from "../ports/collection-reader.port";
 import type { InventoryReaderPort } from "../ports/inventory-reader.port";
+import type { OfferReaderPort } from "../ports/offer-reader.port";
 import type { PricingReaderPort } from "../ports/pricing-reader.port";
 import type { ProductRepositoryPort, ProductSummaryProjection } from "../ports/product-repository.port";
 
@@ -49,6 +50,7 @@ export class ListProductsUseCase {
     private readonly collectionReader: CollectionReaderPort,
     private readonly inventoryReader: InventoryReaderPort,
     private readonly pricingReader: PricingReaderPort,
+    private readonly offerReader: OfferReaderPort,
   ) {}
 
   async execute(input: ListProductsInput): Promise<ListProductsResult> {
@@ -99,7 +101,7 @@ export class ListProductsUseCase {
     });
 
     return {
-      products: await resolveFromPricing(products, this.pricingReader),
+      products: await resolveFromPricing(products, this.pricingReader, this.offerReader),
       page: input.page,
       limit: input.limit,
       total,
@@ -125,6 +127,7 @@ export class ListProductsUseCase {
 export async function resolveFromPricing(
   projections: ProductSummaryProjection[],
   pricingReader: PricingReaderPort,
+  offerReader: OfferReaderPort,
 ): Promise<ProductSummaryEntity[]> {
   const withVariant = projections
     .map((p, index) => ({ index, variant: p.representativeVariant, pricingMode: p.pricingMode }))
@@ -147,13 +150,24 @@ export async function resolveFromPricing(
   const rateByIndex = new Map<number, number | null>();
   withVariant.forEach((entry, i) => rateByIndex.set(entry.index, rates[i]!.ratePerKgPaise));
 
+  // Offer resolved AFTER the base price (BASE -> OFFER, the spec's own
+  // required order) — `minPricePaiseCache` IS the base price a listing
+  // card shows (ADR-012), so that's what the offer discount applies
+  // against. One batched call for the whole page/rail, never per-product.
+  const offerResults = await offerReader.resolveMany(
+    projections.map((p) => ({ productId: p.id, categoryId: p.categoryId, basePricePaise: p.minPricePaiseCache })),
+  );
+
   return projections.map((projection, index) => {
     const { representativeVariant, pricingMode, ...rest } = projection;
     const isWeightBased = pricingMode === "WEIGHT_BASED";
+    const offerResult = offerResults[index]!;
     return {
       ...rest,
       fromWeightGrams: isWeightBased ? (representativeVariant?.weightGrams ?? null) : null,
       fromRatePerKgPaise: isWeightBased ? (rateByIndex.get(index) ?? null) : null,
+      offerPricePaise: offerResult.pricePaise,
+      offer: offerResult.appliedOffer,
     };
   });
 }

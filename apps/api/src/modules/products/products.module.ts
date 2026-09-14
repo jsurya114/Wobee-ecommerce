@@ -9,12 +9,14 @@
 import { findCategoryBySlugUseCase } from "../categories/categories.module";
 import { findCollectionBySlugUseCase } from "../collections/collections.module";
 import { findInStockVariantIdsUseCase, getAvailableQuantitiesUseCase, initializeInventoryForVariantUseCase } from "../inventory/inventory.module";
+import { resolveApplicableOffersUseCase } from "../offers/offers.module";
 import { calculateEffectivePriceUseCase } from "../pricing/pricing.module";
 import { env } from "../../config/env";
 import type { CategoryReaderPort } from "./application/ports/category-reader.port";
 import type { CollectionReaderPort } from "./application/ports/collection-reader.port";
 import type { InventoryInitializerPort } from "./application/ports/inventory-initializer.port";
 import type { InventoryReaderPort } from "./application/ports/inventory-reader.port";
+import type { OfferReaderPort } from "./application/ports/offer-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
 import type { ProductRepositoryPort } from "./application/ports/product-repository.port";
 import { AddProductImageUseCase } from "./application/use-cases/admin/add-product-image.use-case";
@@ -66,10 +68,12 @@ const inventoryReader: InventoryReaderPort = {
 const inventoryInitializer: InventoryInitializerPort = {
   initializeForVariant: (variantId, quantity) => initializeInventoryForVariantUseCase.execute(variantId, quantity),
 };
+/** Phase 2 (2026-09-14) — see OfferReaderPort's own doc comment. */
+const offerReader: OfferReaderPort = { resolveMany: (inputs) => resolveApplicableOffersUseCase.executeMany(inputs) };
 
-const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, pricingReader, inventoryReader);
+const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, pricingReader, inventoryReader, offerReader);
 const searchProductSuggestionsUseCase = new SearchProductSuggestionsUseCase(productRepository);
-const getRelatedProductsUseCase = new GetRelatedProductsUseCase(productRepository, pricingReader);
+const getRelatedProductsUseCase = new GetRelatedProductsUseCase(productRepository, pricingReader, offerReader);
 
 /** Exported for cross-module use — `home`'s New Arrivals rail (Week 2 Day 8 Part 2) calls this with `sort: "newest"` instead of duplicating catalogue-listing logic. */
 export const listProductsUseCase = new ListProductsUseCase(
@@ -78,11 +82,12 @@ export const listProductsUseCase = new ListProductsUseCase(
   collectionReader,
   inventoryReader,
   pricingReader,
+  offerReader,
 );
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRepository);
 /** Exported for cross-module use — see the use-case's own doc comment. */
-export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productRepository, pricingReader);
+export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productRepository, pricingReader, offerReader);
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const resolveProductIdsForVariantsUseCase = new ResolveProductIdsForVariantsUseCase(productRepository);
 /** Exported for cross-module use (redesign O-3) — `home` composes this into the category-rail payload. */
@@ -94,7 +99,7 @@ export const countActiveProductsBySizeUseCase = new CountActiveProductsBySizeUse
 export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepository);
 export const getProductAdminUseCase = new GetProductAdminUseCase(productRepository);
 export const createProductUseCase = new CreateProductUseCase(productRepository);
-export const updateProductUseCase = new UpdateProductUseCase(productRepository);
+export const updateProductUseCase = new UpdateProductUseCase(productRepository, pricingReader);
 export const setProductActiveUseCase = new SetProductActiveUseCase(productRepository);
 export const createProductVariantUseCase = new CreateProductVariantUseCase(productRepository, pricingReader, inventoryInitializer);
 export const updateProductVariantUseCase = new UpdateProductVariantUseCase(productRepository, pricingReader);

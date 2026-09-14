@@ -1,3 +1,4 @@
+import type { OfferReaderPort } from "../ports/offer-reader.port";
 import type { PricingReaderPort } from "../ports/pricing-reader.port";
 import type { ProductRepositoryPort, ProductSummaryWithStatus } from "../ports/product-repository.port";
 import { resolveFromPricing } from "./list-products.use-case";
@@ -15,12 +16,13 @@ export class GetProductsByIdsUseCase {
   constructor(
     private readonly productRepository: ProductRepositoryPort,
     private readonly pricingReader: PricingReaderPort,
+    private readonly offerReader: OfferReaderPort,
   ) {}
 
   async execute(productIds: string[]): Promise<Map<string, ProductSummaryWithStatus>> {
     if (productIds.length === 0) return new Map();
     const rows = await this.productRepository.findByIds(productIds);
-    const resolved = await resolveFromPricing(rows, this.pricingReader);
+    const resolved = await resolveFromPricing(rows, this.pricingReader, this.offerReader);
     return new Map(resolved.map((product, index) => [product.id, { ...product, isActive: rows[index]!.isActive }]));
   }
 }

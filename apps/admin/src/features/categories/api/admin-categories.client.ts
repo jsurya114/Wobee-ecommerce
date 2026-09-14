@@ -7,7 +7,6 @@ export interface AdminCategory {
   sortOrder: number;
   imageUrl: string | null;
   isActive: boolean;
-  pricingMode: "WEIGHT_BASED" | "FIXED";
   productCount: number;
 }
 

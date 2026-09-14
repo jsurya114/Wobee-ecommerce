@@ -23,6 +23,19 @@ export interface ProductSummary {
    */
   fromWeightGrams: number | null;
   fromRatePerKgPaise: number | null;
+  /** Phase 2 (2026-09-14) — `minPricePaiseCache` with the applicable automatic Offer's discount already subtracted, server-resolved. Equal to `minPricePaiseCache` when no offer applies — this is the price to actually SHOW as the selling price. */
+  offerPricePaise: number;
+  /** Null when no offer currently applies. */
+  offer: AppliedOffer | null;
+}
+
+/** Phase 2 (2026-09-14) — the ONE automatic offer that won precedence for this product, display-only. */
+export interface AppliedOffer {
+  offerId: string;
+  name: string;
+  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+  discountValue: number;
+  discountPaise: number;
 }
 
 export interface ProductListResult {
@@ -74,9 +87,14 @@ export interface VariantWithPriceAndStock {
   color: string;
   size: string;
   weightGrams: number;
+  /** The BASE price — before any automatic Offer discount. */
   pricePaise: number;
   /** Null for a FIXED-category product (2026-08-31) — there is no rate/kg. */
   ratePerKgPaise: number | null;
+  /** Phase 2 (2026-09-14) — `pricePaise` with the applicable Offer's discount already subtracted. Equal to `pricePaise` when no offer applies. This, not `pricePaise`, is the price the purchase UI must actually charge/display as the selling price. */
+  offerPricePaise: number;
+  /** Null when no offer currently applies to this product. */
+  offer: AppliedOffer | null;
   availableQuantity: number;
   inStock: boolean;
   /** Free-text product details for the PDP "Details" disclosure (redesign O-2) — null unless the admin set them. */

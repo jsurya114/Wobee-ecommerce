@@ -1,4 +1,5 @@
 import type { ProductSummaryEntity } from "../../domain/entities/product.entity";
+import type { OfferReaderPort } from "../ports/offer-reader.port";
 import type { PricingReaderPort } from "../ports/pricing-reader.port";
 import type { ProductRepositoryPort } from "../ports/product-repository.port";
 import { resolveFromPricing } from "./list-products.use-case";
@@ -25,6 +26,7 @@ export class GetRelatedProductsUseCase {
   constructor(
     private readonly productRepository: ProductRepositoryPort,
     private readonly pricingReader: PricingReaderPort,
+    private readonly offerReader: OfferReaderPort,
   ) {}
 
   async execute(slug: string, limit: number = RELATED_PRODUCTS_LIMIT): Promise<ProductSummaryEntity[]> {
@@ -39,6 +41,6 @@ export class GetRelatedProductsUseCase {
       limit,
     });
 
-    return resolveFromPricing(sameCategory, this.pricingReader);
+    return resolveFromPricing(sameCategory, this.pricingReader, this.offerReader);
   }
 }

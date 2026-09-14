@@ -30,24 +30,26 @@ const createdOrderIds: string[] = [];
 const createdCouponIds: string[] = [];
 
 beforeAll(async () => {
-  // FIXED, not WEIGHT_BASED (2026-09-02 CI fix): this suite pins an exact
-  // known price on every fixture via ProductVariant.fixedPricePaise, which
-  // is only authoritative when the product's category is FIXED
-  // (resolve-effective-price.ts) — WEIGHT_BASED ignores it and derives price
-  // from weightGrams x the live global rate instead, which can only hit an
-  // arbitrary round-number price by exact coincidence (globalRatePerKgPaise
-  // rarely divides it evenly) and, worse, forces weightGrams down into the
-  // tens of grams for a low price target, tripping ADR-021's checkout-wide
-  // 1000g minimum (resolve-shipping.ts) that this suite never meant to
-  // exercise. FIXED-priced lines don't count toward weightBasedTotalGrams at
-  // all (compute-cart-totals.ts), so that minimum can never block them —
-  // this is the same category-pricing-mode split real Accessories products
-  // use, not a bespoke suite mechanism. Seed only guarantees one FIXED
-  // category (Accessories), and this suite's own "matching category only"
-  // test needs two, so both are created here rather than borrowed from seed.
+  // FIXED, not WEIGHT_BASED (2026-09-02 CI fix; pricingMode moved
+  // Category -> Product 2026-09-14, see createTestVariant below): this
+  // suite pins an exact known price on every fixture via
+  // ProductVariant.fixedPricePaise, which is only authoritative when the
+  // product's own pricingMode is FIXED (resolve-effective-price.ts) —
+  // WEIGHT_BASED ignores it and derives price from weightGrams x the live
+  // global rate instead, which can only hit an arbitrary round-number price
+  // by exact coincidence (globalRatePerKgPaise rarely divides it evenly)
+  // and, worse, forces weightGrams down into the tens of grams for a low
+  // price target, tripping ADR-021's checkout-wide 1000g minimum
+  // (resolve-shipping.ts) that this suite never meant to exercise.
+  // FIXED-priced lines don't count toward weightBasedTotalGrams at all
+  // (compute-cart-totals.ts), so that minimum can never block them — this
+  // is the same pricing-mode split real Accessories products use, not a
+  // bespoke suite mechanism. This suite's own "matching category only" test
+  // needs two categories, so both are created here (no pricingMode on
+  // Category anymore — every product created under them below is FIXED).
   const [category, otherCategory] = await Promise.all([
-    prisma.category.create({ data: { name: `${TEST_PREFIX} Category A`, slug: `${TEST_PREFIX}-cat-a`, pricingMode: "FIXED" } }),
-    prisma.category.create({ data: { name: `${TEST_PREFIX} Category B`, slug: `${TEST_PREFIX}-cat-b`, pricingMode: "FIXED" } }),
+    prisma.category.create({ data: { name: `${TEST_PREFIX} Category A`, slug: `${TEST_PREFIX}-cat-a` } }),
+    prisma.category.create({ data: { name: `${TEST_PREFIX} Category B`, slug: `${TEST_PREFIX}-cat-b` } }),
   ]);
   categoryId = category.id;
   otherCategoryId = otherCategory.id;
@@ -95,6 +97,10 @@ async function createTestVariant(
       name: `${TEST_PREFIX} Product ${suffix}`,
       slug: `${TEST_PREFIX}-${suffix}`,
       categoryId: params.categoryId ?? categoryId,
+      // FIXED (2026-09-14: pricingMode is now the product's own field, not
+      // the category's) — see beforeAll's own comment for why this suite
+      // needs FIXED, not WEIGHT_BASED.
+      pricingMode: "FIXED",
       isActive: true,
     },
   });

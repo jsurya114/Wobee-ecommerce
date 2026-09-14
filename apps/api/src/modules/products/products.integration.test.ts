@@ -307,7 +307,19 @@ describe("GET /api/v1/products/:slug/related — related products (PDP, same cat
     const res = await request(app).get(`/api/v1/products/${currentSlug}/related`);
     const first = res.body.products[0];
     expect(Object.keys(first).sort()).toEqual(
-      ["brand", "categoryId", "fromRatePerKgPaise", "fromWeightGrams", "id", "minPricePaiseCache", "primaryImage", "slug", "name"].sort(),
+      [
+        "brand",
+        "categoryId",
+        "fromRatePerKgPaise",
+        "fromWeightGrams",
+        "id",
+        "minPricePaiseCache",
+        "offer",
+        "offerPricePaise",
+        "primaryImage",
+        "slug",
+        "name",
+      ].sort(),
     );
     expect(typeof first.minPricePaiseCache).toBe("number");
     expect(first).not.toHaveProperty("representativeVariant");

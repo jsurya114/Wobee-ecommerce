@@ -9,6 +9,7 @@ import { listVisibleBannersUseCase } from "../banners/banners.module";
 import { listCategoriesUseCase } from "../categories/categories.module";
 import { listCollectionsUseCase } from "../collections/collections.module";
 import { findInStockVariantIdsUseCase } from "../inventory/inventory.module";
+import { listActiveOffersForStripUseCase } from "../offers/offers.module";
 import { getBestSellingVariantQuantitiesUseCase } from "../orders/orders.module";
 import {
   countActiveProductsBySizeUseCase,
@@ -62,6 +63,7 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   listCategoriesUseCase,
   getCategoryImagesUseCase,
   listVisibleBannersUseCase,
+  listActiveOffersForStripUseCase,
   listProductsUseCase,
   inStockProductIdsProvider,
   countActiveProductsBySizeUseCase,
@@ -86,8 +88,11 @@ const HOME_TTL_SECONDS = 60;
  * admin CONTENT writes (a product/category/banner edit) and is bumped at
  * runtime; this one tracks the response SHAPE and is bumped at deploy time,
  * by hand, in code review, same as any other schema-version constant.
+ *
+ * Bumped 2 -> 3 (Phase 2, 2026-09-14) for exactly the scenario above:
+ * `activeOffers` was added to `HomePageView`.
  */
-const HOME_PAGE_SCHEMA_VERSION = 2;
+const HOME_PAGE_SCHEMA_VERSION = 3;
 
 /**
  * ADR-017 (Caching Strategy) — the whole aggregate cached as one unit,

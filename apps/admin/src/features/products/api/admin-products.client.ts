@@ -44,8 +44,8 @@ export interface AdminProductDetail {
   description: string | null;
   brand: string | null;
   categoryId: string;
-  /** The category's pricing mode (2026-08-31) — decides whether VariantForm shows "Rate/kg override" or "Fixed price". */
-  categoryPricingMode: "WEIGHT_BASED" | "FIXED";
+  /** This product's OWN pricing mode (2026-08-31; moved off Category 2026-09-14, now admin-editable — see ProductForm) — decides whether VariantForm shows "Rate/kg override" or "Fixed price". */
+  pricingMode: "WEIGHT_BASED" | "FIXED";
   isActive: boolean;
   minPricePaiseCache: number;
   metaTitle: string | null;
@@ -68,6 +68,8 @@ export interface CreateProductPayload {
   description?: string;
   brand?: string;
   categoryId: string;
+  /** Defaults server-side to WEIGHT_BASED when omitted. */
+  pricingMode?: "WEIGHT_BASED" | "FIXED";
   metaTitle?: string;
   metaDescription?: string;
 }

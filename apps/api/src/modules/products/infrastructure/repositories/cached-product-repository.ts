@@ -94,6 +94,9 @@ export class CachedProductRepository implements ProductRepositoryPort {
   findProductPricingMode(productId: string): ReturnType<ProductRepositoryPort["findProductPricingMode"]> {
     return this.inner.findProductPricingMode(productId);
   }
+  findVariantsForPricingModeSwitch(productId: string): ReturnType<ProductRepositoryPort["findVariantsForPricingModeSwitch"]> {
+    return this.inner.findVariantsForPricingModeSwitch(productId);
+  }
   findByIds(productIds: string[]): Promise<ProductSummaryProjectionWithStatus[]> {
     return this.inner.findByIds(productIds);
   }
@@ -174,6 +177,12 @@ export class CachedProductRepository implements ProductRepositoryPort {
   }
   async reorderImages(productId: string, orderedImageIds: string[]): Promise<void> {
     await this.inner.reorderImages(productId, orderedImageIds);
+    await bumpCatalogCacheVersion();
+  }
+  async repriceVariantsForPricingModeSwitch(
+    updates: Parameters<ProductRepositoryPort["repriceVariantsForPricingModeSwitch"]>[0],
+  ): Promise<void> {
+    await this.inner.repriceVariantsForPricingModeSwitch(updates);
     await bumpCatalogCacheVersion();
   }
 }

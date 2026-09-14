@@ -1,4 +1,19 @@
-import type { PricingMode } from "@woobe/types";
+import type { OfferDiscountType, PricingMode } from "@woobe/types";
+
+/**
+ * Phase 2 (2026-09-14) — the ONE automatic offer that won precedence for a
+ * product (see resolveApplicableOffer, offers module). Null when no offer
+ * currently applies. Display-only here — the server-resolved
+ * `offerPricePaise` alongside it, not this shape, is what a client would
+ * ever need to trust for a price.
+ */
+export interface AppliedOfferSummary {
+  offerId: string;
+  name: string;
+  discountType: OfferDiscountType;
+  discountValue: number;
+  discountPaise: number;
+}
 
 export interface ProductImageEntity {
   url: string;
@@ -45,6 +60,18 @@ export interface ProductSummaryEntity {
    */
   fromWeightGrams: number | null;
   fromRatePerKgPaise: number | null;
+  /**
+   * Phase 2 (2026-09-14) — `minPricePaiseCache` with the applicable
+   * automatic Offer's discount already subtracted, resolved server-side
+   * (never the client). Equal to `minPricePaiseCache` when no offer
+   * currently applies. This is the price the PLP/rail card should actually
+   * SHOW as the selling price; `minPricePaiseCache` stays the "original"
+   * price for a strikethrough, and stays what sort/filter key off
+   * (ADR-012) — unaffected by this addition.
+   */
+  offerPricePaise: number;
+  /** Null when no offer currently applies. */
+  offer: AppliedOfferSummary | null;
 }
 
 /**
@@ -67,7 +94,9 @@ export interface ProductDetailEntity {
   name: string;
   description: string | null;
   brand: string | null;
-  category: { id: string; name: string; slug: string; pricingMode: PricingMode };
+  category: { id: string; name: string; slug: string };
+  /** Product-level (2026-09-14, moved off Category — see PricingMode's own doc comment in schema.prisma). Server-authoritative; drives whether the purchase UI reads `fixedPricePaise` or the weight-derived price per variant. */
+  pricingMode: PricingMode;
   images: ProductImageEntity[];
   variants: ProductVariantEntity[];
   /**
@@ -134,8 +163,8 @@ export interface AdminProductDetailEntity {
   description: string | null;
   brand: string | null;
   categoryId: string;
-  /** The category's pricing mode (2026-08-31) — tells admin's VariantForm whether to show "Rate/kg override" or "Fixed price" for this product's variants. */
-  categoryPricingMode: PricingMode;
+  /** This product's OWN pricing mode (2026-08-31; moved off Category 2026-09-14) — tells admin's VariantForm whether to show "Rate/kg override" or "Fixed price" for this product's variants, and is itself admin-editable (CreateProductUseCase/UpdateProductUseCase). */
+  pricingMode: PricingMode;
   isActive: boolean;
   minPricePaiseCache: number;
   metaTitle: string | null;

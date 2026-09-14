@@ -54,9 +54,12 @@ export interface RepresentativeVariantProjection {
  * representative variant plus the product's category pricing mode.
  * `ListProductsUseCase` / `GetProductsByIdsUseCase` resolve `fromWeightGrams`
  * / `fromRatePerKgPaise` (null for FIXED, see resolveFromPricing) and drop
- * both fields before the entity leaves the application layer.
+ * both fields before the entity leaves the application layer. Phase 2
+ * (2026-09-14): `offerPricePaise`/`offer` are ALSO unresolved at this
+ * layer, for the same reason — `resolveFromPricing` (offer-aware since
+ * that phase) is what adds both, one batched call for the whole page.
  */
-export type ProductSummaryProjection = Omit<ProductSummaryEntity, "fromWeightGrams" | "fromRatePerKgPaise"> & {
+export type ProductSummaryProjection = Omit<ProductSummaryEntity, "fromWeightGrams" | "fromRatePerKgPaise" | "offerPricePaise" | "offer"> & {
   representativeVariant: RepresentativeVariantProjection | null;
   pricingMode: PricingMode;
 };
@@ -97,6 +100,8 @@ export interface CreateProductInput {
   description?: string;
   brand?: string;
   categoryId: string;
+  /** Product-level (2026-09-14) — see PricingMode's own doc comment in schema.prisma. */
+  pricingMode: PricingMode;
   metaTitle?: string;
   metaDescription?: string;
 }
@@ -107,6 +112,8 @@ export interface UpdateProductInput {
   description?: string | null;
   brand?: string | null;
   categoryId?: string;
+  /** Omitted = leave the product's current pricingMode untouched. */
+  pricingMode?: PricingMode;
   metaTitle?: string | null;
   metaDescription?: string | null;
 }
@@ -174,7 +181,7 @@ export interface ProductRepositoryPort {
     categoryId: string;
     limit: number;
   }): Promise<ProductSummaryProjection[]>;
-  /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. `pricingMode` is the product's CATEGORY pricing mode (2026-08-31) — needed alongside the variant's own weight/rate/fixedPricePaise to price the line. */
+  /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. `pricingMode` is the product's OWN pricing mode (2026-08-31; moved off Category 2026-09-14) — needed alongside the variant's own weight/rate/fixedPricePaise to price the line. */
   findVariantsByIds(
     variantIds: string[],
   ): Promise<
@@ -187,8 +194,30 @@ export interface ProductRepositoryPort {
       pricingMode: PricingMode;
     })[]
   >;
-  /** The product's category pricing mode (2026-08-31) — used by admin's create/update-variant use-cases to decide whether a variant needs `ratePerKgOverridePaise` or `fixedPricePaise`. Null if the product doesn't exist. */
+  /** The product's own pricing mode (2026-08-31; moved off Category 2026-09-14) — used by admin's create/update-variant use-cases to decide whether a variant needs `fixedPricePaise`. Null if the product doesn't exist. */
   findProductPricingMode(productId: string): Promise<PricingMode | null>;
+  /**
+   * All of a product's variants' pricing-relevant fields — used ONLY by
+   * UpdateProductUseCase when `pricingMode` is part of an edit, to (a)
+   * validate the FIXED-mode invariant ("every variant already has a
+   * fixedPricePaise") before allowing a WEIGHT_BASED -> FIXED switch, and
+   * (b) know which variants to reprice afterward. Not used by any
+   * customer-facing path.
+   */
+  findVariantsForPricingModeSwitch(
+    productId: string,
+  ): Promise<{ id: string; weightGrams: number; fixedPricePaise: number | null; isActive: boolean }[]>;
+  /**
+   * Applies a pricingMode switch's resulting per-variant state in one
+   * transaction (UpdateProductUseCase): WEIGHT_BASED clears every variant's
+   * now-meaningless `fixedPricePaise`; FIXED leaves it as-is (already
+   * validated present). Either way every variant's `effectivePricePaiseCache`
+   * (the listing/sort display cache) is recomputed for the new mode — never
+   * left stale under the old mode's math.
+   */
+  repriceVariantsForPricingModeSwitch(
+    updates: { id: string; fixedPricePaise: number | null; effectivePricePaiseCache: number }[],
+  ): Promise<void>;
   findByIds(productIds: string[]): Promise<ProductSummaryProjectionWithStatus[]>;
   /** Week 2 Day 8 Part 2 (week2 (1).md §12) — batched variantId→productId lookup for `home`'s Best Sellers rail (orders' OrderItem only has variantId; resolving to the product it belongs to is `products`' own data). Missing/unknown variant ids are simply absent from the returned map, never an error — a variant sold in the past can be deleted or reassigned since. */
   findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>>;

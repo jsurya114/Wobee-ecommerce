@@ -3,7 +3,7 @@ import { ImageOff } from "lucide-react";
 import Link from "next/link";
 import { QuickAddToBagButton } from "@/features/cart/components/QuickAddToBagButton";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
-import type { ProductSummary } from "../api/products.client";
+import type { AppliedOffer, ProductSummary } from "../api/products.client";
 import { ShareProductButton } from "./ShareProductButton";
 
 /**
@@ -52,12 +52,27 @@ export function ProductCard({ product, showQuickAdd = false }: { product: Produc
         ) : null}
       </div>
       <p className="mt-1.5 truncate font-body text-xs font-medium text-text-primary lg:text-[13px]">{product.name}</p>
-      <PriceTag
-        className="mt-0.5"
-        pricePaise={product.minPricePaiseCache}
-        weightGrams={product.fromWeightGrams}
-        ratePerKgPaise={product.fromRatePerKgPaise}
-      />
+      <div className="mt-0.5 flex items-baseline gap-1.5">
+        <PriceTag
+          pricePaise={product.offerPricePaise}
+          compareAtPricePaise={product.offer ? product.minPricePaiseCache : null}
+          weightGrams={product.fromWeightGrams}
+          ratePerKgPaise={product.fromRatePerKgPaise}
+        />
+        {product.offer ? <OfferBadge offer={product.offer} /> : null}
+      </div>
     </Link>
   );
+}
+
+/**
+ * Phase 2 (2026-09-14) — the "20% OFF" / "₹200 OFF" pill next to the price.
+ * `PriceTag` (packages/ui) already renders the strikethrough original price
+ * via `compareAtPricePaise` above; this is the one small addition kept in
+ * this app rather than the shared primitive, since it's the only caller
+ * that needs a discount LABEL alongside the two prices.
+ */
+function OfferBadge({ offer }: { offer: AppliedOffer }) {
+  const label = offer.discountType === "PERCENTAGE" ? `${offer.discountValue}% OFF` : `₹${Math.round(offer.discountValue / 100)} OFF`;
+  return <span className="rounded-pill bg-primary px-1.5 py-0.5 font-body text-[10px] font-semibold leading-none text-white">{label}</span>;
 }

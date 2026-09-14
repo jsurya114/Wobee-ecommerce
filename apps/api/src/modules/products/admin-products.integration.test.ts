@@ -298,3 +298,130 @@ describe("admin products: media", () => {
     expect(finalDetail.body.product.images).toHaveLength(1);
   });
 });
+
+/**
+ * Phase 1 (2026-09-14) — Product.pricingMode, moved off Category. Covers
+ * the create-time default, admin FIXED-price creation/validation, and the
+ * WEIGHT_BASED<->FIXED switch's variant-consistency rules on
+ * UpdateProductUseCase (see that use-case's own doc comment for exactly
+ * what each direction does and why).
+ */
+describe("admin products: pricing mode", () => {
+  it("defaults a new product to WEIGHT_BASED when pricingMode is omitted", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const product = await createTestProduct(auth);
+
+    const detail = await request(app).get(`/api/v1/admin/products/${product.id}`).set(auth);
+    expect(detail.body.product.pricingMode).toBe("WEIGHT_BASED");
+  });
+
+  it("creates a FIXED-price product, and its variant's price is the fixed price — independent of weight", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const suffix = randomUUID().slice(0, 8);
+    const createRes = await request(app)
+      .post("/api/v1/admin/products")
+      .set(auth)
+      .send({ name: `${TEST_PREFIX} Fixed ${suffix}`, slug: `${TEST_PREFIX}-fixed-${suffix}`, categoryId, pricingMode: "FIXED" });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.product.pricingMode).toBe("FIXED");
+    createdProductIds.push(createRes.body.product.id);
+
+    // Missing fixedPricePaise on a FIXED product's variant is rejected (400).
+    const missingPrice = await request(app)
+      .post(`/api/v1/admin/products/${createRes.body.product.id}/variants`)
+      .set(auth)
+      .send({ color: "Gold", size: "One Size", weightGrams: 30 });
+    expect(missingPrice.status).toBe(400);
+
+    // Two very different weights, the SAME fixedPricePaise — price must
+    // track the fixed price only, never the weight (Phase 1 spec item D).
+    const light = await request(app)
+      .post(`/api/v1/admin/products/${createRes.body.product.id}/variants`)
+      .set(auth)
+      .send({ color: "Gold", size: "S", weightGrams: 10, fixedPricePaise: 45_00 });
+    const heavy = await request(app)
+      .post(`/api/v1/admin/products/${createRes.body.product.id}/variants`)
+      .set(auth)
+      .send({ color: "Gold", size: "L", weightGrams: 5000, fixedPricePaise: 45_00 });
+    expect(light.status).toBe(201);
+    expect(heavy.status).toBe(201);
+    expect(light.body.variant.effectivePricePaiseCache).toBe(45_00);
+    expect(heavy.body.variant.effectivePricePaiseCache).toBe(45_00);
+  });
+
+  it("rejects switching WEIGHT_BASED -> FIXED while an active variant has no fixed price, then allows it once set", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const product = await createTestProduct(auth); // WEIGHT_BASED by default
+    const rate = await prisma.pricingSetting.findFirstOrThrow({ orderBy: { effectiveFrom: "desc" } });
+
+    const variant = await request(app)
+      .post(`/api/v1/admin/products/${product.id}/variants`)
+      .set(auth)
+      .send({ color: "Black", size: "M", weightGrams: 500 });
+    expect(variant.status).toBe(201);
+    const weightBasedPrice = Math.round((500 * rate.defaultRatePerKgPaise) / 1000);
+    expect(variant.body.variant.effectivePricePaiseCache).toBe(weightBasedPrice);
+
+    const rejected = await request(app).patch(`/api/v1/admin/products/${product.id}`).set(auth).send({ pricingMode: "FIXED" });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.fieldErrors?.pricingMode).toBeTruthy();
+    // Rejected — the product is still WEIGHT_BASED, and the variant untouched.
+    let detail = await request(app).get(`/api/v1/admin/products/${product.id}`).set(auth);
+    expect(detail.body.product.pricingMode).toBe("WEIGHT_BASED");
+
+    // Set the variant's fixed price WHILE the product is still WEIGHT_BASED
+    // (stored but ignored for pricing until the switch — see VariantForm's
+    // own doc comment) — the switch should now succeed.
+    const setPrice = await request(app)
+      .patch(`/api/v1/admin/products/${product.id}/variants/${variant.body.variant.id}`)
+      .set(auth)
+      .send({ fixedPricePaise: 99_00 });
+    expect(setPrice.status).toBe(200);
+    // Still WEIGHT_BASED math right now — fixedPricePaise is inert until the switch.
+    expect(setPrice.body.variant.effectivePricePaiseCache).toBe(weightBasedPrice);
+
+    const switched = await request(app).patch(`/api/v1/admin/products/${product.id}`).set(auth).send({ pricingMode: "FIXED" });
+    expect(switched.status).toBe(200);
+    expect(switched.body.product.pricingMode).toBe("FIXED");
+
+    detail = await request(app).get(`/api/v1/admin/products/${product.id}`).set(auth);
+    const switchedVariant = detail.body.product.variants.find((v: { id: string }) => v.id === variant.body.variant.id);
+    // Now authoritative: the fixed price, NOT the weight-derived price.
+    expect(switchedVariant.effectivePricePaiseCache).toBe(99_00);
+    expect(switchedVariant.fixedPricePaise).toBe(99_00);
+  });
+
+  it("switching FIXED -> WEIGHT_BASED clears fixedPricePaise and recomputes the price from weight", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const suffix = randomUUID().slice(0, 8);
+    const rate = await prisma.pricingSetting.findFirstOrThrow({ orderBy: { effectiveFrom: "desc" } });
+
+    const createRes = await request(app)
+      .post("/api/v1/admin/products")
+      .set(auth)
+      .send({ name: `${TEST_PREFIX} ToWeight ${suffix}`, slug: `${TEST_PREFIX}-to-weight-${suffix}`, categoryId, pricingMode: "FIXED" });
+    createdProductIds.push(createRes.body.product.id);
+
+    const variant = await request(app)
+      .post(`/api/v1/admin/products/${createRes.body.product.id}/variants`)
+      .set(auth)
+      .send({ color: "Silver", size: "One Size", weightGrams: 800, fixedPricePaise: 75_00 });
+    expect(variant.body.variant.effectivePricePaiseCache).toBe(75_00);
+
+    const switched = await request(app)
+      .patch(`/api/v1/admin/products/${createRes.body.product.id}`)
+      .set(auth)
+      .send({ pricingMode: "WEIGHT_BASED" });
+    expect(switched.status).toBe(200);
+    expect(switched.body.product.pricingMode).toBe("WEIGHT_BASED");
+
+    const detail = await request(app).get(`/api/v1/admin/products/${createRes.body.product.id}`).set(auth);
+    const switchedVariant = detail.body.product.variants[0];
+    expect(switchedVariant.fixedPricePaise).toBeNull();
+    expect(switchedVariant.effectivePricePaiseCache).toBe(Math.round((800 * rate.defaultRatePerKgPaise) / 1000));
+  });
+});

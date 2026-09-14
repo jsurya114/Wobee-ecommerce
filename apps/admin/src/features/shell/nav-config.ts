@@ -23,6 +23,7 @@ export const ADMIN_NAV: AdminNavEntry[] = [
   { label: "Collections", href: "/collections", status: "live", permission: "MANAGE_CATALOG" },
   { label: "Banners", href: "/banners", status: "live", permission: "MANAGE_CATALOG" },
   { label: "Coupons", href: "/coupons", status: "live", permission: "MANAGE_CATALOG" },
+  { label: "Offers", href: "/offers", status: "live", permission: "MANAGE_CATALOG" },
   { label: "Orders", href: "/orders", status: "live", permission: "MANAGE_ORDERS" },
   { label: "Inventory", href: "/inventory", status: "live", permission: "MANAGE_INVENTORY" },
   { label: "Staff", href: "/staff", status: "live", permission: "MANAGE_STAFF" },

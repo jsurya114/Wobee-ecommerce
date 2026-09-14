@@ -1,6 +1,7 @@
 import type { BannerSummaryEntity } from "../../../banners/domain/entities/banner.entity";
 import type { CategoryEntity } from "../../../categories/domain/entities/category.entity";
 import type { CollectionEntity } from "../../../collections/domain/entities/collection.entity";
+import type { OfferStripEntity } from "../../../offers/domain/entities/offer.entity";
 import type { ListProductsResult } from "../../../products/application/use-cases/list-products.use-case";
 import type { ProductSummaryWithStatus } from "../../../products/application/ports/product-repository.port";
 import type { ProductSummaryEntity } from "../../../products/domain/entities/product.entity";
@@ -96,6 +97,11 @@ interface VisibleBannersLister {
   execute(): Promise<BannerSummaryEntity[]>;
 }
 
+/** Matches `ListActiveOffersForStripUseCase`'s own `execute` signature (Phase 2, 2026-09-14 offer strip). */
+interface ActiveOffersLister {
+  execute(): Promise<OfferStripEntity[]>;
+}
+
 /**
  * Every product id, catalogue-wide, that currently has at least one
  * in-stock, active variant (merchandising logic corrections, 2026-09-06) —
@@ -157,6 +163,16 @@ export interface HomeSizeOption {
 
 export interface HomePageView {
   banners: BannerSummaryEntity[];
+  /**
+   * Phase 2 (2026-09-14) — the promotional offer strip's data. Every
+   * currently active, in-schedule offer (ListActiveOffersForStripUseCase
+   * already applies that filter — see its own doc comment on why no cron
+   * job is needed to keep this fresh); a scheduled-but-not-started or
+   * already-expired offer is simply absent, never included with a "coming
+   * soon"/"expired" flag. `[]` when no offer is currently active — the
+   * storefront hides the strip entirely rather than showing an empty bar.
+   */
+  activeOffers: OfferStripEntity[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummaryEntity[];
   /**
@@ -224,9 +240,11 @@ export interface HomePageView {
  *   entry links to the PLP's existing `?size=` filter, never a second size-
  *   filtering implementation.
  *
- * Sections with no real data source yet (Offers, Shop by Vibe, UGC/
- * Instagram, Build Your Look) are simply absent from HomePageView — not
- * built with placeholder content, per Module 12's own "do not invent" list.
+ * Sections with no real data source yet (Shop by Vibe, UGC/Instagram,
+ * Build Your Look) are simply absent from HomePageView — not built with
+ * placeholder content, per Module 12's own "do not invent" list. Offers
+ * (Phase 2, 2026-09-14) is no longer in that category — `activeOffers`
+ * above is real, admin-controlled data (ListActiveOffersForStripUseCase).
  * "Fresh Picks" (2026-09-06: removed) used to be rendered here too, but it
  * was never a distinct query — the storefront page just re-sliced
  * `newArrivals` under a second label (see the homepage audit's finding C) —
@@ -245,6 +263,7 @@ export class GetHomePageUseCase {
     private readonly categoriesLister: CategoriesLister,
     private readonly categoryImageResolver: CategoryImageResolver,
     private readonly visibleBannersLister: VisibleBannersLister,
+    private readonly activeOffersLister: ActiveOffersLister,
     private readonly budgetProductsLister: BudgetProductsLister,
     private readonly inStockProductIdsProvider: InStockProductIdsProvider,
     private readonly sizeAvailabilityReader: SizeAvailabilityReader,
@@ -253,6 +272,7 @@ export class GetHomePageUseCase {
   async execute(): Promise<HomePageView> {
     const [
       banners,
+      activeOffers,
       categoryTiles,
       newArrivals,
       bestSellers,
@@ -263,6 +283,7 @@ export class GetHomePageUseCase {
       sizeAvailability,
     ] = await Promise.all([
       this.visibleBannersLister.execute(),
+      this.activeOffersLister.execute(),
       this.resolveCategoryTiles(),
       this.newArrivalsLister
         .execute({ sort: "newest", page: 1, limit: NEW_ARRIVALS_LIMIT, inStockOnly: true })
@@ -277,6 +298,7 @@ export class GetHomePageUseCase {
 
     return {
       banners,
+      activeOffers,
       categoryTiles,
       newArrivals,
       bestSellers,

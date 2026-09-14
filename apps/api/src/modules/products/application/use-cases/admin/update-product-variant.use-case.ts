@@ -44,8 +44,8 @@ export class UpdateProductVariantUseCase {
       const fixedPricePaise = input.fixedPricePaise !== undefined ? input.fixedPricePaise : current.fixedPricePaise;
 
       if (pricingMode === "FIXED" && fixedPricePaise == null) {
-        throw new ValidationError("This category is fixed-price — set a price for this variant", {
-          fixedPricePaise: ["Required for a fixed-price category"],
+        throw new ValidationError("This product is fixed-price — set a price for this variant", {
+          fixedPricePaise: ["Required for a fixed-price product"],
         });
       }
 

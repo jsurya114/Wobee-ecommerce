@@ -73,10 +73,26 @@ export type Role = (typeof ROLE)[number];
 /// what actually enforces it.
 /// Client-reported business rule (2026-08-31): weight-based pricing is only
 /// correct for clothing — ornaments/footwear/accessories need an admin-set
-/// fixed price instead. Hard rule keyed by Category, not per-product. See
+/// fixed price instead. See
 /// docs/superpowers/specs/2026-08-31-category-pricing-mode-design.md.
+/// SUPERSEDED (2026-09-14): this is now a PRODUCT attribute (Product.
+/// pricingMode), not keyed by Category — see PricingMode's doc comment in
+/// schema.prisma for the full rationale.
 export const PRICING_MODE = ["WEIGHT_BASED", "FIXED"] as const;
 export type PricingMode = (typeof PRICING_MODE)[number];
+
+/// Phase 2 (2026-09-14) — automatic promotional-pricing discounts (OFFER),
+/// deliberately a separate concept from Coupon's own CouponType (customer-
+/// entered code) — see Offer's own doc comment in schema.prisma.
+export const OFFER_DISCOUNT_TYPE = ["PERCENTAGE", "FIXED_AMOUNT"] as const;
+export type OfferDiscountType = (typeof OFFER_DISCOUNT_TYPE)[number];
+
+/// ALL_PRODUCTS: storewide. CATEGORY: every product in one category.
+/// PRODUCTS: only the explicitly selected products. See
+/// resolve-applicable-offer.ts (apps/api offers module) for how a product
+/// matching more than one active offer picks exactly one winner.
+export const OFFER_SCOPE = ["ALL_PRODUCTS", "CATEGORY", "PRODUCTS"] as const;
+export type OfferScope = (typeof OFFER_SCOPE)[number];
 
 export const PERMISSION = [
   "MANAGE_SETTINGS",

@@ -74,6 +74,7 @@ export function ProductDetail({ productId }: { productId: string }) {
             name: product.name,
             slug: product.slug,
             categoryId: product.categoryId,
+            pricingMode: product.pricingMode,
             description: product.description ?? "",
             brand: product.brand ?? "",
             metaTitle: product.metaTitle ?? "",
@@ -98,7 +99,7 @@ export function ProductDetail({ productId }: { productId: string }) {
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Variants</h2>
         <VariantsList
           variants={product.variants}
-          categoryPricingMode={product.categoryPricingMode}
+          pricingMode={product.pricingMode}
           onCreate={createVariant}
           onUpdate={updateVariant}
           onSetActive={setVariantActive}

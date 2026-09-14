@@ -34,6 +34,15 @@ export interface HomeBanner {
   ctaUrl: string | null;
 }
 
+/** Phase 2 (2026-09-14) — one currently active, in-schedule offer for the homepage promo strip. Already filtered server-side (isOfferActive) — a scheduled or expired offer is simply absent, never included with a flag. */
+export interface HomeOffer {
+  id: string;
+  name: string;
+  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+  discountValue: number;
+  scope: "ALL_PRODUCTS" | "CATEGORY" | "PRODUCTS";
+}
+
 export interface HomeBudgetTile {
   label: string;
   maxPricePaise: number;
@@ -49,6 +58,8 @@ export interface HomeSizeOption {
 
 export interface HomePageData {
   banners: HomeBanner[];
+  /** Phase 2 (2026-09-14) — the promo strip's data; `[]` hides the strip entirely (never rendered empty). */
+  activeOffers: HomeOffer[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummary[];
   /** Rendered as "Loved by Customers" (merchandising logic corrections, 2026-09-06) — see GetHomePageUseCase's own doc comment for what now counts toward this. */

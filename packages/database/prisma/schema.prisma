@@ -128,9 +128,17 @@ enum CouponType {
 /// Client-reported business rule (2026-08-31): weight-based pricing is only
 /// correct for clothing. Ornaments/footwear/accessories need an admin-set
 /// fixed price instead — see ProductVariant.fixedPricePaise and
-/// docs/superpowers/specs/2026-08-31-category-pricing-mode-design.md. A hard
-/// rule keyed by Category (confirmed with the user), not a per-product
-/// override.
+/// docs/superpowers/specs/2026-08-31-category-pricing-mode-design.md.
+///
+/// SUPERSEDED (2026-09-14): originally a hard rule keyed by Category (every
+/// product in a category priced the same way). New business requirement:
+/// pricing mode is a PRODUCT attribute, not a category one — Category
+/// describes WHAT a product is, PricingMode describes HOW it's priced, and
+/// two products in the same category may now use different modes. See
+/// Product.pricingMode below (the new authority) — Category no longer has
+/// this field; migration 20260914000000_move_pricing_mode_to_product moved
+/// it and backfilled every existing product from its then-current
+/// category's mode, so no product's effective price changed at cutover.
 enum PricingMode {
   WEIGHT_BASED
   FIXED
@@ -408,17 +416,14 @@ model Category {
   imageUrl    String?
   sortOrder   Int         @default(0)
   isActive    Boolean     @default(true)
-  /// Hard rule (2026-08-31, client-reported): every product in this category
-  /// is priced this way, no per-product exception. WEIGHT_BASED = the
-  /// original mechanic (price derived from weightGrams x rate/kg).
-  /// FIXED = ProductVariant.fixedPricePaise is authoritative instead.
-  pricingMode PricingMode @default(WEIGHT_BASED)
   createdAt   DateTime    @default(now())
 
   parent           Category?        @relation("CategoryToCategory", fields: [parentId], references: [id])
   children         Category[]       @relation("CategoryToCategory")
   products         Product[]
   couponCategories CouponCategory[]
+  /// CATEGORY-scope offers targeting this category (Phase 2, 2026-09-14).
+  offers           Offer[]
 
   @@map("categories")
 }
@@ -491,6 +496,21 @@ model Product {
   brand              String?
   categoryId         String
   isActive           Boolean  @default(true)
+  /// PRODUCT-LEVEL pricing mode (2026-09-14 — see PricingMode's own doc
+  /// comment for why this moved off Category). WEIGHT_BASED = price derived
+  /// from a variant's weightGrams x the global PricingSetting rate/kg. FIXED
+  /// = each ProductVariant.fixedPricePaise is authoritative instead, and
+  /// weight no longer participates in price (still stored/shown for
+  /// shipping). Not variant-level: every variant of a product is priced the
+  /// same WAY (inspection found no business need for one variant of a
+  /// product to be weight-based while a sibling variant is fixed) — only the
+  /// fixed price's AMOUNT varies per variant, same as before this change.
+  /// Invariant "FIXED implies every variant has fixedPricePaise" is enforced
+  /// in the application layer (CreateProductVariantUseCase/
+  /// UpdateProductVariantUseCase/UpdateProductUseCase), not a DB CHECK — the
+  /// two columns live on different tables (Product vs ProductVariant) and a
+  /// single-table CHECK can't span them.
+  pricingMode        PricingMode @default(WEIGHT_BASED)
   minPricePaiseCache Int      @default(0)
   /// Week 2 Day 7 (week2 (1).md §16's "SEO metadata" admin operation) —
   /// data-entry only this week. Module 19 (SEO, a later day) is what
@@ -509,6 +529,8 @@ model Product {
   collections    ProductCollection[]
   wishlistItems  WishlistItem[]
   couponProducts CouponProduct[]
+  /// PRODUCTS-scope offers explicitly targeting this product (Phase 2, 2026-09-14).
+  offerProducts  OfferProduct[]
 
   // Week 2 Day 1 (ADR-012): the pg_trgm GIN index on `name`, physically
   // created via raw SQL in migration 20260827092111_add_catalogue_search_indexes
@@ -548,14 +570,15 @@ model ProductImage {
   @@map("product_images")
 }
 
-/// Weight-based pricing is the core Woobe mechanic (plan.md §6) for
-/// WEIGHT_BASED categories: price is DERIVED (weightGrams * effective
-/// rate/kg / 1000) by the `pricing` module's pure domain function at
-/// read/checkout time — never stored as a literal price input. The single
-/// global PricingSetting.defaultRatePerKgPaise is authoritative for every
+/// Weight-based pricing is the core Woobe mechanic (plan.md §6) for a
+/// WEIGHT_BASED product (Product.pricingMode — moved off Category
+/// 2026-09-14): price is DERIVED (weightGrams * effective rate/kg / 1000)
+/// by the `pricing` module's pure domain function at read/checkout time —
+/// never stored as a literal price input. The single global
+/// PricingSetting.defaultRatePerKgPaise is authoritative for every
 /// WEIGHT_BASED variant (2026-09-02, admin-managed in Settings).
-/// effectivePricePaiseCache mirrors the derivation (or, for FIXED
-/// categories, mirrors fixedPricePaise verbatim) for listing/sort display
+/// effectivePricePaiseCache mirrors the derivation (or, for a FIXED
+/// product, mirrors fixedPricePaise verbatim) for listing/sort display
 /// only, same rule as Product.minPricePaiseCache above.
 ///
 /// ratePerKgOverridePaise is DEPRECATED (2026-09-02) — originally let admin
@@ -568,10 +591,11 @@ model ProductImage {
 /// any price, cart, checkout, or order calculation. Do not read this column
 /// for pricing. Do not resurrect it without an explicit product decision.
 ///
-/// fixedPricePaise (2026-08-31): authoritative price when the product's
-/// Category.pricingMode is FIXED (ornaments/footwear/accessories — weight
-/// has nothing to do with what they cost). Null/ignored for WEIGHT_BASED
-/// categories. weightGrams stays required either way — it's real shipping
+/// fixedPricePaise (2026-08-31; moved to Product.pricingMode 2026-09-14):
+/// authoritative price when the product's OWN pricingMode is FIXED
+/// (ornaments/footwear/accessories — weight has nothing to do with what
+/// they cost). Null/ignored for WEIGHT_BASED products. weightGrams stays
+/// required either way — it's real shipping
 /// weight regardless of how the item is priced.
 model ProductVariant {
   id                       String   @id @default(uuid())
@@ -811,6 +835,98 @@ model CouponRedemption {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Offers — Phase 2 (2026-09-14). OFFER = automatic promotional pricing,
+// applied server-side with no code entry, deliberately kept a SEPARATE
+// domain from Coupon (customer-entered code) — see PricingMode's own
+// migration note above for the analogous "don't conflate two concepts"
+// reasoning applied here to Offer vs. Coupon. Structurally mirrors Coupon's
+// own shape (discount type/value, product/category applicability) rather
+// than inventing a new pattern.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum OfferDiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+/// ALL_PRODUCTS: applies storewide. CATEGORY: applies to every product in
+/// ONE category (a single `categoryId`, not a list — an admin picks exactly
+/// one category per offer; contrast Coupon's own CouponCategory join table,
+/// which allows several). PRODUCTS: applies only to the explicitly selected
+/// products in OfferProduct. See resolve-applicable-offer.ts (apps/api
+/// offers module) for how a product matching more than one active offer
+/// picks exactly one winner — PRODUCTS beats CATEGORY beats ALL_PRODUCTS,
+/// then `priority`, then largest discount, then `id` — never silently
+/// stacked.
+enum OfferScope {
+  ALL_PRODUCTS
+  CATEGORY
+  PRODUCTS
+}
+
+/// Validity (isActive AND startsAt <= now < endsAt) is evaluated live on
+/// every read (resolve-applicable-offer.ts / is-offer-active.ts) — same "no
+/// cron job, expire through query logic" rule Banner's own isBannerVisible
+/// already established; there is deliberately no scheduled job that flips
+/// `isActive` when `endsAt` passes.
+///
+/// Cross-field validation (percentage 1-100, positive discount,
+/// startsAt < endsAt, scope/target consistency) is enforced in the
+/// application layer (validate-offer-input.ts), the same precedent
+/// Coupon's own validateCouponInput already established for this exact
+/// shape of rule in this schema — not a DB CHECK constraint.
+model Offer {
+  id            String            @id @default(uuid())
+  name          String
+  description   String?
+  discountType  OfferDiscountType
+  /// Percent (1-100) for PERCENTAGE, paise for FIXED_AMOUNT — same
+  /// dual-meaning convention as Coupon.value.
+  discountValue Int
+  scope         OfferScope
+  /// Set only when scope = CATEGORY; null otherwise (enforced in the
+  /// application layer, see this model's own doc comment on why not a
+  /// DB CHECK).
+  categoryId    String?
+  /// Deterministic tie-breaker among same-scope offers matching the same
+  /// product (resolve-applicable-offer.ts) — higher wins. Default 0: most
+  /// offers never need to set this; it only matters when two offers of the
+  /// identical scope both match the same product.
+  priority      Int               @default(0)
+  startsAt      DateTime
+  endsAt        DateTime
+  isActive      Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  category Category?      @relation(fields: [categoryId], references: [id])
+  products OfferProduct[]
+
+  /// Backs the "every currently active/in-schedule offer" query
+  /// (ResolveApplicableOffersUseCase, the homepage offer strip) — one query
+  /// for ALL candidate offers regardless of how many products are being
+  /// priced, never one query per product (see that use-case's own doc
+  /// comment on avoiding N+1).
+  @@index([isActive, startsAt, endsAt])
+  @@index([categoryId])
+  @@map("offers")
+}
+
+/// PRODUCTS-scope targeting — explicit many-to-many, same shape as
+/// CouponProduct.
+model OfferProduct {
+  offerId   String
+  productId String
+
+  offer   Offer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([offerId, productId])
+  @@index([productId])
+  @@map("offer_products")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Shipping — ADR-021
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -912,12 +1028,21 @@ model OrderItem {
   size                String
   weightGrams         Int
   /// Snapshot of how this line was actually priced at checkout (2026-08-31)
-  /// — independent of the product's CURRENT category pricingMode, so a past
-  /// order stays correct even if a category's mode is changed later. Same
-  /// snapshot philosophy this schema already uses for GST slabs.
+  /// — independent of the product's CURRENT pricingMode, so a past order
+  /// stays correct even if the product's mode is changed (or the product
+  /// itself is edited) later. Same snapshot philosophy this schema already
+  /// uses for GST slabs.
   pricingMode         PricingMode @default(WEIGHT_BASED)
   /// Null for FIXED lines — there is no rate/kg to snapshot.
   unitRatePerKgPaise  Int?
+  /// Phase 2 (2026-09-14): the resolved base price per unit BEFORE any
+  /// automatic Offer discount — `unitPricePaise` below is what the offer
+  /// (if any) adjusted it down to, i.e. what the customer actually paid per
+  /// unit before the separate coupon-line-discount subtraction. Equal to
+  /// `unitPricePaise` for every order with no applicable offer, including
+  /// every order placed before this column existed (backfilled from
+  /// unitPricePaise at migration time — see that migration's own comment).
+  basePricePaise      Int         @default(0)
   unitPricePaise      Int
   quantity            Int
   lineTotalPaise      Int
@@ -927,6 +1052,22 @@ model OrderItem {
   /// as a snapshot so returns/refunds refund the amount actually paid for these goods,
   /// not the undiscounted unitPricePaise * qty. 0 when no coupon applied.
   discountPaise       Int         @default(0)
+  /// Phase 2 (2026-09-14) — snapshot of the automatic Offer applied to this
+  /// line at checkout, if any. Deliberately NOT a foreign key/relation to
+  /// Offer: the offer can later expire, be deactivated, or have its
+  /// discount edited, and none of that may ever change a historical order
+  /// (same snapshot philosophy `pricingMode`/GST slabs already use above) —
+  /// a flat id + the values that mattered, never a live join. Null/0 when
+  /// no offer applied.
+  offerId             String?
+  offerNameSnapshot   String?
+  offerDiscountType   OfferDiscountType?
+  offerDiscountValue  Int?
+  /// The actual paise amount this offer deducted from this line's subtotal
+  /// (quantity x (basePricePaise - unitPricePaise)) — the snapshot
+  /// returns/refunds and historical order pages read, mirroring
+  /// `discountPaise` above but for the offer instead of the coupon.
+  offerDiscountPaise  Int         @default(0)
 
   order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   variant ProductVariant @relation(fields: [variantId], references: [id])
