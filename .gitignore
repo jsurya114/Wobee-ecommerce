@@ -39,3 +39,6 @@ packages/database/prisma/*.db
 # Isolated worktrees for subagent-driven development (Week 2+)
 .claude/worktrees/
 uploads/
+
+# Personal Claude Code overrides (not shared with the team)
+.claude/settings.local.json

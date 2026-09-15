@@ -41,6 +41,7 @@ function buildListKey(filter: ListProductsFilter): string {
     joinSorted(filter.colors),
     filter.minPricePaise ?? "_",
     filter.maxPricePaise ?? "_",
+    filter.onOffer ? "onOffer" : "_",
     filter.sort,
     filter.page,
     filter.limit,

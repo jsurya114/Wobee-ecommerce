@@ -107,11 +107,28 @@ function toSummaryProjection(row: SummaryRow): ProductSummaryProjection {
  * fragment directly against a real database so the two can't silently
  * drift apart.
  *
- * Time is evaluated live via Postgres `now()`, not a passed-in parameter —
- * the same "no cron job, expire through query logic, live on every read"
- * rule `isOfferActive` itself documents.
+ * Time is evaluated live, on every call, from a `now` passed in by the
+ * caller (`new Date()`) — same "no cron job, expire through query logic,
+ * live on every read" rule `isOfferActive` itself documents, mirroring that
+ * function's own `now: Date` parameter instead of re-deriving time
+ * server-side.
+ *
+ * `startsAt`/`endsAt` are plain `TIMESTAMP(3)` (NO time zone) columns.
+ * Prisma's typed client writes/reads them as UTC wall-clock digits
+ * consistently, so `offer.endsAt` is correct everywhere else in the app —
+ * but any bound parameter here (`${now}`, and Postgres's own `now()`
+ * equally) arrives as `timestamptz`, and Postgres compares a naive
+ * `timestamp` column against a `timestamptz` value by implicitly casting
+ * the NAIVE side through the SESSION time zone, not UTC. On a non-UTC
+ * session (this deployment runs `Asia/Kolkata`, +05:30) that silently
+ * shifts every comparison by the session's offset — a 5.5h error that made
+ * live offers register as already-expired. `AT TIME ZONE 'UTC'` below is
+ * what actually fixes it: it tells Postgres those naive digits ARE UTC
+ * (matching Prisma's own convention) before comparing, independent of
+ * whatever the session's time zone happens to be configured to.
  */
-const OFFER_LATERAL_JOIN = Prisma.sql`
+function offerLateralJoin(now: Date): Prisma.Sql {
+  return Prisma.sql`
   LEFT JOIN LATERAL (
     SELECT
       o."id" AS offer_id,
@@ -124,8 +141,8 @@ const OFFER_LATERAL_JOIN = Prisma.sql`
       )::int AS discount_paise
     FROM "offers" o
     WHERE o."isActive" = true
-      AND o."startsAt" <= now()
-      AND o."endsAt" > now()
+      AND (o."startsAt" AT TIME ZONE 'UTC') <= ${now}
+      AND (o."endsAt" AT TIME ZONE 'UTC') > ${now}
       AND (
         o."scope" = 'ALL_PRODUCTS'::"OfferScope"
         OR (o."scope" = 'CATEGORY'::"OfferScope" AND o."categoryId" = p."categoryId")
@@ -148,6 +165,7 @@ const OFFER_LATERAL_JOIN = Prisma.sql`
     LIMIT 1
   ) AS winning_offer ON true
 `;
+}
 
 /**
  * ADR-010: the ONLY file in the products module allowed to import
@@ -160,7 +178,7 @@ export class ProductRepository implements ProductRepositoryPort {
    * sort by the customer's CURRENT EFFECTIVE selling price (base minus the
    * winning automatic Offer's discount — never a coupon, which is
    * checkout/cart-only) instead of the raw `minPricePaiseCache`. Both need
-   * the per-row winning-offer resolution (`OFFER_LATERAL_JOIN`) evaluated
+   * the per-row winning-offer resolution (`offerLateralJoin`) evaluated
    * BEFORE `LIMIT`/`OFFSET`, which Prisma's query builder can't express.
    *
    * The raw SQL itself only ever selects `products.id` — two queries (ids
@@ -176,12 +194,17 @@ export class ProductRepository implements ProductRepositoryPort {
   async findMany(filter: ListProductsFilter): Promise<ListProductsResult> {
     const where = buildOfferAwareWhere(filter);
     const orderBy = buildOfferAwareOrderBy(filter.sort);
+    // One instant shared by both queries below — so the id page and its
+    // count can never disagree about which offers were "live" (see
+    // `offerLateralJoin`'s own doc comment for why this is a JS `Date`
+    // parameter, never Postgres's own `now()`).
+    const offerJoin = offerLateralJoin(new Date());
 
     const [idRows, countRows] = await Promise.all([
       prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
         SELECT p."id"
         FROM "products" p
-        ${OFFER_LATERAL_JOIN}
+        ${offerJoin}
         WHERE ${where}
         ORDER BY ${orderBy}
         LIMIT ${filter.limit}
@@ -195,7 +218,7 @@ export class ProductRepository implements ProductRepositoryPort {
         ? prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
             FROM "products" p
-            ${OFFER_LATERAL_JOIN}
+            ${offerJoin}
             WHERE ${where}
           `)
         : prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
@@ -770,7 +793,7 @@ function buildOfferAwareWhere(filter: ListProductsFilter): Prisma.Sql {
   // `onOffer` need the effective/offer-aware price.
   if (filter.minPricePaise !== undefined) conditions.push(Prisma.sql`p."minPricePaiseCache" >= ${filter.minPricePaise}`);
   if (filter.maxPricePaise !== undefined) conditions.push(Prisma.sql`p."minPricePaiseCache" <= ${filter.maxPricePaise}`);
-  // Requires `OFFER_LATERAL_JOIN` to already be joined into the query this
+  // Requires `offerLateralJoin`'s join to already be present in the query this
   // WHERE clause is used in.
   if (filter.onOffer) conditions.push(Prisma.sql`winning_offer.offer_id IS NOT NULL`);
 
@@ -782,7 +805,7 @@ function buildOfferAwareWhere(filter: ListProductsFilter): Prisma.Sql {
  * price — `minPricePaiseCache` minus the winning automatic Offer's discount
  * (0 when `winning_offer` didn't match) — never the raw base price and
  * never a coupon (checkout/cart-only, never PLP; see the module's own
- * `OFFER_LATERAL_JOIN` doc comment). `newest` is unaffected by offers and
+ * `offerLateralJoin` doc comment). `newest` is unaffected by offers and
  * keeps its original index-backed shape. `id` is always the final
  * tiebreaker so pagination stays stable across requests.
  */
