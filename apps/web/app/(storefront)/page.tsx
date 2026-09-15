@@ -25,10 +25,12 @@ function railItem(product: ProductSummary) {
  * every section: the offer strip (Phase 2, 2026-09-14 — the topmost
  * element, above even the promo carousel, per that phase's own "near the
  * top of the storefront" requirement), the category rail, Shop your size,
- * a New Arrivals rail, Shop by Budget, Loved by Customers, Curated
- * Collections, "What Our Customers Say" (2026-09-11, replaces the old
- * per-product Customer Reviews rail with store-experience testimonials),
- * and a thin trust line above the footer.
+ * "Shop our offers" (offer-discovery pass, 2026-09-15 — actual purchasable
+ * discounted products, distinct from the promo strip above which only
+ * describes the offers themselves), a New Arrivals rail, Shop by Budget,
+ * Loved by Customers, Curated Collections, "What Our Customers Say"
+ * (2026-09-11, replaces the old per-product Customer Reviews rail with
+ * store-experience testimonials), and a thin trust line above the footer.
  *
  * Merchandising logic corrections (2026-09-06, homepage audit): "Fresh
  * picks" is gone — it was never a distinct query, just `newArrivals`
@@ -65,6 +67,9 @@ export default async function HomePage() {
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
       <ShopYourSize sizes={home.sizeAvailability} />
+      <ProductRail title="Shop our offers" seeAllHref="/products?onOffer=true">
+        {home.offeredProducts.map(railItem)}
+      </ProductRail>
       <ProductRail title="New arrivals" seeAllHref="/products?sort=newest">
         {home.newArrivals.map(railItem)}
       </ProductRail>

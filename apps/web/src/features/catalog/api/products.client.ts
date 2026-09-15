@@ -59,6 +59,8 @@ export interface ProductListParams {
   inStock?: boolean;
   minPrice?: number;
   maxPrice?: number;
+  /** Offer-filtering pass (2026-09-15) — "On Offer" storefront filter; also changes what `price_asc`/`price_desc` sort by server-side (see the API's own `ProductRepositoryPort.findMany` doc comment). */
+  onOffer?: boolean;
   sort?: ProductSort;
   page?: number;
   limit?: number;
@@ -74,6 +76,7 @@ export function listProducts(params: ProductListParams = {}, options: { signal?:
   if (params.inStock !== undefined) query.set("inStock", String(params.inStock));
   if (params.minPrice !== undefined) query.set("minPrice", String(params.minPrice));
   if (params.maxPrice !== undefined) query.set("maxPrice", String(params.maxPrice));
+  if (params.onOffer !== undefined) query.set("onOffer", String(params.onOffer));
   if (params.sort) query.set("sort", params.sort);
   if (params.page) query.set("page", String(params.page));
   if (params.limit) query.set("limit", String(params.limit));

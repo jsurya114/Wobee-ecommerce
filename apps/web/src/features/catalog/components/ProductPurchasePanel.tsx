@@ -10,6 +10,7 @@ import { deriveWeightStatus, type WeightStatus } from "@/features/cart/lib/deriv
 import { getShippingEstimate, type ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import { FLOATING_STACK_GAP_REM, MOBILE_BOTTOM_NAV_HEIGHT_REM } from "@/lib/layout-constants";
 import type { ProductDetail } from "../api/products.client";
+import { OfferBadge } from "./OfferBadge";
 import { useSelectedVariant } from "../hooks/useSelectedVariant";
 
 /**
@@ -116,23 +117,14 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
     // delivery stay as real section breaks.
     <div className="flex flex-col gap-4 pb-4 md:pb-0">
       <div className="flex flex-col gap-2">
-        <div className="flex items-baseline gap-2">
-          <PriceTag
-            pricePaise={selectedVariant.offerPricePaise}
-            compareAtPricePaise={selectedVariant.offer ? selectedVariant.pricePaise : null}
-            weightGrams={selectedVariant.weightGrams}
-            ratePerKgPaise={selectedVariant.ratePerKgPaise}
-            size="lg"
-          />
-          {/* Phase 2 (2026-09-14) — same discount-pill treatment as ProductCard's own OfferBadge, kept local to each caller rather than added to the shared PriceTag primitive (only these two callers need a discount LABEL alongside the two prices). */}
-          {selectedVariant.offer ? (
-            <span className="rounded-pill bg-primary px-1.5 py-0.5 font-body text-[11px] font-semibold leading-none text-white">
-              {selectedVariant.offer.discountType === "PERCENTAGE"
-                ? `${selectedVariant.offer.discountValue}% OFF`
-                : `₹${Math.round(selectedVariant.offer.discountValue / 100)} OFF`}
-            </span>
-          ) : null}
-        </div>
+        <PriceTag
+          pricePaise={selectedVariant.offerPricePaise}
+          compareAtPricePaise={selectedVariant.offer ? selectedVariant.pricePaise : null}
+          weightGrams={selectedVariant.weightGrams}
+          ratePerKgPaise={selectedVariant.ratePerKgPaise}
+          discountBadge={selectedVariant.offer ? <OfferBadge offer={selectedVariant.offer} /> : undefined}
+          size="lg"
+        />
         {/* Null ratePerKgPaise (2026-08-31) = a FIXED-category product — there is no weight × rate breakdown to show, its price isn't derived that way. */}
         {selectedVariant.ratePerKgPaise !== null ? (
           <details className="group">
@@ -274,6 +266,7 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
           <PriceTag
             pricePaise={selectedVariant.offerPricePaise}
             compareAtPricePaise={selectedVariant.offer ? selectedVariant.pricePaise : null}
+            discountBadge={selectedVariant.offer ? <OfferBadge offer={selectedVariant.offer} /> : undefined}
             className="flex-1"
           />
           <QuantityStepper quantity={quantity} max={maxQuantity} disabled={!selectedVariant.inStock} onChange={changeQuantity} />

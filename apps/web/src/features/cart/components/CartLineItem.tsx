@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { getProductBySlug } from "@/features/catalog/api/products.client";
+import { OfferBadge } from "@/features/catalog/components/OfferBadge";
 import { SizeSelectorSheet } from "@/features/catalog/components/SizeSelectorSheet";
 import { groupVariantsBySize, type SizeChoice } from "@/features/catalog/lib/group-variants-by-size";
 import { useCart } from "../hooks/useCart";
@@ -141,7 +142,11 @@ export function CartLineItem({ line }: { line: CartLine }) {
             </button>
           </div>
           {/* Phase 2 (2026-09-14) — `subtotalPaise` is already OFFER-adjusted (unitPricePaise x quantity, server-resolved); the strikethrough compares against the pre-offer line total so the discount reads clearly even at quantity > 1. */}
-          <PriceTag pricePaise={line.subtotalPaise} compareAtPricePaise={line.offer ? line.basePricePaise * line.quantity : null} />
+          <PriceTag
+            pricePaise={line.subtotalPaise}
+            compareAtPricePaise={line.offer ? line.basePricePaise * line.quantity : null}
+            discountBadge={line.offer ? <OfferBadge offer={line.offer} /> : undefined}
+          />
         </div>
       </div>
 

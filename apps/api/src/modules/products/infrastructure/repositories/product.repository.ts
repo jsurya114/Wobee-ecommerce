@@ -43,107 +43,182 @@ const ADMIN_VARIANT_SELECT = {
 const ADMIN_IMAGE_SELECT = { id: true, url: true, altText: true, sortOrder: true } as const;
 
 /**
+ * The lean row/select shared by every listing-style query that returns a
+ * `ProductSummaryProjection` (`findMany`'s by-id rehydration, related
+ * products, `findByIds`) — pulled out once so the offer-filtering pass's
+ * raw-SQL rewrite of `findMany` didn't have to duplicate it a second time.
+ */
+const SUMMARY_SELECT = {
+  id: true,
+  slug: true,
+  name: true,
+  brand: true,
+  categoryId: true,
+  minPricePaiseCache: true,
+  pricingMode: true,
+  images: { orderBy: { sortOrder: "asc" as const }, take: 1, select: { url: true, altText: true, sortOrder: true } },
+  // Cheapest active variant — its weight + rate override feed the
+  // "from 38g · ₹1,180/kg" line every card now shows. The rate is
+  // resolved (override ?? admin default) by ListProductsUseCase via
+  // the pricing port, not here.
+  variants: {
+    where: { isActive: true },
+    orderBy: { effectivePricePaiseCache: "asc" as const },
+    take: 1,
+    select: { weightGrams: true, ratePerKgOverridePaise: true },
+  },
+} satisfies Prisma.ProductSelect;
+
+type SummaryRow = Prisma.ProductGetPayload<{ select: typeof SUMMARY_SELECT }>;
+
+function toSummaryProjection(row: SummaryRow): ProductSummaryProjection {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    brand: row.brand,
+    categoryId: row.categoryId,
+    minPricePaiseCache: row.minPricePaiseCache,
+    primaryImage: row.images[0] ?? null,
+    pricingMode: row.pricingMode,
+    representativeVariant: row.variants[0]
+      ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
+      : null,
+  };
+}
+
+/**
+ * Offer-filtering pass (2026-09-15) — resolves, per product row, the ONE
+ * automatic Offer that would win precedence (if any) and its discount in
+ * paise. This mirrors `isOfferActive` + `resolveApplicableOffer` +
+ * `calculateOfferDiscount` (apps/api/src/modules/offers/domain) EXACTLY:
+ * active + in-schedule (`isActive` AND `startsAt` <= now < `endsAt`), scope
+ * specificity PRODUCTS(3) > CATEGORY(2) > ALL_PRODUCTS(1), then `priority`
+ * DESC, then the larger discount, then `id` ASC as the final tie-break.
+ *
+ * ONE BUSINESS DEFINITION, MULTIPLE EFFICIENT QUERY REPRESENTATIONS — this
+ * is NOT a second offer engine; it exists only because filtering/sorting a
+ * paginated listing by effective price requires resolving the winning
+ * offer for every candidate row inside the SAME query (calling the
+ * application-layer resolver once per row here would be N+1, and resolving
+ * it in Node after fetching would mean sorting/paginating on the wrong
+ * value). `resolve-applicable-offer.test.ts` covers the domain function
+ * this mirrors; `product.repository.offer-sort.test.ts` covers this SQL
+ * fragment directly against a real database so the two can't silently
+ * drift apart.
+ *
+ * Time is evaluated live via Postgres `now()`, not a passed-in parameter —
+ * the same "no cron job, expire through query logic, live on every read"
+ * rule `isOfferActive` itself documents.
+ */
+const OFFER_LATERAL_JOIN = Prisma.sql`
+  LEFT JOIN LATERAL (
+    SELECT
+      o."id" AS offer_id,
+      LEAST(
+        CASE
+          WHEN o."discountType" = 'PERCENTAGE'::"OfferDiscountType" THEN FLOOR(p."minPricePaiseCache" * o."discountValue"::numeric / 100.0)
+          ELSE o."discountValue"
+        END,
+        p."minPricePaiseCache"
+      )::int AS discount_paise
+    FROM "offers" o
+    WHERE o."isActive" = true
+      AND o."startsAt" <= now()
+      AND o."endsAt" > now()
+      AND (
+        o."scope" = 'ALL_PRODUCTS'::"OfferScope"
+        OR (o."scope" = 'CATEGORY'::"OfferScope" AND o."categoryId" = p."categoryId")
+        OR (
+          o."scope" = 'PRODUCTS'::"OfferScope"
+          AND EXISTS (SELECT 1 FROM "offer_products" op WHERE op."offerId" = o."id" AND op."productId" = p."id")
+        )
+      )
+    ORDER BY
+      CASE o."scope" WHEN 'PRODUCTS'::"OfferScope" THEN 3 WHEN 'CATEGORY'::"OfferScope" THEN 2 ELSE 1 END DESC,
+      o."priority" DESC,
+      LEAST(
+        CASE
+          WHEN o."discountType" = 'PERCENTAGE'::"OfferDiscountType" THEN FLOOR(p."minPricePaiseCache" * o."discountValue"::numeric / 100.0)
+          ELSE o."discountValue"
+        END,
+        p."minPricePaiseCache"
+      ) DESC,
+      o."id" ASC
+    LIMIT 1
+  ) AS winning_offer ON true
+`;
+
+/**
  * ADR-010: the ONLY file in the products module allowed to import
  * @woobe/database (enforced by apps/api/.dependency-cruiser.cjs).
  */
 export class ProductRepository implements ProductRepositoryPort {
+  /**
+   * Offer-filtering pass (2026-09-15) rewrote this to raw SQL for exactly
+   * two things: the `onOffer` filter, and making `price_asc`/`price_desc`
+   * sort by the customer's CURRENT EFFECTIVE selling price (base minus the
+   * winning automatic Offer's discount — never a coupon, which is
+   * checkout/cart-only) instead of the raw `minPricePaiseCache`. Both need
+   * the per-row winning-offer resolution (`OFFER_LATERAL_JOIN`) evaluated
+   * BEFORE `LIMIT`/`OFFSET`, which Prisma's query builder can't express.
+   *
+   * The raw SQL itself only ever selects `products.id` — two queries (ids
+   * page + total count), both filtered/ordered/paginated in Postgres. The
+   * actual row data is still fetched through the existing, unchanged
+   * `prisma.product.findMany({ where: { id: { in: ids } } })` call and
+   * re-ordered in JS to match the id list — this confines the raw-SQL risk
+   * to "did we pick the right ids, in the right order," not "did we
+   * correctly re-derive every field of the response," and means `newest`
+   * sort / no-offer-filter requests still go through the exact same
+   * well-tested row shape as before.
+   */
   async findMany(filter: ListProductsFilter): Promise<ListProductsResult> {
-    const where = this.buildWhere(filter);
+    const where = buildOfferAwareWhere(filter);
+    const orderBy = buildOfferAwareOrderBy(filter.sort);
 
-    const [rows, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        // `id` tiebreaker on every branch keeps pagination stable (Week 2
-        // Day 1 requirement) even when many rows share the same price/date —
-        // without it, two pages fetched moments apart can return the same
-        // row twice or skip one, since Postgres doesn't otherwise guarantee
-        // a deterministic order among ties.
-        orderBy: this.buildOrderBy(filter.sort),
-        skip: (filter.page - 1) * filter.limit,
-        take: filter.limit,
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          brand: true,
-          categoryId: true,
-          minPricePaiseCache: true,
-          pricingMode: true,
-          images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
-          // Cheapest active variant — its weight + rate override feed the
-          // "from 38g · ₹1,180/kg" line every card now shows. The rate is
-          // resolved (override ?? admin default) by ListProductsUseCase via
-          // the pricing port, not here.
-          variants: {
-            where: { isActive: true },
-            orderBy: { effectivePricePaiseCache: "asc" },
-            take: 1,
-            select: { weightGrams: true, ratePerKgOverridePaise: true },
-          },
-        },
-      }),
-      prisma.product.count({ where }),
+    const [idRows, countRows] = await Promise.all([
+      prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT p."id"
+        FROM "products" p
+        ${OFFER_LATERAL_JOIN}
+        WHERE ${where}
+        ORDER BY ${orderBy}
+        LIMIT ${filter.limit}
+        OFFSET ${(filter.page - 1) * filter.limit}
+      `),
+      // The count never depends on sort, and only needs the offer lateral
+      // join when `onOffer` actually filters on it — skipped otherwise so
+      // a plain listing/category/search count isn't paying for a
+      // per-row offer resolution it doesn't use.
+      filter.onOffer
+        ? prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+            SELECT COUNT(*)::bigint AS count
+            FROM "products" p
+            ${OFFER_LATERAL_JOIN}
+            WHERE ${where}
+          `)
+        : prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+            SELECT COUNT(*)::bigint AS count
+            FROM "products" p
+            WHERE ${where}
+          `),
     ]);
 
-    const products: ProductSummaryProjection[] = rows.map((row) => ({
-      id: row.id,
-      slug: row.slug,
-      name: row.name,
-      brand: row.brand,
-      categoryId: row.categoryId,
-      minPricePaiseCache: row.minPricePaiseCache,
-      primaryImage: row.images[0] ?? null,
-      pricingMode: row.pricingMode,
-      representativeVariant: row.variants[0]
-        ? { weightGrams: row.variants[0].weightGrams, ratePerKgOverridePaise: row.variants[0].ratePerKgOverridePaise }
-        : null,
-    }));
+    const ids = idRows.map((row) => row.id);
+    const total = Number(countRows[0]?.count ?? 0n);
+    if (ids.length === 0) return { products: [], total };
+
+    const rows = await prisma.product.findMany({ where: { id: { in: ids } }, select: SUMMARY_SELECT });
+    const rowById = new Map(rows.map((row) => [row.id, row]));
+    // Re-order to match the SQL-decided (offer-aware, pre-pagination) order
+    // — `findMany({ where: { id: { in } } })` makes no ordering guarantee.
+    const products = ids.flatMap((id) => {
+      const row = rowById.get(id);
+      return row ? [toSummaryProjection(row)] : [];
+    });
 
     return { products, total };
-  }
-
-  /**
-   * Every filter is AND'd together; size/color are each OR'd within
-   * themselves (independent facets — see ListProductsUseCase's own comment
-   * on why a size + color combo isn't required to be the same variant).
-   * `search` is a plain `contains`/insensitive match — Postgres' planner
-   * uses the `products_name_trgm_idx` GIN index (pg_trgm, ADR-012) to
-   * accelerate this exact ILIKE '%term%' shape; no raw SQL needed here.
-   */
-  private buildWhere(filter: ListProductsFilter): Prisma.ProductWhereInput {
-    const and: Prisma.ProductWhereInput[] = [];
-
-    if (filter.categoryId) and.push({ categoryId: filter.categoryId });
-    if (filter.collectionId) and.push({ collections: { some: { collectionId: filter.collectionId } } });
-    if (filter.search) and.push({ name: { contains: filter.search, mode: "insensitive" } });
-    if (filter.sizes?.length) and.push({ variants: { some: { isActive: true, size: { in: filter.sizes } } } });
-    if (filter.colors?.length) and.push({ variants: { some: { isActive: true, color: { in: filter.colors } } } });
-    if (filter.inStockVariantIds) {
-      and.push({ variants: { some: { isActive: true, id: { in: filter.inStockVariantIds } } } });
-    }
-    if (filter.minPricePaise !== undefined) and.push({ minPricePaiseCache: { gte: filter.minPricePaise } });
-    if (filter.maxPricePaise !== undefined) and.push({ minPricePaiseCache: { lte: filter.maxPricePaise } });
-
-    return { isActive: true, ...(and.length > 0 ? { AND: and } : {}) };
-  }
-
-  /**
-   * price_asc keeps the Week 1 default (categoryId + minPricePaiseCache
-   * composite index, ADR-012) — see this module's product-repository.port.ts
-   * doc comment for why a listing sort is fine reading the cache while
-   * checkout never is. price_desc/newest each get their own standalone
-   * index (same migration as the trigram one, Week 2 Day 1).
-   */
-  private buildOrderBy(sort: ListProductsFilter["sort"]): Prisma.ProductOrderByWithRelationInput[] {
-    switch (sort) {
-      case "price_desc":
-        return [{ minPricePaiseCache: "desc" }, { id: "asc" }];
-      case "newest":
-        return [{ createdAt: "desc" }, { id: "asc" }];
-      case "price_asc":
-      default:
-        return [{ minPricePaiseCache: "asc" }, { id: "asc" }];
-    }
   }
 
   async findBySlug(slug: string): Promise<ProductDetailEntity | null> {
@@ -651,6 +726,75 @@ export class ProductRepository implements ProductRepositoryPort {
   async skuExists(sku: string): Promise<boolean> {
     const count = await prisma.productVariant.count({ where: { sku } });
     return count > 0;
+  }
+}
+
+/**
+ * Every filter is AND'd together; size/color are each OR'd within
+ * themselves (independent facets — see ListProductsUseCase's own comment
+ * on why a size + color combo isn't required to be the same variant).
+ * `search` is a plain `ILIKE '%term%'` (same case-insensitive `contains`
+ * shape the old Prisma `where` used) — Postgres' planner still uses the
+ * `products_name_trgm_idx` GIN index (pg_trgm, ADR-012) for it here too.
+ * `p` is the alias `findMany`'s raw query binds to `"products"`.
+ */
+function buildOfferAwareWhere(filter: ListProductsFilter): Prisma.Sql {
+  const conditions: Prisma.Sql[] = [Prisma.sql`p."isActive" = true`];
+
+  if (filter.categoryId) conditions.push(Prisma.sql`p."categoryId" = ${filter.categoryId}`);
+  if (filter.collectionId) {
+    conditions.push(
+      Prisma.sql`EXISTS (SELECT 1 FROM "product_collections" pc WHERE pc."productId" = p."id" AND pc."collectionId" = ${filter.collectionId})`,
+    );
+  }
+  if (filter.search) conditions.push(Prisma.sql`p."name" ILIKE ${`%${filter.search}%`}`);
+  if (filter.sizes?.length) {
+    conditions.push(
+      Prisma.sql`EXISTS (SELECT 1 FROM "product_variants" v WHERE v."productId" = p."id" AND v."isActive" = true AND v."size" = ANY(${filter.sizes}::text[]))`,
+    );
+  }
+  if (filter.colors?.length) {
+    conditions.push(
+      Prisma.sql`EXISTS (SELECT 1 FROM "product_variants" v WHERE v."productId" = p."id" AND v."isActive" = true AND v."color" = ANY(${filter.colors}::text[]))`,
+    );
+  }
+  if (filter.inStockVariantIds) {
+    conditions.push(
+      Prisma.sql`EXISTS (SELECT 1 FROM "product_variants" v WHERE v."productId" = p."id" AND v."isActive" = true AND v."id" = ANY(${filter.inStockVariantIds}::text[]))`,
+    );
+  }
+  // Deliberately still against `minPricePaiseCache` (the BASE price cache),
+  // not the offer-adjusted effective price — a min/max price filter is a
+  // separate, narrower scope decision from sort (see the storefront-offer
+  // spec's own price-range vs. price-sort distinction); only sort and
+  // `onOffer` need the effective/offer-aware price.
+  if (filter.minPricePaise !== undefined) conditions.push(Prisma.sql`p."minPricePaiseCache" >= ${filter.minPricePaise}`);
+  if (filter.maxPricePaise !== undefined) conditions.push(Prisma.sql`p."minPricePaiseCache" <= ${filter.maxPricePaise}`);
+  // Requires `OFFER_LATERAL_JOIN` to already be joined into the query this
+  // WHERE clause is used in.
+  if (filter.onOffer) conditions.push(Prisma.sql`winning_offer.offer_id IS NOT NULL`);
+
+  return Prisma.join(conditions, " AND ");
+}
+
+/**
+ * `price_asc`/`price_desc` sort by the CUSTOMER'S CURRENT EFFECTIVE selling
+ * price — `minPricePaiseCache` minus the winning automatic Offer's discount
+ * (0 when `winning_offer` didn't match) — never the raw base price and
+ * never a coupon (checkout/cart-only, never PLP; see the module's own
+ * `OFFER_LATERAL_JOIN` doc comment). `newest` is unaffected by offers and
+ * keeps its original index-backed shape. `id` is always the final
+ * tiebreaker so pagination stays stable across requests.
+ */
+function buildOfferAwareOrderBy(sort: ListProductsFilter["sort"]): Prisma.Sql {
+  switch (sort) {
+    case "price_desc":
+      return Prisma.sql`COALESCE(p."minPricePaiseCache" - winning_offer.discount_paise, p."minPricePaiseCache") DESC, p."id" ASC`;
+    case "newest":
+      return Prisma.sql`p."createdAt" DESC, p."id" ASC`;
+    case "price_asc":
+    default:
+      return Prisma.sql`COALESCE(p."minPricePaiseCache" - winning_offer.discount_paise, p."minPricePaiseCache") ASC, p."id" ASC`;
   }
 }
 

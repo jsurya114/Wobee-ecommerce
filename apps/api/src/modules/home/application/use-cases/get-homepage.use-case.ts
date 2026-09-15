@@ -11,6 +11,8 @@ import type { PublicTestimonialView } from "../../../testimonials/application/us
 
 const NEW_ARRIVALS_LIMIT = 8;
 const BEST_SELLERS_LIMIT = 8;
+/** "Shop our offers" homepage section (storefront offer-discovery pass, 2026-09-15) — see `HomePageView.offeredProducts`'s own doc comment. */
+const OFFERED_PRODUCTS_LIMIT = 8;
 /**
  * Same curated clothing-size vocabulary as the PLP's own `SIZE_OPTIONS`
  * (apps/web/src/features/catalog/lib/filter-options.ts) — kept as a
@@ -50,6 +52,21 @@ const TESTIMONIALS_LIMIT = 6;
  */
 interface NewArrivalsLister {
   execute(input: { sort: "newest"; page: number; limit: number; inStockOnly?: boolean }): Promise<ListProductsResult>;
+}
+
+/**
+ * Matches `ListProductsUseCase`'s own `execute` signature (same concrete
+ * instance `newArrivalsLister`/`budgetProductsLister` already satisfy —
+ * home.module.ts binds one `ListProductsUseCase` to all three narrow
+ * interfaces). Backs "Shop our offers" (storefront offer-discovery pass,
+ * 2026-09-15): `onOffer: true` + `sort: "price_asc"` reuses the EXACT same
+ * SQL-level offer filter/sort `GET /products?onOffer=true` uses — never a
+ * second/parallel query for "what's on offer," so the homepage section and
+ * the PLP's own "On Offer" filter can never disagree about which products
+ * qualify or what their effective price is.
+ */
+interface OfferedProductsLister {
+  execute(input: { onOffer: true; sort: "price_asc"; page: number; limit: number; inStockOnly?: boolean }): Promise<ListProductsResult>;
 }
 
 /** Matches `GetBestSellingVariantQuantitiesUseCase`'s own `execute` signature. */
@@ -176,6 +193,16 @@ export interface HomePageView {
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummaryEntity[];
   /**
+   * "Shop our offers" homepage section (storefront offer-discovery pass,
+   * 2026-09-15) — distinct from `activeOffers` above (the promotional
+   * STRIP describing the offers themselves) — this is actual purchasable,
+   * in-stock products currently discounted by one, cheapest-effective-price
+   * first, capped at `OFFERED_PRODUCTS_LIMIT`. `[]` when nothing currently
+   * qualifies; the storefront hides the whole section rather than show an
+   * empty rail (same convention `activeOffers`/`testimonials` already use).
+   */
+  offeredProducts: ProductSummaryEntity[];
+  /**
    * "Loved by Customers" on the storefront (renamed from "Best Sellers",
    * merchandising logic corrections 2026-09-06) — see `resolveBestSellers`'s
    * own doc comment for what this now represents: products with completed
@@ -267,6 +294,7 @@ export class GetHomePageUseCase {
     private readonly budgetProductsLister: BudgetProductsLister,
     private readonly inStockProductIdsProvider: InStockProductIdsProvider,
     private readonly sizeAvailabilityReader: SizeAvailabilityReader,
+    private readonly offeredProductsLister: OfferedProductsLister,
   ) {}
 
   async execute(): Promise<HomePageView> {
@@ -281,6 +309,7 @@ export class GetHomePageUseCase {
       testimonialAggregate,
       budgetTiles,
       sizeAvailability,
+      offeredProducts,
     ] = await Promise.all([
       this.visibleBannersLister.execute(),
       this.activeOffersLister.execute(),
@@ -294,6 +323,9 @@ export class GetHomePageUseCase {
       this.resolveTestimonialAggregate(),
       this.resolveBudgetTiles(),
       this.resolveSizeAvailability(),
+      this.offeredProductsLister
+        .execute({ onOffer: true, sort: "price_asc", page: 1, limit: OFFERED_PRODUCTS_LIMIT, inStockOnly: true })
+        .then((result) => result.products),
     ]);
 
     return {
@@ -307,6 +339,7 @@ export class GetHomePageUseCase {
       testimonialAggregate,
       budgetTiles,
       sizeAvailability,
+      offeredProducts,
     };
   }
 

@@ -15,6 +15,8 @@ export interface ProductsQueryParams {
   inStock?: string;
   minPrice?: string;
   maxPrice?: string;
+  /** Offer-filtering pass (2026-09-15) — "On Offer" storefront filter, same `"true"`-or-absent shape as `inStock`. */
+  onOffer?: string;
   sort?: string;
 }
 
@@ -27,6 +29,7 @@ const PARAM_ORDER: (keyof ProductsQueryParams)[] = [
   "inStock",
   "minPrice",
   "maxPrice",
+  "onOffer",
   "sort",
 ];
 
@@ -57,6 +60,7 @@ export function parseProductsQueryParams(params: ProductsQueryParams): {
   inStock?: boolean;
   minPrice?: number;
   maxPrice?: number;
+  onOffer?: boolean;
   // Loosely typed here (this module has no dependency on the catalog
   // feature's `ProductSort` union) — callers that feed this into
   // `listProducts` already receive validated values from the server page,
@@ -72,6 +76,7 @@ export function parseProductsQueryParams(params: ProductsQueryParams): {
     inStock: params.inStock === "true" ? true : undefined,
     minPrice: params.minPrice ? Number(params.minPrice) : undefined,
     maxPrice: params.maxPrice ? Number(params.maxPrice) : undefined,
+    onOffer: params.onOffer === "true" ? true : undefined,
     sort: params.sort,
   };
 }

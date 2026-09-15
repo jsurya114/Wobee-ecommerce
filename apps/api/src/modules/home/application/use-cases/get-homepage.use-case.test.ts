@@ -30,6 +30,7 @@ function makeUseCase(overrides: {
   /** Defaults to "every product id that appears in variantToProduct" — the common case where nothing is deliberately out of stock. */
   inStockProductIds?: Set<string>;
   sizeCounts?: Map<string, number>;
+  offeredProducts?: unknown[];
 }) {
   const newArrivalsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.newArrivals ?? [], page: 1, limit: 8, total: 0 }) };
   const bestSellingVariantsReader = { execute: vi.fn().mockResolvedValue(overrides.variantSales ?? []) };
@@ -49,6 +50,7 @@ function makeUseCase(overrides: {
     execute: vi.fn().mockResolvedValue(overrides.inStockProductIds ?? new Set((overrides.variantToProduct ?? new Map()).values())),
   };
   const sizeAvailabilityReader = { execute: vi.fn().mockResolvedValue(overrides.sizeCounts ?? new Map()) };
+  const offeredProductsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.offeredProducts ?? [], page: 1, limit: 8, total: 0 }) };
 
   const useCase = new GetHomePageUseCase(
     newArrivalsLister,
@@ -65,6 +67,7 @@ function makeUseCase(overrides: {
     budgetProductsLister,
     inStockProductIdsProvider,
     sizeAvailabilityReader,
+    offeredProductsLister,
   );
 
   return {
@@ -83,6 +86,7 @@ function makeUseCase(overrides: {
     budgetProductsLister,
     inStockProductIdsProvider,
     sizeAvailabilityReader,
+    offeredProductsLister,
   };
 }
 
@@ -271,6 +275,7 @@ describe("GetHomePageUseCase", () => {
         { label: "Under ₹999", maxPricePaise: 99_900, imageUrl: null },
       ],
       sizeAvailability: [],
+      offeredProducts: [],
     });
   });
 
@@ -320,5 +325,23 @@ describe("GetHomePageUseCase", () => {
     expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 49_900, sort: "price_desc", page: 1, limit: 1 });
     expect(result.budgetTiles[0]).toEqual({ label: "Under ₹499", maxPricePaise: 49_900, imageUrl: "https://img/under-499.jpg" });
     expect(result.budgetTiles[1]?.imageUrl).toBeNull();
+  });
+
+  it("resolves 'Shop our offers' via onOffer + price_asc, reusing the same lister ListProductsUseCase satisfies for New Arrivals/budget tiles (storefront offer-discovery pass, 2026-09-15)", async () => {
+    const offeredProducts = [product("offer-1"), product("offer-2")];
+    const { useCase, offeredProductsLister } = makeUseCase({ offeredProducts });
+
+    const result = await useCase.execute();
+
+    expect(offeredProductsLister.execute).toHaveBeenCalledWith({ onOffer: true, sort: "price_asc", page: 1, limit: 8, inStockOnly: true });
+    expect(result.offeredProducts).toEqual(offeredProducts);
+  });
+
+  it("returns an empty offeredProducts list when nothing currently qualifies, without throwing", async () => {
+    const { useCase } = makeUseCase({ offeredProducts: [] });
+
+    const result = await useCase.execute();
+
+    expect(result.offeredProducts).toEqual([]);
   });
 });

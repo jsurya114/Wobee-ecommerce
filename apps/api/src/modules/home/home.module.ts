@@ -67,6 +67,7 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   listProductsUseCase,
   inStockProductIdsProvider,
   countActiveProductsBySizeUseCase,
+  listProductsUseCase,
 );
 
 const HOME_TTL_SECONDS = 60;
@@ -90,9 +91,11 @@ const HOME_TTL_SECONDS = 60;
  * by hand, in code review, same as any other schema-version constant.
  *
  * Bumped 2 -> 3 (Phase 2, 2026-09-14) for exactly the scenario above:
- * `activeOffers` was added to `HomePageView`.
+ * `activeOffers` was added to `HomePageView`. Bumped 3 -> 4 (storefront
+ * offer-discovery pass, 2026-09-15) for the same reason: `offeredProducts`
+ * was added.
  */
-const HOME_PAGE_SCHEMA_VERSION = 3;
+const HOME_PAGE_SCHEMA_VERSION = 4;
 
 /**
  * ADR-017 (Caching Strategy) — the whole aggregate cached as one unit,

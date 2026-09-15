@@ -17,6 +17,8 @@ export interface ListProductsInput {
   inStockOnly?: boolean;
   minPricePaise?: number;
   maxPricePaise?: number;
+  /** Offer-filtering pass (2026-09-15) — "On Offer" storefront filter; see `ProductRepositoryPort.findMany`'s own doc comment for how this also changes what price sort orders by. */
+  onOffer?: boolean;
   sort: ProductSort;
   page: number;
   limit: number;
@@ -95,6 +97,7 @@ export class ListProductsUseCase {
       inStockVariantIds,
       minPricePaise: input.minPricePaise,
       maxPricePaise: input.maxPricePaise,
+      onOffer: input.onOffer,
       sort: input.sort,
       page: input.page,
       limit: input.limit,

@@ -31,6 +31,17 @@ export interface ListProductsFilter {
   inStockVariantIds?: string[];
   minPricePaise?: number;
   maxPricePaise?: number;
+  /**
+   * Offer-filtering pass (2026-09-15) — when true, restrict to products
+   * with a currently-applicable automatic Offer (same precedence/window
+   * rules as `resolveApplicableOffer`, evaluated in SQL — see
+   * `product.repository.ts`'s own doc comment on the offer-resolution
+   * fragment). Also changes what `price_asc`/`price_desc` sort BY for
+   * every request, offer-filtered or not: the customer's current effective
+   * selling price (base minus offer discount), never the raw base price,
+   * and never any coupon (coupons are checkout/cart-only).
+   */
+  onOffer?: boolean;
   sort: ProductSort;
   page: number;
   limit: number;

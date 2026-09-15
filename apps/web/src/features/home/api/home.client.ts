@@ -73,6 +73,16 @@ export interface HomePageData {
   budgetTiles: HomeBudgetTile[];
   /** "Shop your size" rail — already sorted (curated order) and already filtered to sizes with at least one live variant. */
   sizeAvailability: HomeSizeOption[];
+  /**
+   * "Shop our offers" (offer-discovery pass, 2026-09-15) — distinct from
+   * `activeOffers` above (the promo STRIP describing the offers themselves):
+   * actual purchasable, in-stock products currently discounted, cheapest
+   * effective price first. `[]` hides the section entirely (never rendered
+   * empty, same convention as `activeOffers`). Each entry's `offerPricePaise`
+   * / `offer` are resolved the SAME way as the PLP/PDP/cart (one shared
+   * offer-resolution path) — never a second computation that could disagree.
+   */
+  offeredProducts: ProductSummary[];
 }
 
 /**

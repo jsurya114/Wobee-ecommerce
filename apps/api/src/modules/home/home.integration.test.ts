@@ -29,6 +29,7 @@ const createdVariantIds: string[] = [];
 const createdOrderIds: string[] = [];
 const createdTestimonialIds: string[] = [];
 const createdUserEmails: string[] = [];
+const createdOfferIds: string[] = [];
 
 beforeAll(async () => {
   const category = await prisma.category.findFirstOrThrow({ where: { isActive: true } });
@@ -38,6 +39,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (createdOfferIds.length > 0) {
+    await prisma.offer.deleteMany({ where: { id: { in: createdOfferIds } } });
+  }
   if (createdTestimonialIds.length > 0) {
     await prisma.testimonial.deleteMany({ where: { id: { in: createdTestimonialIds } } });
   }
@@ -356,5 +360,34 @@ describe("GET /api/v1/home", () => {
     // A non-clothing, footwear-style numeric size must never appear here (category-aware sizing — homepage audit finding 5).
     const numericSizeEntries = res.body.sizeAvailability.filter((entry: { size: string }) => /^\d/.test(entry.size));
     expect(numericSizeEntries).toEqual([]);
+  });
+
+  it("'Shop our offers' includes an in-stock product with a currently-applicable automatic offer, at its effective price (storefront offer-discovery pass, 2026-09-15)", async () => {
+    const { productId } = await createTestProduct("On Offer Homepage Product");
+    const offer = await prisma.offer.create({
+      data: {
+        name: "Homepage test offer",
+        discountType: "PERCENTAGE",
+        discountValue: 20,
+        scope: "PRODUCTS",
+        priority: 0,
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 60 * 60_000),
+        isActive: true,
+        products: { create: [{ productId }] },
+      },
+    });
+    createdOfferIds.push(offer.id);
+
+    const res = await request(app).get("/api/v1/home");
+
+    const offered = res.body.offeredProducts.find((p: { id: string }) => p.id === productId);
+    expect(offered).toBeDefined();
+    expect(offered.offerPricePaise).toBe(4_000); // 5000 - 20%
+  });
+
+  it("'Shop our offers' is [] (never absent) when nothing currently qualifies — the storefront can safely check .length", async () => {
+    const res = await request(app).get("/api/v1/home");
+    expect(Array.isArray(res.body.offeredProducts)).toBe(true);
   });
 });

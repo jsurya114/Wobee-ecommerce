@@ -55,6 +55,10 @@ export const productListQuerySchema = z
     // Live availability filter — never a stale/cached flag, see
     // ListProductsUseCase.
     inStock: booleanFlag(),
+    // Offer-filtering pass (2026-09-15) — "On Offer" storefront filter.
+    // Server-side only, same true/false-or-absent shape as `inStock`; the
+    // actual offer resolution happens in ProductRepository's SQL, never here.
+    onOffer: booleanFlag(),
     // Paise, inclusive bounds. Filters against Product.minPricePaiseCache —
     // the same display/sort cache Week 1 already uses for listing sort
     // (see product.repository.ts's own comment for why that's fine for a
