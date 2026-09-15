@@ -3,6 +3,7 @@ import { CategoryRail } from "@/features/home/components/CategoryRail";
 import { TestimonialsSection } from "@/features/home/components/TestimonialsSection";
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
 import { CompactSearchBar } from "@/features/catalog/components/CompactSearchBar";
+import { formatOfferBadgeLabel } from "@/features/catalog/lib/format-offer-badge";
 import { OfferStrip } from "@/features/home/components/OfferStrip";
 import { ProductRail } from "@/features/home/components/ProductRail";
 import { PromoCarousel } from "@/features/home/components/PromoCarousel";
@@ -25,9 +26,10 @@ function railItem(product: ProductSummary) {
  * every section: the offer strip (Phase 2, 2026-09-14 — the topmost
  * element, above even the promo carousel, per that phase's own "near the
  * top of the storefront" requirement), the category rail, Shop your size,
- * "Shop our offers" (offer-discovery pass, 2026-09-15 — actual purchasable
- * discounted products, distinct from the promo strip above which only
- * describes the offers themselves), a New Arrivals rail, Shop by Budget,
+ * one dynamic campaign rail PER active Offer (offer merchandising pass,
+ * 2026-09-15 — `home.offerCampaigns`, titled from each Offer's own `name`;
+ * replaces the earlier single generic "Shop our offers" rail entirely, see
+ * that field's own doc comment), a New Arrivals rail, Shop by Budget,
  * Loved by Customers, Curated Collections, "What Our Customers Say"
  * (2026-09-11, replaces the old per-product Customer Reviews rail with
  * store-experience testimonials), and a thin trust line above the footer.
@@ -67,9 +69,16 @@ export default async function HomePage() {
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
       <ShopYourSize sizes={home.sizeAvailability} />
-      <ProductRail title="Shop our offers" seeAllHref="/products?onOffer=true">
-        {home.offeredProducts.map(railItem)}
-      </ProductRail>
+      {home.offerCampaigns.map((campaign) => (
+        <ProductRail
+          key={campaign.offer.id}
+          title={campaign.offer.name}
+          subtitle={formatOfferBadgeLabel(campaign.offer)}
+          seeAllHref={`/products?offerId=${campaign.offer.id}`}
+        >
+          {campaign.products.map(railItem)}
+        </ProductRail>
+      ))}
       <ProductRail title="New arrivals" seeAllHref="/products?sort=newest">
         {home.newArrivals.map(railItem)}
       </ProductRail>

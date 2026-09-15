@@ -30,7 +30,8 @@ function makeUseCase(overrides: {
   /** Defaults to "every product id that appears in variantToProduct" — the common case where nothing is deliberately out of stock. */
   inStockProductIds?: Set<string>;
   sizeCounts?: Map<string, number>;
-  offeredProducts?: unknown[];
+  /** offerId -> its products, as `ProductsByOfferGrouper` would return. */
+  groupedOfferProducts?: Map<string, unknown[]>;
 }) {
   const newArrivalsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.newArrivals ?? [], page: 1, limit: 8, total: 0 }) };
   const bestSellingVariantsReader = { execute: vi.fn().mockResolvedValue(overrides.variantSales ?? []) };
@@ -50,7 +51,7 @@ function makeUseCase(overrides: {
     execute: vi.fn().mockResolvedValue(overrides.inStockProductIds ?? new Set((overrides.variantToProduct ?? new Map()).values())),
   };
   const sizeAvailabilityReader = { execute: vi.fn().mockResolvedValue(overrides.sizeCounts ?? new Map()) };
-  const offeredProductsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.offeredProducts ?? [], page: 1, limit: 8, total: 0 }) };
+  const productsByOfferGrouper = { execute: vi.fn().mockResolvedValue(overrides.groupedOfferProducts ?? new Map()) };
 
   const useCase = new GetHomePageUseCase(
     newArrivalsLister,
@@ -67,7 +68,7 @@ function makeUseCase(overrides: {
     budgetProductsLister,
     inStockProductIdsProvider,
     sizeAvailabilityReader,
-    offeredProductsLister,
+    productsByOfferGrouper,
   );
 
   return {
@@ -86,7 +87,7 @@ function makeUseCase(overrides: {
     budgetProductsLister,
     inStockProductIdsProvider,
     sizeAvailabilityReader,
-    offeredProductsLister,
+    productsByOfferGrouper,
   };
 }
 
@@ -275,7 +276,7 @@ describe("GetHomePageUseCase", () => {
         { label: "Under ₹999", maxPricePaise: 99_900, imageUrl: null },
       ],
       sizeAvailability: [],
-      offeredProducts: [],
+      offerCampaigns: [],
     });
   });
 
@@ -327,21 +328,72 @@ describe("GetHomePageUseCase", () => {
     expect(result.budgetTiles[1]?.imageUrl).toBeNull();
   });
 
-  it("resolves 'Shop our offers' via onOffer + price_asc, reusing the same lister ListProductsUseCase satisfies for New Arrivals/budget tiles (storefront offer-discovery pass, 2026-09-15)", async () => {
-    const offeredProducts = [product("offer-1"), product("offer-2")];
-    const { useCase, offeredProductsLister } = makeUseCase({ offeredProducts });
+  it("asks the offer grouper for OFFER_CAMPAIGN_PRODUCTS_LIMIT in-stock products per offer (offer merchandising pass, 2026-09-15)", async () => {
+    const { useCase, productsByOfferGrouper } = makeUseCase({});
 
-    const result = await useCase.execute();
+    await useCase.execute();
 
-    expect(offeredProductsLister.execute).toHaveBeenCalledWith({ onOffer: true, sort: "price_asc", page: 1, limit: 8, inStockOnly: true });
-    expect(result.offeredProducts).toEqual(offeredProducts);
+    expect(productsByOfferGrouper.execute).toHaveBeenCalledWith({ limitPerOffer: 8, inStockOnly: true });
   });
 
-  it("returns an empty offeredProducts list when nothing currently qualifies, without throwing", async () => {
-    const { useCase } = makeUseCase({ offeredProducts: [] });
+  it("builds one campaign section per active offer, in the strip's own deterministic order, pairing each offer with its own grouped products", async () => {
+    const christmas = { id: "o-christmas", name: "Christmas Sale", discountType: "PERCENTAGE" as const, discountValue: 20, scope: "PRODUCTS" as const };
+    const diwali = { id: "o-diwali", name: "Diwali Sale", discountType: "FIXED_AMOUNT" as const, discountValue: 30_000, scope: "ALL_PRODUCTS" as const };
+    const christmasProducts = [product("c1"), product("c2")];
+    const diwaliProducts = [product("d1")];
+    const { useCase } = makeUseCase({
+      activeOffers: [christmas, diwali],
+      groupedOfferProducts: new Map([
+        ["o-christmas", christmasProducts],
+        ["o-diwali", diwaliProducts],
+      ]),
+    });
 
     const result = await useCase.execute();
 
-    expect(result.offeredProducts).toEqual([]);
+    expect(result.offerCampaigns).toEqual([
+      { offer: christmas, products: christmasProducts },
+      { offer: diwali, products: diwaliProducts },
+    ]);
+  });
+
+  it("never renders a campaign section for an active offer with zero eligible products — proves creating a new Offer produces a section named after it only once it actually has products", async () => {
+    const christmas = { id: "o-christmas", name: "Christmas Sale", discountType: "PERCENTAGE" as const, discountValue: 20, scope: "PRODUCTS" as const };
+    const emptyOffer = { id: "o-empty", name: "Nothing Eligible Yet", discountType: "PERCENTAGE" as const, discountValue: 10, scope: "PRODUCTS" as const };
+    const christmasProducts = [product("c1")];
+    const { useCase } = makeUseCase({
+      activeOffers: [christmas, emptyOffer],
+      groupedOfferProducts: new Map([["o-christmas", christmasProducts]]), // "o-empty" deliberately absent from the map
+    });
+
+    const result = await useCase.execute();
+
+    expect(result.offerCampaigns).toEqual([{ offer: christmas, products: christmasProducts }]);
+    expect(result.offerCampaigns.some((c) => c.offer.id === "o-empty")).toBe(false);
+  });
+
+  it("caps the homepage at OFFER_CAMPAIGNS_LIMIT (3) sections even when more active offers have eligible products", async () => {
+    const offers = Array.from({ length: 5 }, (_, i) => ({
+      id: `o${i}`,
+      name: `Offer ${i}`,
+      discountType: "PERCENTAGE" as const,
+      discountValue: 10,
+      scope: "ALL_PRODUCTS" as const,
+    }));
+    const grouped = new Map(offers.map((o) => [o.id, [product(`p-${o.id}`)]]));
+    const { useCase } = makeUseCase({ activeOffers: offers, groupedOfferProducts: grouped });
+
+    const result = await useCase.execute();
+
+    expect(result.offerCampaigns).toHaveLength(3);
+    expect(result.offerCampaigns.map((c) => c.offer.id)).toEqual(["o0", "o1", "o2"]);
+  });
+
+  it("returns an empty offerCampaigns list (never absent) when there are zero active offers", async () => {
+    const { useCase } = makeUseCase({ activeOffers: [] });
+
+    const result = await useCase.execute();
+
+    expect(result.offerCampaigns).toEqual([]);
   });
 });

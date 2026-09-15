@@ -36,6 +36,7 @@ import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-
 import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
 import { GetRelatedProductsUseCase } from "./application/use-cases/get-related-products.use-case";
 import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-for-cart.use-case";
+import { GroupProductsByOfferUseCase } from "./application/use-cases/group-products-by-offer.use-case";
 import { ListProductsUseCase } from "./application/use-cases/list-products.use-case";
 import { ResolveProductIdsForVariantsUseCase } from "./application/use-cases/resolve-product-ids-for-variants.use-case";
 import { SearchProductSuggestionsUseCase } from "./application/use-cases/search-product-suggestions.use-case";
@@ -94,6 +95,8 @@ export const resolveProductIdsForVariantsUseCase = new ResolveProductIdsForVaria
 export const getCategoryImagesUseCase = new GetCategoryImagesUseCase(productRepository);
 /** Exported for cross-module use (merchandising logic corrections, 2026-09-06) — `home`'s "Shop your size" rail. */
 export const countActiveProductsBySizeUseCase = new CountActiveProductsBySizeUseCase(productRepository);
+/** Exported for cross-module use (offer merchandising pass, 2026-09-15) — `home`'s per-Offer campaign sections. */
+export const groupProductsByOfferUseCase = new GroupProductsByOfferUseCase(productRepository, inventoryReader, pricingReader, offerReader);
 
 /** Exported for `admin`'s HTTP layer (ADR-025) — Week 2 Day 7 admin product management. */
 export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepository);

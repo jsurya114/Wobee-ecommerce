@@ -211,10 +211,10 @@ export class ProductRepository implements ProductRepositoryPort {
         OFFSET ${(filter.page - 1) * filter.limit}
       `),
       // The count never depends on sort, and only needs the offer lateral
-      // join when `onOffer` actually filters on it — skipped otherwise so
-      // a plain listing/category/search count isn't paying for a
-      // per-row offer resolution it doesn't use.
-      filter.onOffer
+      // join when `onOffer`/`offerId` actually filter on it — skipped
+      // otherwise so a plain listing/category/search count isn't paying for
+      // a per-row offer resolution it doesn't use.
+      filter.onOffer || filter.offerId
         ? prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
             FROM "products" p
@@ -242,6 +242,49 @@ export class ProductRepository implements ProductRepositoryPort {
     });
 
     return { products, total };
+  }
+
+  /**
+   * See `ProductRepositoryPort.findTopProductsPerOffer`'s own doc comment.
+   * Reuses `offerLateralJoin` (the SAME winning-offer resolution `findMany`'s
+   * `onOffer`/sort logic uses) and `buildOfferAwareWhere` (with `onOffer:
+   * true`, so only products a winning offer actually applies to are
+   * considered) — this is not a second offer-eligibility rule, just a
+   * different ranking wrapped around the same one. `ROW_NUMBER() OVER
+   * (PARTITION BY winning_offer.offer_id ORDER BY effective price ASC, id
+   * ASC)` ranks every matching product within its own winning offer's group
+   * in one pass; the outer `WHERE rn <= limit` keeps each group capped
+   * without ever materializing more than `limit` rows per offer.
+   */
+  async findTopProductsPerOffer(params: { limit: number; inStockVariantIds?: string[] }): Promise<{ offerId: string; productId: string }[]> {
+    const offerJoin = offerLateralJoin(new Date());
+    const where = buildOfferAwareWhere({
+      onOffer: true,
+      inStockVariantIds: params.inStockVariantIds,
+      sort: "price_asc",
+      page: 1,
+      limit: params.limit,
+    });
+
+    const rows = await prisma.$queryRaw<{ offer_id: string; product_id: string }[]>(Prisma.sql`
+      SELECT offer_id, product_id
+      FROM (
+        SELECT
+          winning_offer.offer_id AS offer_id,
+          p."id" AS product_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY winning_offer.offer_id
+            ORDER BY COALESCE(p."minPricePaiseCache" - winning_offer.discount_paise, p."minPricePaiseCache") ASC, p."id" ASC
+          ) AS rn
+        FROM "products" p
+        ${offerJoin}
+        WHERE ${where}
+      ) ranked
+      WHERE rn <= ${params.limit}
+      ORDER BY offer_id, rn
+    `);
+
+    return rows.map((row) => ({ offerId: row.offer_id, productId: row.product_id }));
   }
 
   async findBySlug(slug: string): Promise<ProductDetailEntity | null> {
@@ -796,6 +839,10 @@ function buildOfferAwareWhere(filter: ListProductsFilter): Prisma.Sql {
   // Requires `offerLateralJoin`'s join to already be present in the query this
   // WHERE clause is used in.
   if (filter.onOffer) conditions.push(Prisma.sql`winning_offer.offer_id IS NOT NULL`);
+  // Offer merchandising pass (2026-09-15) — pins to ONE specific offer
+  // (`/products?offerId=`), rather than "any offer" — see `ListProductsFilter.offerId`'s
+  // own doc comment. Composable with `onOffer` (redundant together, harmless).
+  if (filter.offerId) conditions.push(Prisma.sql`winning_offer.offer_id = ${filter.offerId}`);
 
   return Prisma.join(conditions, " AND ");
 }

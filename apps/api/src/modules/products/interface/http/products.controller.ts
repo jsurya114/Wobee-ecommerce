@@ -33,6 +33,7 @@ export class ProductsController {
       minPricePaise: query.minPrice,
       maxPricePaise: query.maxPrice,
       onOffer: query.onOffer,
+      offerId: query.offerId,
       sort: query.sort,
       page: query.page,
       limit: query.limit,

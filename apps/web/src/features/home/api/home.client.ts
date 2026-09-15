@@ -43,6 +43,17 @@ export interface HomeOffer {
   scope: "ALL_PRODUCTS" | "CATEGORY" | "PRODUCTS";
 }
 
+/**
+ * One dynamic per-Offer homepage campaign section (offer merchandising pass,
+ * 2026-09-15) — `offer` is the same lean shape `activeOffers` (the strip)
+ * already uses, so the storefront renders "20% OFF"/"₹300 OFF" from one
+ * shared formatter regardless of which of the two this came from.
+ */
+export interface HomeOfferCampaign {
+  offer: HomeOffer;
+  products: ProductSummary[];
+}
+
 export interface HomeBudgetTile {
   label: string;
   maxPricePaise: number;
@@ -74,15 +85,17 @@ export interface HomePageData {
   /** "Shop your size" rail — already sorted (curated order) and already filtered to sizes with at least one live variant. */
   sizeAvailability: HomeSizeOption[];
   /**
-   * "Shop our offers" (offer-discovery pass, 2026-09-15) — distinct from
-   * `activeOffers` above (the promo STRIP describing the offers themselves):
-   * actual purchasable, in-stock products currently discounted, cheapest
-   * effective price first. `[]` hides the section entirely (never rendered
-   * empty, same convention as `activeOffers`). Each entry's `offerPricePaise`
-   * / `offer` are resolved the SAME way as the PLP/PDP/cart (one shared
-   * offer-resolution path) — never a second computation that could disagree.
+   * Dynamic per-Offer campaign sections (offer merchandising pass,
+   * 2026-09-15) — replaces the earlier generic "Shop our offers" rail.
+   * Distinct from `activeOffers` above (the promo STRIP describing the
+   * offers themselves): each entry is one active offer's own purchasable,
+   * in-stock products at their effective price, cheapest first. `[]` hides
+   * the whole area (never a rendered-empty/generic section, same convention
+   * as `activeOffers`). Every entry's product prices are resolved the SAME
+   * way as the PLP/PDP/cart (one shared offer-resolution path) — never a
+   * second computation that could disagree.
    */
-  offeredProducts: ProductSummary[];
+  offerCampaigns: HomeOfferCampaign[];
 }
 
 /**

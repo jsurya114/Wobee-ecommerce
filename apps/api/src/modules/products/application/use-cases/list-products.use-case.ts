@@ -19,6 +19,8 @@ export interface ListProductsInput {
   maxPricePaise?: number;
   /** Offer-filtering pass (2026-09-15) — "On Offer" storefront filter; see `ProductRepositoryPort.findMany`'s own doc comment for how this also changes what price sort orders by. */
   onOffer?: boolean;
+  /** Offer merchandising pass (2026-09-15) — pins to one specific offer's winning products; see `ListProductsFilter.offerId`'s own doc comment. */
+  offerId?: string;
   sort: ProductSort;
   page: number;
   limit: number;
@@ -98,6 +100,7 @@ export class ListProductsUseCase {
       minPricePaise: input.minPricePaise,
       maxPricePaise: input.maxPricePaise,
       onOffer: input.onOffer,
+      offerId: input.offerId,
       sort: input.sort,
       page: input.page,
       limit: input.limit,

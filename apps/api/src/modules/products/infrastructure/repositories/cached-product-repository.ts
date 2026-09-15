@@ -42,6 +42,7 @@ function buildListKey(filter: ListProductsFilter): string {
     filter.minPricePaise ?? "_",
     filter.maxPricePaise ?? "_",
     filter.onOffer ? "onOffer" : "_",
+    filter.offerId ?? "_",
     filter.sort,
     filter.page,
     filter.limit,
@@ -86,6 +87,9 @@ export class CachedProductRepository implements ProductRepositoryPort {
   }
 
   // ── Live/internal reads — never cached, straight passthrough ──
+  findTopProductsPerOffer(params: { limit: number; inStockVariantIds?: string[] }): Promise<{ offerId: string; productId: string }[]> {
+    return this.inner.findTopProductsPerOffer(params);
+  }
   searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]> {
     return this.inner.searchSuggestions(query, limit);
   }

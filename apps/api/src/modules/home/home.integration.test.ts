@@ -362,15 +362,22 @@ describe("GET /api/v1/home", () => {
     expect(numericSizeEntries).toEqual([]);
   });
 
-  it("'Shop our offers' includes an in-stock product with a currently-applicable automatic offer, at its effective price (storefront offer-discovery pass, 2026-09-15)", async () => {
-    const { productId } = await createTestProduct("On Offer Homepage Product");
+  it("offerCampaigns is [] (never absent) when nothing currently qualifies — the storefront can safely check .length", async () => {
+    const res = await request(app).get("/api/v1/home");
+    expect(Array.isArray(res.body.offerCampaigns)).toBe(true);
+  });
+
+  it("creating a new Offer named 'Christmas Sale' with eligible products makes a homepage campaign section titled exactly 'Christmas Sale' appear, with no code change (offer merchandising pass, 2026-09-15)", async () => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const offerName = `Christmas Sale ${suffix}`;
+    const { productId } = await createTestProduct("Christmas Campaign Product");
     const offer = await prisma.offer.create({
       data: {
-        name: "Homepage test offer",
+        name: offerName,
         discountType: "PERCENTAGE",
         discountValue: 20,
         scope: "PRODUCTS",
-        priority: 0,
+        priority: 5000,
         startsAt: new Date(Date.now() - 60_000),
         endsAt: new Date(Date.now() + 60 * 60_000),
         isActive: true,
@@ -381,13 +388,201 @@ describe("GET /api/v1/home", () => {
 
     const res = await request(app).get("/api/v1/home");
 
-    const offered = res.body.offeredProducts.find((p: { id: string }) => p.id === productId);
-    expect(offered).toBeDefined();
-    expect(offered.offerPricePaise).toBe(4_000); // 5000 - 20%
+    const campaigns: { offer: { id: string; name: string; discountType: string; discountValue: number }; products: { id: string; offerPricePaise: number }[] }[] =
+      res.body.offerCampaigns;
+    const campaign = campaigns.find((c) => c.offer.id === offer.id);
+    expect(campaign).toBeDefined();
+    expect(campaign!.offer.name).toBe(offerName); // the section title comes straight from Offer.name — no hardcoded "Christmas Sale" anywhere in the code
+    const product = campaign!.products.find((p) => p.id === productId);
+    expect(product).toBeDefined();
+    expect(product!.offerPricePaise).toBe(4_000); // 5000 - 20%
   });
 
-  it("'Shop our offers' is [] (never absent) when nothing currently qualifies — the storefront can safely check .length", async () => {
+  it("a second concurrently active Offer produces its own independent campaign section alongside the first", async () => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const { productId: productA } = await createTestProduct("Diwali Campaign Product A");
+    const { productId: productB } = await createTestProduct("Diwali Campaign Product B");
+    const offerA = await prisma.offer.create({
+      data: {
+        name: `Campaign A ${suffix}`,
+        discountType: "PERCENTAGE",
+        discountValue: 15,
+        scope: "PRODUCTS",
+        priority: 5001,
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 60 * 60_000),
+        isActive: true,
+        products: { create: [{ productId: productA }] },
+      },
+    });
+    createdOfferIds.push(offerA.id);
+    const offerB = await prisma.offer.create({
+      data: {
+        name: `Campaign B ${suffix}`,
+        discountType: "FIXED_AMOUNT",
+        discountValue: 30_000,
+        scope: "PRODUCTS",
+        priority: 5002,
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 60 * 60_000),
+        isActive: true,
+        products: { create: [{ productId: productB }] },
+      },
+    });
+    createdOfferIds.push(offerB.id);
+
     const res = await request(app).get("/api/v1/home");
-    expect(Array.isArray(res.body.offeredProducts)).toBe(true);
+
+    const campaigns: { offer: { id: string; name: string }; products: { id: string }[] }[] = res.body.offerCampaigns;
+    const campaignA = campaigns.find((c) => c.offer.id === offerA.id);
+    const campaignB = campaigns.find((c) => c.offer.id === offerB.id);
+    expect(campaignA).toBeDefined();
+    expect(campaignB).toBeDefined();
+    expect(campaignA!.products.map((p) => p.id)).toContain(productA);
+    expect(campaignA!.products.map((p) => p.id)).not.toContain(productB);
+    expect(campaignB!.products.map((p) => p.id)).toContain(productB);
+    expect(campaignB!.products.map((p) => p.id)).not.toContain(productA);
+  });
+
+  it("an expired Offer never produces a campaign section", async () => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const { productId } = await createTestProduct("Expired Offer Product");
+    const offer = await prisma.offer.create({
+      data: {
+        name: `Expired Campaign ${suffix}`,
+        discountType: "PERCENTAGE",
+        discountValue: 20,
+        scope: "PRODUCTS",
+        priority: 100,
+        startsAt: new Date(Date.now() - 2 * 60 * 60_000),
+        endsAt: new Date(Date.now() - 60_000),
+        isActive: true,
+        products: { create: [{ productId }] },
+      },
+    });
+    createdOfferIds.push(offer.id);
+
+    const res = await request(app).get("/api/v1/home");
+
+    const campaigns: { offer: { id: string } }[] = res.body.offerCampaigns;
+    expect(campaigns.some((c) => c.offer.id === offer.id)).toBe(false);
+  });
+
+  it("a disabled (isActive: false) Offer never produces a campaign section", async () => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const { productId } = await createTestProduct("Disabled Offer Product");
+    const offer = await prisma.offer.create({
+      data: {
+        name: `Disabled Campaign ${suffix}`,
+        discountType: "PERCENTAGE",
+        discountValue: 20,
+        scope: "PRODUCTS",
+        priority: 100,
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 60 * 60_000),
+        isActive: false,
+        products: { create: [{ productId }] },
+      },
+    });
+    createdOfferIds.push(offer.id);
+
+    const res = await request(app).get("/api/v1/home");
+
+    const campaigns: { offer: { id: string } }[] = res.body.offerCampaigns;
+    expect(campaigns.some((c) => c.offer.id === offer.id)).toBe(false);
+  });
+
+  it("a product targeted by two overlapping active offers appears ONLY under the winning offer's campaign, never duplicated under both (Offer precedence, not a frontend rule)", async () => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const category = await prisma.category.create({
+      data: { name: `Home Overlap Category ${suffix}`, slug: `home-overlap-${suffix}`, isActive: true },
+    });
+    const productName = `Overlap Product ${suffix}`;
+    const product = await prisma.product.create({
+      data: { name: productName, slug: `home-overlap-product-${suffix}`, categoryId: category.id, isActive: true, minPricePaiseCache: 10_000 },
+    });
+    createdProductIds.push(product.id);
+    const variant = await prisma.productVariant.create({
+      data: { productId: product.id, sku: `HOME-OVERLAP-${suffix}`, color: "Black", size: "M", weightGrams: 400, isActive: true, effectivePricePaiseCache: 10_000 },
+    });
+    createdVariantIds.push(variant.id);
+    await prisma.inventory.create({ data: { variantId: variant.id, warehouseId, quantityAvailable: 10, quantityReserved: 0 } });
+
+    // CATEGORY-scope offer, low priority — should lose.
+    const categoryOffer = await prisma.offer.create({
+      data: {
+        name: `Overlap Category Offer ${suffix}`,
+        discountType: "PERCENTAGE",
+        discountValue: 10,
+        scope: "CATEGORY",
+        categoryId: category.id,
+        priority: 5000,
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 60 * 60_000),
+        isActive: true,
+      },
+    });
+    createdOfferIds.push(categoryOffer.id);
+    // PRODUCTS-scope offer targeting the same product — more specific scope always wins, regardless of priority/discount size.
+    const productsOffer = await prisma.offer.create({
+      data: {
+        name: `Overlap Products Offer ${suffix}`,
+        discountType: "PERCENTAGE",
+        discountValue: 5,
+        scope: "PRODUCTS",
+        priority: 5001,
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 60 * 60_000),
+        isActive: true,
+        products: { create: [{ productId: product.id }] },
+      },
+    });
+    createdOfferIds.push(productsOffer.id);
+
+    const res = await request(app).get("/api/v1/home");
+
+    const campaigns: { offer: { id: string }; products: { id: string }[] }[] = res.body.offerCampaigns;
+    const categoryCampaign = campaigns.find((c) => c.offer.id === categoryOffer.id);
+    const productsCampaign = campaigns.find((c) => c.offer.id === productsOffer.id);
+    expect(productsCampaign).toBeDefined();
+    expect(productsCampaign!.products.map((p) => p.id)).toContain(product.id);
+    // The CATEGORY offer is active and would match this product too, but PRODUCTS scope wins precedence — the CATEGORY offer must not claim it, and (having no other products) must not even produce a section.
+    expect(categoryCampaign).toBeUndefined();
+
+    // Delete the product (and its dependents) before the category it
+    // references — afterAll's own cleanup runs later and would otherwise
+    // hit the same FK constraint the category itself is under.
+    await prisma.inventory.deleteMany({ where: { variantId: variant.id } });
+    await prisma.product.delete({ where: { id: product.id } });
+    await prisma.category.delete({ where: { id: category.id } });
+  });
+
+  it("an active CATEGORY-scope Offer with zero eligible products (no in-stock product in that category) never produces a campaign section", async () => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const isolatedCategory = await prisma.category.create({
+      data: { name: `Home Empty Campaign Category ${suffix}`, slug: `home-empty-campaign-${suffix}`, isActive: true },
+    });
+
+    const offer = await prisma.offer.create({
+      data: {
+        name: `Empty Campaign ${suffix}`,
+        discountType: "PERCENTAGE",
+        discountValue: 20,
+        scope: "CATEGORY",
+        categoryId: isolatedCategory.id,
+        priority: 100,
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 60 * 60_000),
+        isActive: true,
+      },
+    });
+    createdOfferIds.push(offer.id);
+
+    const res = await request(app).get("/api/v1/home");
+
+    const campaigns: { offer: { id: string } }[] = res.body.offerCampaigns;
+    expect(campaigns.some((c) => c.offer.id === offer.id)).toBe(false);
+
+    await prisma.category.delete({ where: { id: isolatedCategory.id } });
   });
 });

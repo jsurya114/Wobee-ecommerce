@@ -17,6 +17,8 @@ export interface ProductsQueryParams {
   maxPrice?: string;
   /** Offer-filtering pass (2026-09-15) — "On Offer" storefront filter, same `"true"`-or-absent shape as `inStock`. */
   onOffer?: string;
+  /** Offer merchandising pass (2026-09-15) — pins the listing to one specific Offer's own winning products (homepage campaign "See all" / offer-strip click-through). */
+  offerId?: string;
   sort?: string;
 }
 
@@ -30,6 +32,7 @@ const PARAM_ORDER: (keyof ProductsQueryParams)[] = [
   "minPrice",
   "maxPrice",
   "onOffer",
+  "offerId",
   "sort",
 ];
 
@@ -61,6 +64,7 @@ export function parseProductsQueryParams(params: ProductsQueryParams): {
   minPrice?: number;
   maxPrice?: number;
   onOffer?: boolean;
+  offerId?: string;
   // Loosely typed here (this module has no dependency on the catalog
   // feature's `ProductSort` union) — callers that feed this into
   // `listProducts` already receive validated values from the server page,
@@ -77,6 +81,7 @@ export function parseProductsQueryParams(params: ProductsQueryParams): {
     minPrice: params.minPrice ? Number(params.minPrice) : undefined,
     maxPrice: params.maxPrice ? Number(params.maxPrice) : undefined,
     onOffer: params.onOffer === "true" ? true : undefined,
+    offerId: params.offerId,
     sort: params.sort,
   };
 }

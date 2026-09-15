@@ -92,6 +92,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     minPrice: first(raw.minPrice),
     maxPrice: first(raw.maxPrice),
     onOffer: first(raw.onOffer) === "true" ? "true" : undefined,
+    offerId: first(raw.offerId),
     sort: parseExplicitSort(first(raw.sort)),
   };
 
@@ -120,7 +121,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       currentParams.inStock ||
       currentParams.minPrice ||
       currentParams.maxPrice ||
-      currentParams.onOffer,
+      currentParams.onOffer ||
+      currentParams.offerId,
   );
 
   // Remounts ProductResults (and its accumulated "load more" pages) fresh

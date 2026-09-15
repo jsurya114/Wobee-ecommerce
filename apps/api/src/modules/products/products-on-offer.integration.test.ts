@@ -37,6 +37,8 @@ let categoryId: string;
 let otherCategoryId: string;
 let precedenceCategoryId: string;
 let warehouseId: string;
+let percentOfferOfferId: string;
+let fixedOfferOfferId: string;
 const createdProductIds: string[] = [];
 const createdOfferIds: string[] = [];
 const productIdBySlug: Record<string, string> = {};
@@ -154,8 +156,8 @@ beforeAll(async () => {
     categoryId,
   });
 
-  await createOffer({ name: "20% off", discountType: "PERCENTAGE", discountValue: 20, scope: "PRODUCTS", productIds: [percentOfferId] });
-  await createOffer({ name: "500 paise off", discountType: "FIXED_AMOUNT", discountValue: 500, scope: "PRODUCTS", productIds: [fixedOfferId] });
+  percentOfferOfferId = await createOffer({ name: "20% off", discountType: "PERCENTAGE", discountValue: 20, scope: "PRODUCTS", productIds: [percentOfferId] });
+  fixedOfferOfferId = await createOffer({ name: "500 paise off", discountType: "FIXED_AMOUNT", discountValue: 500, scope: "PRODUCTS", productIds: [fixedOfferId] });
   await createOffer({
     name: "expired",
     discountType: "PERCENTAGE",
@@ -343,6 +345,34 @@ describe("GET /api/v1/products?sort=price_asc|price_desc — offer-aware effecti
     expect(slugsOf(page2.body)).toEqual(fullSlugs.slice(4, 8));
     expect(page1.body.total).toBe(full.body.total);
     expect(page2.body.total).toBe(full.body.total);
+  });
+});
+
+describe("GET /api/v1/products?offerId= — pins the listing to one specific offer's own winning products (offer merchandising pass, 2026-09-15)", () => {
+  it("returns only the product(s) that offer actually applies to, never products under a different offer", async () => {
+    const res = await request(app).get("/api/v1/products").query({ offerId: percentOfferOfferId, limit: 50 });
+    expect(res.status).toBe(200);
+    const slugs = slugsOf(res.body);
+    expect(slugs).toEqual([`percent-offer-${SUFFIX}`]);
+    expect(slugs).not.toContain(`fixed-offer-${SUFFIX}`);
+  });
+
+  it("a different offer id returns its own, disjoint product set", async () => {
+    const res = await request(app).get("/api/v1/products").query({ offerId: fixedOfferOfferId, limit: 50 });
+    expect(slugsOf(res.body)).toEqual([`fixed-offer-${SUFFIX}`]);
+  });
+
+  it("combines with other filters (category) server-side", async () => {
+    const res = await request(app).get("/api/v1/products").query({ offerId: percentOfferOfferId, category: OTHER_CATEGORY_SLUG, limit: 50 });
+    expect(res.body.products).toEqual([]);
+    expect(res.body.total).toBe(0);
+  });
+
+  it("an offer id that doesn't match any currently-active offer yields an empty result, not an error", async () => {
+    const res = await request(app).get("/api/v1/products").query({ offerId: "00000000-0000-4000-8000-000000000000", limit: 50 });
+    expect(res.status).toBe(200);
+    expect(res.body.products).toEqual([]);
+    expect(res.body.total).toBe(0);
   });
 });
 

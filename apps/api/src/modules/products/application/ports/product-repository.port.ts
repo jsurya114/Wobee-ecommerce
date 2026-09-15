@@ -42,6 +42,18 @@ export interface ListProductsFilter {
    * and never any coupon (coupons are checkout/cart-only).
    */
   onOffer?: boolean;
+  /**
+   * Offer merchandising pass (2026-09-15) — restrict to products for which
+   * THIS ONE offer is the winning offer (same precedence rules as
+   * `onOffer`, just pinned to one offer id instead of "any"). Backs the
+   * homepage campaign sections' "See all" CTA (`/products?offerId=`) and the
+   * offer strip's own click-through — a public, read-only filter (an offer
+   * id is not sensitive; its name/discount are already shown in the strip
+   * and campaign section). An id that doesn't match any currently-active
+   * offer simply yields zero results, same as any other filter combination
+   * that matches nothing — never a 404/error.
+   */
+  offerId?: string;
   sort: ProductSort;
   page: number;
   limit: number;
@@ -170,6 +182,20 @@ export interface AddProductImageInput {
 
 export interface ProductRepositoryPort {
   findMany(filter: ListProductsFilter): Promise<ListProductsResult>;
+  /**
+   * Homepage "campaign section per active Offer" (offer merchandising pass,
+   * 2026-09-15) — for EVERY currently-active offer, its top `limit` eligible
+   * products (cheapest effective price first), where "eligible" means that
+   * offer is the one actually winning precedence for that product (same
+   * `offerLateralJoin` resolution `findMany`'s `onOffer` filter uses). ONE
+   * ranked SQL query (a window function partitioned per offer) regardless of
+   * how many offers are active or how large the catalogue is — never one
+   * query per offer, and never a full-catalogue fetch grouped in Node. An
+   * offer with zero matching products is simply absent from the result — the
+   * caller (`GroupProductsByOfferUseCase`) decides how to render that, not
+   * this repository.
+   */
+  findTopProductsPerOffer(params: { limit: number; inStockVariantIds?: string[] }): Promise<{ offerId: string; productId: string }[]>;
   findBySlug(slug: string): Promise<ProductDetailEntity | null>;
   /**
    * Typeahead for the search box (redesign) — active products whose name

@@ -59,6 +59,13 @@ export const productListQuerySchema = z
     // Server-side only, same true/false-or-absent shape as `inStock`; the
     // actual offer resolution happens in ProductRepository's SQL, never here.
     onOffer: booleanFlag(),
+    // Offer merchandising pass (2026-09-15) — pins the listing to ONE
+    // specific offer's currently-winning products (the homepage campaign
+    // section / offer strip's "See all"/click-through target), rather than
+    // "any offer" like `onOffer`. A public, read-only filter — an offer id
+    // isn't sensitive, and an id that doesn't match any active offer simply
+    // yields zero results, never a 400/404.
+    offerId: z.string().uuid().optional(),
     // Paise, inclusive bounds. Filters against Product.minPricePaiseCache —
     // the same display/sort cache Week 1 already uses for listing sort
     // (see product.repository.ts's own comment for why that's fine for a
