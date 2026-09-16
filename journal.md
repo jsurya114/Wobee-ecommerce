@@ -3974,3 +3974,103 @@ Separately from the toast work, `GET /` (storefront homepage) started 500ing wit
 
 **Outstanding issues:**
 - No P0/P1/P2 found. The only remaining "issue" from this session is the process lesson above (don't build against a live dev server's `.next`), not a product defect.
+
+---
+
+## 2026-09-16 — Home page hero banner: height-only responsive increase
+
+**Branch:** `woobe-ui/bug-fixes` (not committed — user asked for the change only, not a commit).
+
+**Ask:** against a homepage screenshot, the hero banner's width/horizontal positioning was already correct, but its height was too short relative to that width ("WIDE + TOO SHORT"), stretched-looking on desktop. Explicit constraint: change height/aspect-ratio only — do not touch width, `max-width`, container/horizontal alignment, border radius, content, image source, text, CTA, or navigation behavior, and do not touch any other homepage section.
+
+**Root cause (found by reading the component, not guessing):** `apps/web/src/features/home/components/PromoCarousel.tsx`'s `BannerSlide` sized the image wrapper with `aspect-[8/5]` on mobile and, from `sm:` (640px) up, `sm:aspect-[21/9] sm:max-h-[280px]`. That single `max-h-[280px]` cap applies unchanged all the way from 640px through 1440px+ viewports, while the banner's own width keeps growing with the container up to `max-w-6xl` (1152px). Computed against the actual container width at each width (`max-w-6xl` minus the section's own `px-6` padding): the aspect-driven height already exceeds 280px well before 768px width, so `max-h-280` was the value actually rendered at every tested desktop breakpoint (768/1024/1440) — a flat 280px height stayed constant while the width kept climbing, which is exactly the "wide + too short" complaint. Confirmed this wasn't a container/width issue: the outer `<section>` (`px-4 pb-1 pt-3 sm:px-6`) and the `mx-auto max-w-6xl overflow-hidden rounded-card` wrapper around the carousel track were untouched and already correct per the screenshot.
+
+**Fix — one `className` on the image wrapper `<div>` (`PromoCarousel.tsx`'s `BannerSlide`), height/aspect properties only:**
+```
+// before
+"relative aspect-[8/5] w-full overflow-hidden bg-surface-2 sm:aspect-[21/9] sm:max-h-[280px]"
+
+// after
+"relative aspect-[8/5] w-full max-h-[280px] overflow-hidden bg-surface-2 sm:aspect-[3/2] sm:max-h-[320px] md:aspect-[16/9] md:max-h-[380px] lg:aspect-[2/1] lg:max-h-[440px] xl:max-h-[480px]"
+```
+Each breakpoint tier (`sm`/`md`/`lg`/`xl`) pairs its own `aspect-*` with a `max-h-*` chosen so the cap is the value that actually governs across that ENTIRE tier's width range (verified by computing the aspect-driven height at both the low and high end of each tier's width, not just one sample point) — so height climbs in visible steps as the container grows (mobile 375px stays untouched at ~214px; ~320px at the 640px tier; 380px at 768px/tablet; 440px at 1024px/desktop; 480px at 1280px+/large desktop, where `max-w-6xl` caps the width so height also plateaus rather than growing unbounded). Added a `max-h-[280px]` to the base/mobile tier too (previously uncapped) purely so the step from mobile into the `sm` tier stays monotonically increasing instead of a very wide phone (e.g. 620px) briefly rendering taller than the 640px breakpoint that follows it — a continuity fix for an untested but real width range, not a behavior change at the four required test widths.
+
+**Width/container behavior:** unchanged and re-verified live — `w-full` (fills its parent, same as before), the parent `mx-auto max-w-6xl` wrapper, and the section's `px-4`/`sm:px-6` padding were not touched at all. Only `aspect-*`/`max-h-*` values changed.
+
+**Image behavior:** no change to `<img>`'s `src`, `loading`, `decoding`, or `className` (`h-full w-full object-cover`, unchanged) — `object-cover` naturally fills the taller box without distortion since it's driven by the wrapper's height, not a fixed image size. Did not adjust `object-position` (still default `center`): live-verified at all four widths that the product/model image still reads correctly with more vertical context visible (not less), so no crop correction was needed.
+
+**Files changed:**
+- `apps/web/src/features/home/components/PromoCarousel.tsx` — `BannerSlide`'s wrapper `className` (height/aspect only, per above); doc comment above `PromoCarousel` updated to describe the new per-breakpoint tiering and why each tier's cap is the dominant value across its whole range.
+
+**Other homepage sections:** not touched — confirmed via `git status` that this is the only file in the diff. Navbar/header, "Shop by Category", "Shop Your Size", "Christmas Sale", product cards, and footer are all unmodified.
+
+**Responsive verification (live, chrome-devtools-mcp against the running dev server at `localhost:3000`, `getBoundingClientRect()` measured on the wrapper/`<img>` plus a screenshot at each width):**
+- **375px:** wrapper/image `343 × 214.4px` (unchanged from before this change — matches the original reference screenshot's proportion). Text/CTA readable and correctly positioned; no overflow.
+- **768px:** wrapper/image `705 × 380px` (705 = 768 minus the browser's own vertical-scrollbar width minus `px-6` padding — expected, not a bug). Height is now governed by `md:max-h-[380px]`, a clear, visible increase over the previous flat 280px.
+- **1024px:** wrapper/image `961 × 440px`, governed by `lg:max-h-[440px]`.
+- **1440px:** wrapper/image exactly `1152 × 480px` — width capped at `max-w-6xl` as designed, height governed by `xl:max-h-[480px]`. Visually matches a proportioned, modern e-commerce hero rather than the prior short strip.
+- At every width: no horizontal overflow attributable to the banner, no unexpected vertical overflow, no overlap with "Shop by Category" below, border radius intact, image not stretched/distorted, text and "Shop Now" CTA remained readable and correctly positioned, carousel prev/next/dot controls unaffected. Zero console errors/warnings at any of the four widths.
+- **Pre-existing, unrelated observation (not caused by this change, not fixed):** at 768px and 1024px, `document.documentElement.scrollWidth` (1404px) exceeds the viewport — traced to `SiteHeader`'s desktop nav link row (`Home / Shop / Wishlist / Bag / Help QA Orders / My orders / Log out`) not collapsing into the hamburger menu until wider than ~1404px, causing page-level horizontal scroll at tablet/small-desktop widths. Confirmed via screenshot this is the navbar, not the banner (the banner's own width tracked its container correctly at every width including 768/1024). Out of this task's explicit scope ("Do NOT redesign or modify: Navbar"), so left as-is; flagged here for future awareness.
+
+**Tests/build:**
+- `pnpm --filter web run typecheck` — clean.
+- `pnpm --filter web run lint` (`eslint . --max-warnings=0`) — clean.
+- No `next build` run: the dev server used for the live verification above was already running against the same `.next` directory, and the 2026-09-16 marquee entry above documents that running a production build alongside a live dev server corrupts that cache — skipped deliberately to avoid repeating that regression. `apps/web` has no automated test runner (established, pre-existing convention per earlier entries), so live browser verification above is this change's test coverage, consistent with every prior frontend-only entry in this journal.
+
+**Outstanding issues:**
+- P3 (pre-existing, out of scope): `SiteHeader` desktop nav overflow at ~768–1279px widths, described above — not a banner defect. **Correction, same day, see the mobile-bottom-nav entry directly below: this was misdiagnosed.** The real cause was `OfferStrip`'s hidden measurement probe escaping its `overflow-hidden` container (missing `position: relative`), not `SiteHeader`. Fixed there; left as a P3 here only for the historical record of what was observed in this session, not as an accurate root cause.
+- No P0/P1/P2 found in the banner change itself.
+
+---
+
+## 2026-09-16 — Mobile bottom navigation: fixed-position width blowout from an unrelated overflow bug
+
+**Branch:** `woobe-ui/bug-fixes` (not committed — user asked for the change only, not a commit).
+
+**Ask:** against a mobile screenshot, the bottom navigation's items were spaced incorrectly, the bar looked "stretched across the wrong layout width," and the last item was partially cut off on the right. Explicit constraints: reuse the existing nav component/icons/routes/styling, smallest safe fix, no redesign, no functional/route/auth/active-state changes, don't affect desktop nav, don't touch any Home page content section. The brief itself flagged likely causes to check: max-width containers, incorrect flex-basis, absolute positioning, **parent overflow**, **viewport width calculation** — this turned out to name the actual bug exactly.
+
+**Investigation:** read `apps/web/src/features/auth/components/BottomNav.tsx` first. Its architecture was already correct and required no redesign: `<nav className="fixed inset-x-3 flex items-center ...">` with each item `flex-1` and no hardcoded per-item coordinates — textbook "full viewport width → equal slots" layout. Live-tested it anyway (chrome-devtools-mcp, mobile emulation) and reproduced the bug exactly as described: at 375px the nav rendered ~1280px wide with only the first 1–2 tabs visible in the viewport, the rest scrolled off-screen to the right.
+
+**Root cause (found by measuring, not guessing):** `getBoundingClientRect()` on the `<nav>` showed `left:12px; width:1279.5px` against a 375px viewport — its `position: fixed` box was sizing itself against something far wider than the screen. `document.documentElement.scrollWidth` confirmed real horizontal page overflow (1303px of content on a 375px viewport) even though the visible mobile layout itself looked fine — this is a known mobile-browser behavior: when *any* element causes horizontal overflow without being clipped, the browser's "layout viewport" (which `position: fixed` insets and `vw` units resolve against) expands to match, independent of the visual 375px screen. A DOM sweep for elements whose own `scrollWidth`/rect exceeded the viewport pointed straight at `apps/web/src/features/home/components/OfferStrip.tsx`: its outer track (`<div ref={containerRef} className="flex h-9 items-center overflow-hidden ...">`) holds a hidden, `aria-hidden` measurement probe (`measureRef`, used to compute the marquee's `periodWidth` for the seamless-loop math from the 2026-09-16 marquee session earlier in this journal) styled `invisible absolute left-0 top-0 ... whitespace-nowrap`. Because the track container was `overflow-hidden` but **not** `position: relative`, it wasn't a containing block for that `absolute` child — the probe positioned itself against the next actual positioned ancestor (there was none), escaping the track's own `overflow-hidden` entirely and inflating the whole document's horizontal extent to its full un-clipped width (a `whitespace-nowrap` row of every active offer's text, ~1300px+ depending on how many offers are active). `BottomNav`'s `fixed inset-x-3` then sized itself against that inflated layout viewport instead of the real 375px screen — explaining every symptom in the report (stretched width, uneven-looking spacing because most of the bar was off-screen, last items clipped).
+
+This also explains — and corrects — a misdiagnosis in the immediately preceding journal entry above: the "`SiteHeader` desktop nav overflow at 768–1279px" flagged there as a separate pre-existing P3 was actually the SAME bug (the probe overflows regardless of viewport width, since it's driven by offer-text content, not by the viewport), not a `SiteHeader` defect. Confirmed after this fix: overflow is gone at those widths too, and `SiteHeader`'s nav row itself was never the cause.
+
+**Fix — two small changes, both in `OfferStrip.tsx`, zero changes to `BottomNav.tsx` itself** (its architecture didn't need fixing, only its input — the containing block it measures against):
+- Added `relative` to the track container's `className` (`"flex h-9 items-center overflow-hidden ..."` → `"relative flex h-9 items-center overflow-hidden ..."`) — this is the actual fix: `relative` + the container's own pre-existing `overflow-hidden` now correctly clip the `absolute` probe, exactly the standard "positioned ancestor + `overflow-hidden`" CSS pattern that was one attribute short of working.
+- Expanded the probe's doc comment to explain why `relative` on its parent is load-bearing (a future edit removing it as "apparently unused" would silently reintroduce this exact bug).
+
+**Why this is the smallest safe fix, not scope creep:** the task brief explicitly named "parent overflow" and "viewport width calculation" as things to inspect for this exact class of bug, and `BottomNav.tsx` was already structurally correct — rewriting IT to defensively avoid a viewport-unit-based width (e.g. hardcoding pixel math) would have been treating the symptom, not the cause, and would risk the exact things the brief said not to do ("do not use arbitrary margins/fixed coordinates"). The one-attribute `OfferStrip` fix addresses the actual defect at its source and, as a side effect, also fixes the desktop/tablet horizontal-overflow observation from the earlier hero-banner entry today — one root cause, two symptoms, one fix.
+
+**Navigation items/behavior:** unchanged — same 5 (4 for guests) items, same `href`s, same active-state logic (`pathname` checks), same icons (`Home`/`Store`/`Heart`/`ShoppingBag`/`User` from `lucide-react`), same badge/count rendering, same `md:hidden` desktop cutoff. `git diff` on `BottomNav.tsx` is empty — it was never touched.
+
+**Desktop:** unaffected — `BottomNav` is `md:hidden` (unchanged) and was confirmed `display: none` at 768px+ before and after. Live-verified at 1440px: `SiteHeader`'s full nav row, the hero banner (from the entry above), category rail, and offer marquee all render identically to before this fix, zero console errors.
+
+**Mobile viewport verification (live, chrome-devtools-mcp, fresh page per width to avoid stale emulation state, `getBoundingClientRect()`/`scrollWidth` measured + screenshots):**
+- **320px:** `scrollWidth` 320 = `clientWidth` 320 (zero overflow). Nav `296×`-wide, 5 items × 59px each, last item (`Account`) right edge at 307px — fully inside the viewport.
+- **375px:** 375 = 375. Nav 351px wide, 5 × 70px, last item right edge 362px.
+- **390px:** 390 = 390. Nav 366px wide, 5 × 73px, last item right edge 377px.
+- **414px:** 414 = 414. Nav 390px wide, 5 × 78px, last item right edge 401px.
+- **430px:** 430 = 430. Nav 406px wide, 5 × 81px, last item right edge 417px. Screenshot confirms all 5 tabs (Home/Shop/Wishlist/Bag/Account) fully visible, evenly distributed, icons+labels centered per slot, badges (Wishlist "1", Bag "3") intact, correct active-state color on "Home".
+- **768px:** 768 = 768 (both as a touch/mobile emulation and as a plain desktop-style 768px emulation — checked both since this is the `md` breakpoint boundary). `BottomNav` computed `display: none` here (correctly hidden per `md:hidden`); `SiteHeader`'s desktop nav renders instead, unclipped.
+- At every mobile width: no horizontal scrollbar, no clipped item, equal per-item spacing (each item is exactly `100% / itemCount` via the untouched `flex-1` layout), fixed-to-bottom positioning intact, safe-area inset style (`bottom: calc(env(safe-area-inset-bottom) + ...)`) untouched. Zero console errors/warnings at any tested width.
+- **Pre-existing, unrelated, not fixed:** a floating support-chat bubble (bottom-left "N" circle, not part of this codebase's `BottomNav`/`WhatsAppButton` — appears to be a third-party widget) visually overlaps the "Home" tab's label at narrow widths in some screenshots. Not a `BottomNav` layout defect (the tab itself is correctly positioned and fully present in the DOM/hit-testing; the overlap is a separate floating element's own z-index/positioning) and outside this task's scope (no navigation/icon/route changes involved).
+
+**Files changed:**
+- `apps/web/src/features/home/components/OfferStrip.tsx` — `relative` added to the track container; probe's doc comment expanded to explain why.
+- `journal.md` — this entry, plus a correction note on the immediately preceding entry's `SiteHeader` misdiagnosis.
+- `apps/web/src/features/auth/components/BottomNav.tsx` — **not modified** (confirmed via `git diff`, listed here only to make explicit that the existing nav component, icons, routes, and styling were fully reused as required).
+
+**Tests/build:**
+- `pnpm -r run typecheck` — clean, all 9 workspace projects.
+- `pnpm -r run lint` (`--max-warnings=0`) — clean, all 9 projects.
+- `pnpm run boundaries:check` (`apps/api`) — clean, 649 modules / 2093 deps, 0 violations (this change has no backend/module surface, run for completeness per the task's own checklist).
+- `pnpm --filter web run build` — clean, exit 0, all 17 routes built (the build's `[TypeError: fetch failed] ECONNREFUSED` lines are expected/harmless: the API server was intentionally stopped for this build, matching the documented safe procedure below, and Next's ISR fallback for those routes handled it the same way the 2026-09-16 marquee entry above already described).
+- `pnpm --filter admin run build` — clean, exit 0, 26 routes.
+- Process hygiene: per this journal's own documented lesson ("don't run `next build` against an app directory whose dev server is still running"), stopped the live `pnpm run dev` stack (verified exactly one listener per port beforehand via `lsof -sTCP:LISTEN`, killed the single root `pnpm run dev` process, confirmed zero orphaned `next-server`/`tsx watch` children afterward), ran both production builds, then restarted `pnpm run dev` and reconfirmed exactly one listener on 3000/3001/4000 before resuming live verification.
+- No `apps/web` automated test runner exists (established, pre-existing convention per earlier entries) — live browser verification above is this change's test coverage.
+
+**Coupon/pricing/auth interaction:** unaffected — this was purely a CSS positioning-context fix in a decorative marquee component; no price, discount, auth, or routing logic was touched anywhere in the diff.
+
+**Outstanding issues:**
+- No P0/P1/P2 found.
+- P3 (pre-existing, out of scope, not a `BottomNav` defect): third-party floating chat-bubble widget visually overlapping the "Home" tab label at some narrow widths, noted above.

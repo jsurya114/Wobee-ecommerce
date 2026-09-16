@@ -122,7 +122,7 @@ export function OfferStrip({ offers }: { offers: HomeOffer[] }) {
   if (offers.length === 0) return null;
 
   return (
-    <div ref={containerRef} className="flex h-9 items-center overflow-hidden bg-primary text-white" role="region" aria-label="Current offers">
+    <div ref={containerRef} className="relative flex h-9 items-center overflow-hidden bg-primary text-white" role="region" aria-label="Current offers">
       {reducedMotion ? (
         <div className="flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-1.5">
           {offers.map((offer, i) => (
@@ -138,7 +138,7 @@ export function OfferStrip({ offers }: { offers: HomeOffer[] }) {
         </div>
       ) : (
         <>
-          {/* Hidden probe — exists purely so the layout effect can measure `periodWidth` (the width of exactly one pass through `offers`). Absolutely positioned so it never affects the visible strip's height/layout. */}
+          {/* Hidden probe — exists purely so the layout effect can measure `periodWidth` (the width of exactly one pass through `offers`). Absolutely positioned so it never affects the visible strip's height/layout — this ONLY stays clipped by the container's own `overflow-hidden` because the container is `relative` (its positioning context). Without `relative` here, this `absolute` probe escapes to the nearest positioned ancestor (often none), inflating the whole document's horizontal scroll extent — on mobile browsers that widens the "layout viewport" any `position: fixed` element (e.g. BottomNav) sizes itself against, not just this strip (2026-09-16 bug fix). */}
           <div
             ref={measureRef}
             aria-hidden="true"
