@@ -23,13 +23,20 @@ function isSafeHref(url: string): boolean {
 
 /**
  * Homepage promo carousel (UI refinement pass, 2026-08-31; taller mobile
- * hero, 2026-09-03 refinement pass 2) — admin-managed slides (banners
- * module), rendered here purely from what `GET /api/v1/home` already
- * returned (no extra request). `aspect-[8/5]` on mobile (~11% taller than
- * the prior `16/9`) gives the model/product image room to breathe as the
- * page's primary focal point after the brand/search area, while staying
- * capped well short of a full-height hero — the homepage is still
- * shopping-first. `sm:` and up keeps its own wider ratio + height cap.
+ * hero, 2026-09-03 refinement pass 2; height-only hero pass, 2026-09-16) —
+ * admin-managed slides (banners module), rendered here purely from what
+ * `GET /api/v1/home` already returned (no extra request). `aspect-[8/5]` on
+ * mobile (~11% taller than the prior `16/9`) gives the model/product image
+ * room to breathe as the page's primary focal point after the brand/search
+ * area, while staying capped well short of a full-height hero — the
+ * homepage is still shopping-first. Each larger breakpoint (`sm`/`md`/`lg`/
+ * `xl`) pairs its own `aspect-*` with a `max-h-*` chosen so the cap is the
+ * one actually governing the rendered height across that tier's whole width
+ * range (verified against both tier boundaries, not just one sample width) —
+ * this keeps the banner's height climbing in step with `max-w-6xl`'s own
+ * growing width instead of a single small cap flattening every viewport
+ * from 640px up to the same short strip, which was the original bug. Width/
+ * container classes (the wrapping `<div>`s) are untouched by this pass.
  *
  * Autoplay is a plain `setInterval` (no animation library) and is skipped
  * entirely under `prefers-reduced-motion: reduce`; any manual interaction
@@ -141,7 +148,7 @@ export function PromoCarousel({ banners }: { banners: HomeBanner[] }) {
 
 function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boolean }) {
   const content = (
-    <div className="relative aspect-[8/5] w-full overflow-hidden bg-surface-2 sm:aspect-[21/9] sm:max-h-[280px]">
+    <div className="relative aspect-[8/5] w-full max-h-[280px] overflow-hidden bg-surface-2 sm:aspect-[3/2] sm:max-h-[320px] md:aspect-[16/9] md:max-h-[380px] lg:aspect-[2/1] lg:max-h-[440px] xl:max-h-[480px]">
       <img
         src={banner.imageUrl}
         alt={banner.title ?? ""}

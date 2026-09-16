@@ -34,9 +34,10 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
  * §16's own "Variant management" operations list). `initialQuantity` only
  * applies when creating.
  *
- * `categoryPricingMode` (2026-08-31): decides which pricing field this
- * variant needs — a WEIGHT_BASED product's price is always weight × the
- * single global ₹/kg rate managed in Settings (no per-variant override —
+ * `pricingMode` (2026-08-31; now the PRODUCT's own field, admin-editable via
+ * ProductForm — moved off Category 2026-09-14) decides which pricing field
+ * this variant needs — a WEIGHT_BASED product's price is always weight ×
+ * the single global ₹/kg rate managed in Settings (no per-variant override —
  * that field is deprecated, see resolve-effective-rate.ts); a FIXED
  * product's variants take a required fixed price instead (ornaments/
  * footwear/accessories aren't priced by weight, see PricingMode's own doc
@@ -45,12 +46,12 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
  */
 export function VariantForm({
   variant,
-  categoryPricingMode,
+  pricingMode,
   onSubmit,
   onCancel,
 }: {
   variant?: AdminProductVariant;
-  categoryPricingMode: "WEIGHT_BASED" | "FIXED";
+  pricingMode: "WEIGHT_BASED" | "FIXED";
   onSubmit: (payload: VariantPayload | UpdateVariantPayload) => Promise<void>;
   onCancel?: () => void;
 }) {
@@ -58,7 +59,7 @@ export function VariantForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
   const isEditing = Boolean(variant);
-  const isFixed = categoryPricingMode === "FIXED";
+  const isFixed = pricingMode === "FIXED";
 
   const set = <K extends keyof VariantFormValues>(key: K, value: VariantFormValues[K]) => setValues((prev) => ({ ...prev, [key]: value }));
 
@@ -80,7 +81,7 @@ export function VariantForm({
     }
     const fixedPricePaise = values.fixedPricePaise ? Number(values.fixedPricePaise) : null;
     if (isFixed && !fixedPricePaise) {
-      setFieldError("fixedPricePaise", "This category is fixed-price — enter a price");
+      setFieldError("fixedPricePaise", "This product is fixed-price — enter a price");
       return;
     }
     setIsSubmitting(true);

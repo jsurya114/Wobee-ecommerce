@@ -4,6 +4,7 @@ import Link from "next/link";
 import { QuickAddToBagButton } from "@/features/cart/components/QuickAddToBagButton";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import type { ProductSummary } from "../api/products.client";
+import { OfferBadge } from "./OfferBadge";
 import { ShareProductButton } from "./ShareProductButton";
 
 /**
@@ -54,9 +55,11 @@ export function ProductCard({ product, showQuickAdd = false }: { product: Produc
       <p className="mt-1.5 truncate font-body text-xs font-medium text-text-primary lg:text-[13px]">{product.name}</p>
       <PriceTag
         className="mt-0.5"
-        pricePaise={product.minPricePaiseCache}
+        pricePaise={product.offerPricePaise}
+        compareAtPricePaise={product.offer ? product.minPricePaiseCache : null}
         weightGrams={product.fromWeightGrams}
         ratePerKgPaise={product.fromRatePerKgPaise}
+        discountBadge={product.offer ? <OfferBadge offer={product.offer} /> : undefined}
       />
     </Link>
   );

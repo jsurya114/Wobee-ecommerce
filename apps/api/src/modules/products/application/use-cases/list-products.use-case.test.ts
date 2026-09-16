@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CategoryReaderPort } from "../ports/category-reader.port";
 import type { CollectionReaderPort } from "../ports/collection-reader.port";
 import type { InventoryReaderPort } from "../ports/inventory-reader.port";
+import type { OfferReaderPort } from "../ports/offer-reader.port";
 import type { PricingReaderPort } from "../ports/pricing-reader.port";
 import type { ProductRepositoryPort, ProductSummaryProjection } from "../ports/product-repository.port";
 import { ListProductsUseCase } from "./list-products.use-case";
@@ -30,6 +31,9 @@ function resolved(overrides: Partial<ProductSummaryProjection> = {}) {
     ...rest,
     fromWeightGrams: isWeightBased ? (representativeVariant?.weightGrams ?? null) : null,
     fromRatePerKgPaise: isWeightBased && representativeVariant ? RATE : null,
+    // No offers in play for this use-case's own tests (see the OfferReaderPort stub in buildUseCase) — resolveApplicableOffersUseCase's own tests cover offer matching/precedence.
+    offerPricePaise: rest.minPricePaiseCache,
+    offer: null,
   };
 }
 
@@ -61,8 +65,11 @@ function buildUseCase(overrides: {
       Promise.resolve(inputs.map((input) => ({ pricePaise: Math.round((input.weightGrams * RATE) / 1000), ratePerKgPaise: RATE }))),
     ),
   };
-  const useCase = new ListProductsUseCase(productRepository, categoryReader, collectionReader, inventoryReader, pricingReader);
-  return { useCase, productRepository, categoryReader, collectionReader, inventoryReader, pricingReader };
+  const offerReader: OfferReaderPort = {
+    resolveMany: (inputs) => Promise.resolve(inputs.map((i) => ({ pricePaise: i.basePricePaise, appliedOffer: null }))),
+  };
+  const useCase = new ListProductsUseCase(productRepository, categoryReader, collectionReader, inventoryReader, pricingReader, offerReader);
+  return { useCase, productRepository, categoryReader, collectionReader, inventoryReader, pricingReader, offerReader };
 }
 
 describe("ListProductsUseCase", () => {

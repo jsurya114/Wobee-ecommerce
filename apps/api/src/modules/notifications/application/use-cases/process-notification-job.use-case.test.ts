@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ProcessNotificationJobUseCase } from "./process-notification-job.use-case";
+import { ProcessNotificationJobUseCase, STUCK_SENDING_THRESHOLD_MS } from "./process-notification-job.use-case";
 import { NotificationDeliveryError } from "../../domain/errors/notification-delivery.error";
 import type { NotificationEntity } from "../../domain/entities/notification.entity";
 
@@ -37,7 +37,7 @@ describe("ProcessNotificationJobUseCase", () => {
 
     await useCase.execute("notif-1");
 
-    expect(notificationRepository.claimForSending).toHaveBeenCalledWith("notif-1");
+    expect(notificationRepository.claimForSending).toHaveBeenCalledWith("notif-1", STUCK_SENDING_THRESHOLD_MS);
     expect(notificationProvider.send).toHaveBeenCalledWith(notification);
     expect(notificationRepository.markSent).toHaveBeenCalledWith("notif-1");
     // Claim strictly precedes the provider send — this is the anti-double-send guarantee.
@@ -55,7 +55,7 @@ describe("ProcessNotificationJobUseCase", () => {
 
     await useCase.execute("notif-1");
 
-    expect(notificationRepository.claimForSending).toHaveBeenCalledWith("notif-1");
+    expect(notificationRepository.claimForSending).toHaveBeenCalledWith("notif-1", STUCK_SENDING_THRESHOLD_MS);
     expect(notificationProvider.send).not.toHaveBeenCalled();
     expect(notificationRepository.markSent).not.toHaveBeenCalled();
   });

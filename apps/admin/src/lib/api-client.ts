@@ -24,9 +24,10 @@ function apiBaseUrl(): string {
   return url;
 }
 
-// `signal` (from RequestInit, kept via the Omit below) is threaded through from React
-// Query's queryFn context so a superseded request (route change, refetch) is actually
-// cancelled instead of racing the request that replaced it.
+// `signal` (from RequestInit, kept via the Omit below) is accepted as a pass-through
+// option so a caller CAN cancel a superseded request (e.g. a fast-typed search) by
+// forwarding React Query's queryFn `{ signal }` context down to the fetch call — but
+// this only happens for callers that actually pass it through; it is not automatic.
 interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   accessToken?: string;

@@ -12,11 +12,22 @@ export interface CartLine {
   weightGrams: number;
   /** Null for a FIXED-category product (2026-08-31) — there is no rate/kg. */
   ratePerKgPaise: number | null;
+  /** Phase 2 (2026-09-14) — the BASE price per unit, before any automatic Offer discount. Equal to `unitPricePaise` when no offer applies. */
+  basePricePaise: number;
+  /** OFFER-adjusted price per unit — this, not `basePricePaise`, is what `subtotalPaise` and the applied-coupon discount are computed from. */
   unitPricePaise: number;
   quantity: number;
   subtotalPaise: number;
   availableQuantity: number;
   isAvailable: boolean;
+  /** Null when no offer currently applies to this line. */
+  offer: {
+    offerId: string;
+    name: string;
+    discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+    discountValue: number;
+    discountPaise: number;
+  } | null;
 }
 
 /** ADR-021 checkout-blocking + free-delivery progress, server-computed (Week 1 Day 4). */

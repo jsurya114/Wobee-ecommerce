@@ -3,6 +3,7 @@ import { CategoryRail } from "@/features/home/components/CategoryRail";
 import { TestimonialsSection } from "@/features/home/components/TestimonialsSection";
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
 import { CompactSearchBar } from "@/features/catalog/components/CompactSearchBar";
+import { formatOfferBadgeLabel } from "@/features/catalog/lib/format-offer-badge";
 import { ProductRail } from "@/features/home/components/ProductRail";
 import { PromoCarousel } from "@/features/home/components/PromoCarousel";
 import { ShopByBudget } from "@/features/home/components/ShopByBudget";
@@ -21,11 +22,14 @@ function railItem(product: ProductSummary) {
 }
 /**
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
- * every section: the category rail, Shop your size, a New Arrivals rail,
- * Shop by Budget, Loved by Customers, Curated Collections, "What Our
- * Customers Say" (2026-09-11, replaces the old per-product Customer
- * Reviews rail with store-experience testimonials), and a thin trust line
- * above the footer.
+ * every section: the category rail, Shop your size,
+ * one dynamic campaign rail PER active Offer (offer merchandising pass,
+ * 2026-09-15 — `home.offerCampaigns`, titled from each Offer's own `name`;
+ * replaces the earlier single generic "Shop our offers" rail entirely, see
+ * that field's own doc comment), a New Arrivals rail, Shop by Budget,
+ * Loved by Customers, Curated Collections, "What Our Customers Say"
+ * (2026-09-11, replaces the old per-product Customer Reviews rail with
+ * store-experience testimonials), and a thin trust line above the footer.
  *
  * Merchandising logic corrections (2026-09-06, homepage audit): "Fresh
  * picks" is gone — it was never a distinct query, just `newArrivals`
@@ -57,10 +61,21 @@ export default async function HomePage() {
   return (
     <main>
       <ScrollToHashOnLoad />
+      {/* Offer strip lives in the shared storefront layout now (sitewide, above SiteHeader, 2026-09-16) — not rendered here. */}
       <CompactSearchBar />
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
       <ShopYourSize sizes={home.sizeAvailability} />
+      {home.offerCampaigns.map((campaign) => (
+        <ProductRail
+          key={campaign.offer.id}
+          title={campaign.offer.name}
+          subtitle={formatOfferBadgeLabel(campaign.offer)}
+          seeAllHref={`/products?offerId=${campaign.offer.id}`}
+        >
+          {campaign.products.map(railItem)}
+        </ProductRail>
+      ))}
       <ProductRail title="New arrivals" seeAllHref="/products?sort=newest">
         {home.newArrivals.map(railItem)}
       </ProductRail>

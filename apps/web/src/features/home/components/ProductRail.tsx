@@ -21,11 +21,20 @@ import { SITE_HEADER_HEIGHT_REM } from "@/lib/layout-constants";
  */
 export function ProductRail({
   title,
+  subtitle,
   children,
   seeAllHref,
   id,
 }: {
   title: string;
+  /**
+   * Offer merchandising pass (2026-09-15) — a compact, machine-generated
+   * discount line ("20% OFF", "₹300 OFF") shown under a campaign section's
+   * title, per the spec's "Campaign name → optional compact offer
+   * description → product rail" hierarchy. Omitted for every non-campaign
+   * rail (New Arrivals, Loved by Customers, …) — never invented for them.
+   */
+  subtitle?: string;
   children: ReactNode;
   seeAllHref?: string;
   /** Anchor id (e.g. the hamburger's `/#loved-by-customers` link) — `scroll-margin-top` keeps the sticky `SiteHeader` from covering the section title on landing. */
@@ -85,6 +94,7 @@ export function ProductRail({
         >
           {title}
         </SectionHeader>
+        {subtitle ? <p className="-mt-2 mb-2 font-body text-xs font-semibold text-primary">{subtitle}</p> : null}
 
         <div className="overflow-hidden" ref={emblaRef}>
           <div className="-ml-2.5 flex">{children}</div>

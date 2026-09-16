@@ -10,13 +10,13 @@ import { VariantForm } from "./VariantForm";
 
 export function VariantsList({
   variants,
-  categoryPricingMode,
+  pricingMode,
   onCreate,
   onUpdate,
   onSetActive,
 }: {
   variants: AdminProductVariant[];
-  categoryPricingMode: "WEIGHT_BASED" | "FIXED";
+  pricingMode: "WEIGHT_BASED" | "FIXED";
   onCreate: (input: VariantPayload) => Promise<void>;
   onUpdate: (variantId: string, input: UpdateVariantPayload) => Promise<void>;
   onSetActive: (variantId: string, isActive: boolean) => Promise<void>;
@@ -46,7 +46,7 @@ export function VariantsList({
           <VariantForm
             key={variant.id}
             variant={variant}
-            categoryPricingMode={categoryPricingMode}
+            pricingMode={pricingMode}
             onCancel={() => setEditingId(null)}
             onSubmit={async (input) => {
               await onUpdate(variant.id, input as UpdateVariantPayload);
@@ -79,7 +79,7 @@ export function VariantsList({
 
       {adding ? (
         <VariantForm
-          categoryPricingMode={categoryPricingMode}
+          pricingMode={pricingMode}
           onCancel={() => setAdding(false)}
           onSubmit={async (input) => {
             await onCreate(input as VariantPayload);

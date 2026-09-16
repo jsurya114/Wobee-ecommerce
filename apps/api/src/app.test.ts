@@ -11,6 +11,22 @@ describe("GET /health", () => {
   });
 });
 
+describe("GET /ready", () => {
+  it("reports ready by default (no DB/Redis check injected, matching how this test constructs the app)", async () => {
+    const app = createApp();
+    const res = await request(app).get("/ready");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ready");
+  });
+
+  it("reports 503 when the injected readiness check reports not ready", async () => {
+    const app = createApp({ checkReadiness: async () => ({ ready: false, details: { database: false, redis: true } }) });
+    const res = await request(app).get("/ready");
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ status: "not-ready", database: false, redis: true });
+  });
+});
+
 describe("unknown route", () => {
   it("returns a structured 404", async () => {
     const app = createApp();

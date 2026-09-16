@@ -13,7 +13,7 @@ import {
 import { Router } from "express";
 import { asyncHandler } from "../../../../middleware/async-handler";
 import { authGuard } from "../../../../middleware/auth-guard";
-import { rateLimit } from "../../../../middleware/rate-limit";
+import { byBodyField, rateLimit } from "../../../../middleware/rate-limit";
 import { validate } from "../../../../middleware/validate";
 import type { AuthController } from "./auth.controller";
 
@@ -40,6 +40,16 @@ const OTP_REGISTER_RATE_LIMIT = { max: 60, windowSeconds: 10 * 60 };
 // uses the OTP flow instead). A much looser ceiling here still bounds actual
 // abuse without that legitimate internal volume ever tripping it.
 const DIRECT_REGISTER_RATE_LIMIT = { max: 300, windowSeconds: 10 * 60 };
+// Forensic review (2026-09-13): the IP-only limiters above can't stop an
+// attacker who controls multiple IPs from spamming OTP/reset emails at ONE
+// victim address by rotating source IPs — each IP gets its own fresh
+// per-IP budget against the same target. This second limiter, keyed by the
+// target email itself, closes that specific gap on the three routes that
+// actually send mail to an address the caller supplies. Looser than the
+// IP limits (a real user legitimately retrying "didn't get the code" a
+// handful of times should never hit this) but tight enough to blunt a
+// targeted-harassment spam pattern.
+const EMAIL_TARGET_RATE_LIMIT = { max: 5, windowSeconds: 10 * 60, keyExtractor: byBodyField("email") };
 
 export function createAuthRouter(controller: AuthController): Router {
   const router = Router();
@@ -48,6 +58,7 @@ export function createAuthRouter(controller: AuthController): Router {
   router.post(
     "/register/start",
     rateLimit({ keyPrefix: "auth:register-start", ...OTP_REGISTER_RATE_LIMIT }),
+    rateLimit({ keyPrefix: "auth:register-start:email", ...EMAIL_TARGET_RATE_LIMIT }),
     validate(registerStartSchema),
     asyncHandler((req, res) => controller.startRegistration(req, res)),
   );
@@ -60,6 +71,7 @@ export function createAuthRouter(controller: AuthController): Router {
   router.post(
     "/register/resend",
     rateLimit({ keyPrefix: "auth:register-resend", ...AUTH_RATE_LIMIT }),
+    rateLimit({ keyPrefix: "auth:register-resend:email", ...EMAIL_TARGET_RATE_LIMIT }),
     validate(resendOtpSchema),
     asyncHandler((req, res) => controller.resendRegistrationOtp(req, res)),
   );
@@ -78,6 +90,7 @@ export function createAuthRouter(controller: AuthController): Router {
   router.post(
     "/forgot-password",
     rateLimit({ keyPrefix: "auth:forgot-password", ...AUTH_RATE_LIMIT }),
+    rateLimit({ keyPrefix: "auth:forgot-password:email", ...EMAIL_TARGET_RATE_LIMIT }),
     validate(forgotPasswordSchema),
     asyncHandler((req, res) => controller.forgotPassword(req, res)),
   );
@@ -96,6 +109,7 @@ export function createAuthRouter(controller: AuthController): Router {
   router.post(
     "/reset-password/resend",
     rateLimit({ keyPrefix: "auth:reset-password-resend", ...AUTH_RATE_LIMIT }),
+    rateLimit({ keyPrefix: "auth:reset-password-resend:email", ...EMAIL_TARGET_RATE_LIMIT }),
     validate(resendPasswordResetOtpSchema),
     asyncHandler((req, res) => controller.resendPasswordResetOtp(req, res)),
   );

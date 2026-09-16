@@ -5,11 +5,13 @@
 // boundary intact.
 import { previewCouponUseCase } from "../coupons/coupons.module";
 import { getAvailableQuantitiesUseCase } from "../inventory/inventory.module";
+import { resolveApplicableOffersUseCase } from "../offers/offers.module";
 import { calculateEffectivePriceUseCase } from "../pricing/pricing.module";
 import { getVariantsForCartUseCase } from "../products/products.module";
 import { evaluateShippingUseCase } from "../shipping/shipping.module";
 import type { CouponPreviewPort } from "./application/ports/coupon-preview.port";
 import type { InventoryReaderPort } from "./application/ports/inventory-reader.port";
+import type { OfferReaderPort } from "./application/ports/offer-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
 import type { ShippingReaderPort } from "./application/ports/shipping-reader.port";
 import type { VariantCatalogPort } from "./application/ports/variant-catalog.port";
@@ -37,11 +39,21 @@ const inventoryReader: InventoryReaderPort = {
 };
 const shippingReader: ShippingReaderPort = { evaluate: (grams) => evaluateShippingUseCase.execute(grams) };
 const couponPreview: CouponPreviewPort = { preview: (input) => previewCouponUseCase.execute(input) };
+/** Phase 2 (2026-09-14) — see OfferReaderPort's own doc comment. */
+const offerReader: OfferReaderPort = { resolveMany: (inputs) => resolveApplicableOffersUseCase.executeMany(inputs) };
 
 /** Exported for cross-module use — orders' checkout resolves the caller's cart the same way cart's own controller does. */
 export const getOrCreateCartUseCase = new GetOrCreateCartUseCase(cartRepository);
 /** Exported for cross-module use — orders' checkout reads live weight/price/stock through the same path the cart page does. */
-export const getCartUseCase = new GetCartUseCase(cartRepository, variantCatalog, pricingReader, inventoryReader, shippingReader, couponPreview);
+export const getCartUseCase = new GetCartUseCase(
+  cartRepository,
+  variantCatalog,
+  pricingReader,
+  inventoryReader,
+  shippingReader,
+  couponPreview,
+  offerReader,
+);
 /** Exported for cross-module use — wishlist's move-to-cart action (Week 2 Day 2) adds through the same path the cart page's "Add to bag" does. */
 export const addItemUseCase = new AddItemUseCase(cartRepository, variantCatalog, inventoryReader);
 const updateItemQuantityUseCase = new UpdateItemQuantityUseCase(cartRepository, inventoryReader);

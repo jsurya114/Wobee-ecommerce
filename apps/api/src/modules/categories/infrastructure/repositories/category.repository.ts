@@ -14,7 +14,6 @@ const ADMIN_SELECT = {
   sortOrder: true,
   imageUrl: true,
   isActive: true,
-  pricingMode: true,
   _count: { select: { products: true } },
 } as const;
 
@@ -25,7 +24,6 @@ function toAdminEntity(row: {
   sortOrder: number;
   imageUrl: string | null;
   isActive: boolean;
-  pricingMode: AdminCategoryEntity["pricingMode"];
   _count: { products: number };
 }): AdminCategoryEntity {
   return {
@@ -35,7 +33,6 @@ function toAdminEntity(row: {
     sortOrder: row.sortOrder,
     imageUrl: row.imageUrl,
     isActive: row.isActive,
-    pricingMode: row.pricingMode,
     productCount: row._count.products,
   };
 }
@@ -49,7 +46,7 @@ export class CategoryRepository implements CategoryRepositoryPort {
     const rows = await prisma.category.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true, slug: true, sortOrder: true, imageUrl: true, pricingMode: true },
+      select: { id: true, name: true, slug: true, sortOrder: true, imageUrl: true },
     });
     return rows;
   }

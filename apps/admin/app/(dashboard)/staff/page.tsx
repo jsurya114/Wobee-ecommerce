@@ -4,6 +4,7 @@ import type { StaffRole } from "@woobe/validation";
 import Link from "next/link";
 import { useState } from "react";
 import { LoadingState } from "@/features/shell/components/LoadingState";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import type { StaffStatus } from "@/features/staff/api/admin-staff.client";
 import { StaffFilters } from "@/features/staff/components/StaffFilters";
 import { StaffTable } from "@/features/staff/components/StaffTable";
@@ -13,7 +14,8 @@ export default function StaffPage() {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<StaffRole | undefined>(undefined);
   const [status, setStatus] = useState<StaffStatus | undefined>(undefined);
-  const { items, loading, error } = useAdminStaffList({ search: search || undefined, role, status });
+  const debouncedSearch = useDebouncedValue(search);
+  const { items, loading, error } = useAdminStaffList({ search: debouncedSearch || undefined, role, status });
 
   return (
     <div className="flex flex-col gap-4">

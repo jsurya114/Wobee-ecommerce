@@ -41,6 +41,8 @@ function buildListKey(filter: ListProductsFilter): string {
     joinSorted(filter.colors),
     filter.minPricePaise ?? "_",
     filter.maxPricePaise ?? "_",
+    filter.onOffer ? "onOffer" : "_",
+    filter.offerId ?? "_",
     filter.sort,
     filter.page,
     filter.limit,
@@ -85,6 +87,9 @@ export class CachedProductRepository implements ProductRepositoryPort {
   }
 
   // ── Live/internal reads — never cached, straight passthrough ──
+  findTopProductsPerOffer(params: { limit: number; inStockVariantIds?: string[] }): Promise<{ offerId: string; productId: string }[]> {
+    return this.inner.findTopProductsPerOffer(params);
+  }
   searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]> {
     return this.inner.searchSuggestions(query, limit);
   }
@@ -93,6 +98,9 @@ export class CachedProductRepository implements ProductRepositoryPort {
   }
   findProductPricingMode(productId: string): ReturnType<ProductRepositoryPort["findProductPricingMode"]> {
     return this.inner.findProductPricingMode(productId);
+  }
+  findVariantsForPricingModeSwitch(productId: string): ReturnType<ProductRepositoryPort["findVariantsForPricingModeSwitch"]> {
+    return this.inner.findVariantsForPricingModeSwitch(productId);
   }
   findByIds(productIds: string[]): Promise<ProductSummaryProjectionWithStatus[]> {
     return this.inner.findByIds(productIds);
@@ -174,6 +182,12 @@ export class CachedProductRepository implements ProductRepositoryPort {
   }
   async reorderImages(productId: string, orderedImageIds: string[]): Promise<void> {
     await this.inner.reorderImages(productId, orderedImageIds);
+    await bumpCatalogCacheVersion();
+  }
+  async repriceVariantsForPricingModeSwitch(
+    updates: Parameters<ProductRepositoryPort["repriceVariantsForPricingModeSwitch"]>[0],
+  ): Promise<void> {
+    await this.inner.repriceVariantsForPricingModeSwitch(updates);
     await bumpCatalogCacheVersion();
   }
 }

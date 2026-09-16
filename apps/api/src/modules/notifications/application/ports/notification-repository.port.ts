@@ -21,8 +21,18 @@ export interface NotificationRepositoryPort {
    * Returns true only for the caller that won the transition. Taken BEFORE
    * the provider send so a BullMQ redelivery / a second worker / a retry
    * after a lost completion-ack can never fire the same message twice.
+   *
+   * Forensic-review fix (2026-09-13): also claims a row already in `SENDING`
+   * if it has sat there since before `staleAfterMs` ago. Without this, a
+   * worker crash between winning the claim and the provider call resolving
+   * left the row stuck in `SENDING` forever — BullMQ's own stalled-job
+   * detection DOES redeliver that job, but the redelivered attempt used to
+   * see `status = SENDING` and silently no-op, mistaking an orphaned claim
+   * for someone else's in-flight send. `staleAfterMs` should be comfortably
+   * longer than BullMQ's own stall-detection + attempt window so a genuinely
+   * in-flight send (not yet stale) is never reclaimed out from under it.
    */
-  claimForSending(id: string): Promise<boolean>;
+  claimForSending(id: string, staleAfterMs: number): Promise<boolean>;
   /** Releases a claim back to PENDING (`... WHERE id = ? AND status = 'SENDING'`) after a retryable send failure, so BullMQ's own retry can re-attempt it. */
   releaseClaim(id: string): Promise<void>;
   /** SENDING -> SENT. Guarded so it only advances a row this worker actually claimed. */

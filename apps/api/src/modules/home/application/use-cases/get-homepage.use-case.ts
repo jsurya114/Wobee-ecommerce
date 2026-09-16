@@ -1,6 +1,7 @@
 import type { BannerSummaryEntity } from "../../../banners/domain/entities/banner.entity";
 import type { CategoryEntity } from "../../../categories/domain/entities/category.entity";
 import type { CollectionEntity } from "../../../collections/domain/entities/collection.entity";
+import type { OfferStripEntity } from "../../../offers/domain/entities/offer.entity";
 import type { ListProductsResult } from "../../../products/application/use-cases/list-products.use-case";
 import type { ProductSummaryWithStatus } from "../../../products/application/ports/product-repository.port";
 import type { ProductSummaryEntity } from "../../../products/domain/entities/product.entity";
@@ -10,6 +11,30 @@ import type { PublicTestimonialView } from "../../../testimonials/application/us
 
 const NEW_ARRIVALS_LIMIT = 8;
 const BEST_SELLERS_LIMIT = 8;
+/**
+ * Per-campaign product cap (offer merchandising pass, 2026-09-15) — same
+ * size as every other homepage rail (New Arrivals, Best Sellers), so a
+ * campaign section reads as "a curated rail," not an attempt to dump the
+ * whole offer's catalogue on the homepage. See `OFFER_CAMPAIGNS_LIMIT`'s own
+ * comment for the section-count cap alongside this one.
+ */
+const OFFER_CAMPAIGN_PRODUCTS_LIMIT = 8;
+/**
+ * How many per-Offer campaign sections the homepage shows at once (Part 19
+ * of the storefront Offer-merchandising spec — "do not blindly insert five
+ * Offer sections… cap the number of campaign sections shown"). 3 is
+ * deliberate, not arbitrary: it keeps the homepage's existing merchandising
+ * balance (Category → Size → Offers → New Arrivals → Budget → Best
+ * Sellers → Collections) from being dominated by promotional rails even
+ * when many offers are running at once, and it bounds the payload this adds
+ * to `GET /api/v1/home` to at most 3 × OFFER_CAMPAIGN_PRODUCTS_LIMIT extra
+ * product summaries — the same order of magnitude New Arrivals + Best
+ * Sellers already add together, not a multiple of it. A store running more
+ * than 3 concurrent offers still surfaces every one of them — just not all
+ * on the homepage — via each section's own "See all" and the Shop page's
+ * "On Offer" filter.
+ */
+const OFFER_CAMPAIGNS_LIMIT = 3;
 /**
  * Same curated clothing-size vocabulary as the PLP's own `SIZE_OPTIONS`
  * (apps/web/src/features/catalog/lib/filter-options.ts) — kept as a
@@ -49,6 +74,21 @@ const TESTIMONIALS_LIMIT = 6;
  */
 interface NewArrivalsLister {
   execute(input: { sort: "newest"; page: number; limit: number; inStockOnly?: boolean }): Promise<ListProductsResult>;
+}
+
+/**
+ * Matches `GroupProductsByOfferUseCase`'s own `execute` signature (offer
+ * merchandising pass, 2026-09-15) — replaces the earlier generic "Shop our
+ * offers" single rail (`OfferedProductsLister`) with a per-Offer grouping,
+ * per the spec's own "each active Offer creates its own campaign section,
+ * not a generic bucket" requirement. Bound in home.module.ts to the
+ * `products` module's exported `groupProductsByOfferUseCase`, which itself
+ * reuses the exact same SQL-level winning-offer resolution `onOffer`/
+ * effective-price sort already use — never a second/parallel definition of
+ * "which offer applies to this product."
+ */
+interface ProductsByOfferGrouper {
+  execute(input: { limitPerOffer: number; inStockOnly?: boolean }): Promise<Map<string, ProductSummaryEntity[]>>;
 }
 
 /** Matches `GetBestSellingVariantQuantitiesUseCase`'s own `execute` signature. */
@@ -94,6 +134,11 @@ interface CategoryImageResolver {
 /** Matches `ListVisibleBannersUseCase`'s own `execute` signature (2026-08-31 promo carousel). */
 interface VisibleBannersLister {
   execute(): Promise<BannerSummaryEntity[]>;
+}
+
+/** Matches `ListActiveOffersForStripUseCase`'s own `execute` signature (Phase 2, 2026-09-14 offer strip). */
+interface ActiveOffersLister {
+  execute(): Promise<OfferStripEntity[]>;
 }
 
 /**
@@ -155,10 +200,49 @@ export interface HomeSizeOption {
   count: number;
 }
 
+/**
+ * One homepage "campaign" section (offer merchandising pass, 2026-09-15) —
+ * `offer` is the SAME lightweight shape `activeOffers`'s strip already uses
+ * (`OfferStripEntity`: id/name/discountType/discountValue/scope), so the
+ * storefront's "20% OFF" / "₹300 OFF" subtitle formatting is one shared
+ * helper, not two. `products` is that offer's top eligible products —
+ * already resolved (offer-adjusted `offerPricePaise`/`offer` included),
+ * already capped, already in-stock. Never constructed for an offer with
+ * zero eligible products — see `buildOfferCampaigns`'s own comment.
+ */
+export interface OfferCampaignView {
+  offer: OfferStripEntity;
+  products: ProductSummaryEntity[];
+}
+
 export interface HomePageView {
   banners: BannerSummaryEntity[];
+  /**
+   * Phase 2 (2026-09-14) — the promotional offer strip's data. Every
+   * currently active, in-schedule offer (ListActiveOffersForStripUseCase
+   * already applies that filter — see its own doc comment on why no cron
+   * job is needed to keep this fresh); a scheduled-but-not-started or
+   * already-expired offer is simply absent, never included with a "coming
+   * soon"/"expired" flag. `[]` when no offer is currently active — the
+   * storefront hides the strip entirely rather than showing an empty bar.
+   */
+  activeOffers: OfferStripEntity[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummaryEntity[];
+  /**
+   * Dynamic per-Offer campaign sections (offer merchandising pass,
+   * 2026-09-15) — replaces the earlier generic "Shop our offers" single
+   * rail. Distinct from `activeOffers` above (the promotional STRIP
+   * describing the offers themselves): each entry here is one active
+   * offer's own actual purchasable, in-stock products at their effective
+   * price, already ordered (same deterministic priority/recency order as
+   * the strip) and capped at `OFFER_CAMPAIGNS_LIMIT` sections /
+   * `OFFER_CAMPAIGN_PRODUCTS_LIMIT` products each. `[]` when no currently
+   * active offer has any eligible product; the storefront hides the whole
+   * area rather than show an empty/generic section (same convention
+   * `activeOffers`/`testimonials` already use).
+   */
+  offerCampaigns: OfferCampaignView[];
   /**
    * "Loved by Customers" on the storefront (renamed from "Best Sellers",
    * merchandising logic corrections 2026-09-06) — see `resolveBestSellers`'s
@@ -224,9 +308,11 @@ export interface HomePageView {
  *   entry links to the PLP's existing `?size=` filter, never a second size-
  *   filtering implementation.
  *
- * Sections with no real data source yet (Offers, Shop by Vibe, UGC/
- * Instagram, Build Your Look) are simply absent from HomePageView — not
- * built with placeholder content, per Module 12's own "do not invent" list.
+ * Sections with no real data source yet (Shop by Vibe, UGC/Instagram,
+ * Build Your Look) are simply absent from HomePageView — not built with
+ * placeholder content, per Module 12's own "do not invent" list. Offers
+ * (Phase 2, 2026-09-14) is no longer in that category — `activeOffers`
+ * above is real, admin-controlled data (ListActiveOffersForStripUseCase).
  * "Fresh Picks" (2026-09-06: removed) used to be rendered here too, but it
  * was never a distinct query — the storefront page just re-sliced
  * `newArrivals` under a second label (see the homepage audit's finding C) —
@@ -245,14 +331,17 @@ export class GetHomePageUseCase {
     private readonly categoriesLister: CategoriesLister,
     private readonly categoryImageResolver: CategoryImageResolver,
     private readonly visibleBannersLister: VisibleBannersLister,
+    private readonly activeOffersLister: ActiveOffersLister,
     private readonly budgetProductsLister: BudgetProductsLister,
     private readonly inStockProductIdsProvider: InStockProductIdsProvider,
     private readonly sizeAvailabilityReader: SizeAvailabilityReader,
+    private readonly productsByOfferGrouper: ProductsByOfferGrouper,
   ) {}
 
   async execute(): Promise<HomePageView> {
     const [
       banners,
+      activeOffers,
       categoryTiles,
       newArrivals,
       bestSellers,
@@ -261,8 +350,10 @@ export class GetHomePageUseCase {
       testimonialAggregate,
       budgetTiles,
       sizeAvailability,
+      groupedOfferProducts,
     ] = await Promise.all([
       this.visibleBannersLister.execute(),
+      this.activeOffersLister.execute(),
       this.resolveCategoryTiles(),
       this.newArrivalsLister
         .execute({ sort: "newest", page: 1, limit: NEW_ARRIVALS_LIMIT, inStockOnly: true })
@@ -273,10 +364,12 @@ export class GetHomePageUseCase {
       this.resolveTestimonialAggregate(),
       this.resolveBudgetTiles(),
       this.resolveSizeAvailability(),
+      this.productsByOfferGrouper.execute({ limitPerOffer: OFFER_CAMPAIGN_PRODUCTS_LIMIT, inStockOnly: true }),
     ]);
 
     return {
       banners,
+      activeOffers,
       categoryTiles,
       newArrivals,
       bestSellers,
@@ -285,6 +378,7 @@ export class GetHomePageUseCase {
       testimonialAggregate,
       budgetTiles,
       sizeAvailability,
+      offerCampaigns: buildOfferCampaigns(activeOffers, groupedOfferProducts),
     };
   }
 
@@ -377,4 +471,22 @@ export class GetHomePageUseCase {
     if (approvedCount === 0 || averageRating === null) return null;
     return { approvedCount, averageRating };
   }
+}
+
+/**
+ * Zips `activeOffers` (already deterministically ordered — priority DESC,
+ * then createdAt DESC, per `ListActiveOffersForStripUseCase`/
+ * `findActiveForStrip`) with `groupedOfferProducts` (offer id -> its
+ * products, from `ProductsByOfferGrouper`), in that same order, dropping any
+ * offer with zero eligible products and capping the result at
+ * `OFFER_CAMPAIGNS_LIMIT` sections. An offer never appears with an empty
+ * rail (storefront Offer-merchandising spec's own explicit "do not render a
+ * section simply because an Offer is active" rule) — this filter is what
+ * enforces that, in the one place campaign sections are assembled.
+ */
+function buildOfferCampaigns(activeOffers: OfferStripEntity[], groupedOfferProducts: Map<string, ProductSummaryEntity[]>): OfferCampaignView[] {
+  return activeOffers
+    .map((offer) => ({ offer, products: groupedOfferProducts.get(offer.id) ?? [] }))
+    .filter((campaign) => campaign.products.length > 0)
+    .slice(0, OFFER_CAMPAIGNS_LIMIT);
 }

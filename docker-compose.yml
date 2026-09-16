@@ -26,6 +26,17 @@ services:
     image: redis:7-alpine
     container_name: woobe-redis
     restart: unless-stopped
+    # Forensic review (2026-09-13): every current use of Redis in this app
+    # (rate-limit counters, the guest-order-claim counter, the catalog
+    # cache, BullMQ's own queue bookkeeping) is either disposable/cache-like
+    # or has its own bounded cleanup (BullMQ's removeOnComplete/removeOnFail)
+    # — nothing here needs to survive an eviction. Without a `maxmemory` cap,
+    # Redis's default `noeviction` policy only matters once a cap exists, so
+    # an unconfigured instance simply grows until the host runs out of
+    # memory. `allkeys-lru` is the correct policy given nothing stored here
+    # is exempt from being dropped under pressure. 256mb is a reasonable dev
+    # default — size this to the actual ElastiCache node in production.
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       # Host port 6380, not the default 6379 — this machine already runs an
       # unrelated project's Redis container bound to 6379. Container-internal

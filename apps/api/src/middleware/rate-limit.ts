@@ -1,13 +1,33 @@
 import type { NextFunction, Request, Response } from "express";
 import { redis } from "../config/redis";
 import { TooManyRequestsError } from "../shared/errors";
+import { logError } from "../shared/logger";
 
 export interface RateLimitOptions {
   /** Redis key namespace for this limiter — keeps distinct routes' counters from colliding, same reasoning as RedisClaimAttemptLimiterService's own key prefix. */
   keyPrefix: string;
-  /** Requests allowed per window, per client IP. */
+  /** Requests allowed per window, per identity (see `keyExtractor`). */
   max: number;
   windowSeconds: number;
+  /**
+   * What identifies "one client" for this limiter. Defaults to the request
+   * IP (the original, IP-only behavior). Pass `byBodyField("email")` (below)
+   * to key by a target identifier instead — e.g. an OTP/password-reset route
+   * where the real abuse case is "spam one victim's inbox by rotating source
+   * IPs," which a per-IP limiter alone cannot catch (forensic review,
+   * 2026-09-13). Returning `null` (field absent/not a string) skips this
+   * limiter for that request rather than sharing one bucket across every
+   * malformed submission.
+   */
+  keyExtractor?: (req: Request) => string | null;
+}
+
+/** Keys by a string field in the (not-yet-validated) request body, lowercased/trimmed so `Foo@Bar.com` and `foo@bar.com ` share one bucket. */
+export function byBodyField(field: string): (req: Request) => string | null {
+  return (req: Request) => {
+    const raw = (req.body as Record<string, unknown> | undefined)?.[field];
+    return typeof raw === "string" && raw.trim() ? raw.trim().toLowerCase() : null;
+  };
 }
 
 /**
@@ -32,10 +52,16 @@ export interface RateLimitOptions {
  * should degrade to "no rate limiting" on this one route, not take the
  * entire auth surface down with it.
  */
-export function rateLimit({ keyPrefix, max, windowSeconds }: RateLimitOptions) {
+export function rateLimit({ keyPrefix, max, windowSeconds, keyExtractor }: RateLimitOptions) {
+  const extractIdentity = keyExtractor ?? ((req: Request) => req.ip ?? null);
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    const identity = extractIdentity(req);
+    if (identity === null) {
+      next();
+      return;
+    }
     try {
-      const key = `ratelimit:${keyPrefix}:${req.ip}`;
+      const key = `ratelimit:${keyPrefix}:${identity}`;
       const count = await redis.incr(key);
       if (count === 1) {
         await redis.expire(key, windowSeconds);
@@ -47,7 +73,7 @@ export function rateLimit({ keyPrefix, max, windowSeconds }: RateLimitOptions) {
       }
       next();
     } catch (err) {
-      console.error(`[rate-limit:${keyPrefix}] redis error, failing open:`, err instanceof Error ? err.message : err);
+      logError("rate_limit_redis_error", { keyPrefix, failedOpen: true, message: err instanceof Error ? err.message : String(err) });
       next();
     }
   };

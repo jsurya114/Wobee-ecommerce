@@ -55,6 +55,17 @@ export const productListQuerySchema = z
     // Live availability filter — never a stale/cached flag, see
     // ListProductsUseCase.
     inStock: booleanFlag(),
+    // Offer-filtering pass (2026-09-15) — "On Offer" storefront filter.
+    // Server-side only, same true/false-or-absent shape as `inStock`; the
+    // actual offer resolution happens in ProductRepository's SQL, never here.
+    onOffer: booleanFlag(),
+    // Offer merchandising pass (2026-09-15) — pins the listing to ONE
+    // specific offer's currently-winning products (the homepage campaign
+    // section / offer strip's "See all"/click-through target), rather than
+    // "any offer" like `onOffer`. A public, read-only filter — an offer id
+    // isn't sensitive, and an id that doesn't match any active offer simply
+    // yields zero results, never a 400/404.
+    offerId: z.string().uuid().optional(),
     // Paise, inclusive bounds. Filters against Product.minPricePaiseCache —
     // the same display/sort cache Week 1 already uses for listing sort
     // (see product.repository.ts's own comment for why that's fine for a
@@ -97,6 +108,15 @@ export type ProductSuggestionQuery = z.infer<typeof productSuggestionQuerySchema
 // still bounded to something sane.
 const slugSchema = z.string().trim().min(1, "Slug is required").max(200);
 
+/**
+ * 2026-09-14 — Product-level pricing mode (moved off Category; see
+ * PricingMode's own doc comment in schema.prisma). Inline literal, same
+ * pattern this file's sibling schemas use for other enums shared with
+ * @woobe/types (e.g. coupons.schema.ts's discount `type`) — not worth a
+ * cross-package dependency for two string literals.
+ */
+const pricingModeSchema = z.enum(["WEIGHT_BASED", "FIXED"]);
+
 /** A query-string boolean arrives as the literal string "true"/"false", never a real boolean — z.coerce.boolean() would treat the string "false" as truthy and is a known Zod footgun for exactly this shape (same reasoning `booleanFlag()` above already applies, kept separate since that one intentionally has no explicit exported type). */
 const queryBooleanSchema = z
   .enum(["true", "false"])
@@ -109,6 +129,9 @@ export const createProductSchema = z.object({
   description: z.string().trim().max(5000).optional(),
   brand: z.string().trim().max(120).optional(),
   categoryId: z.string().uuid("Invalid category id"),
+  // Defaults to WEIGHT_BASED (the pre-existing behavior) so every caller
+  // that predates this field keeps working unchanged.
+  pricingMode: pricingModeSchema.default("WEIGHT_BASED"),
   metaTitle: z.string().trim().max(200).optional(),
   metaDescription: z.string().trim().max(500).optional(),
 });
@@ -120,6 +143,11 @@ export const updateProductSchema = z.object({
   description: z.string().trim().max(5000).nullable().optional(),
   brand: z.string().trim().max(120).nullable().optional(),
   categoryId: z.string().uuid("Invalid category id").optional(),
+  // Omitted = leave the product's current pricingMode untouched. Switching
+  // it is validated against the product's existing variants by
+  // UpdateProductUseCase (application layer — this schema only knows the
+  // shape of one field, not the product's variant state).
+  pricingMode: pricingModeSchema.optional(),
   metaTitle: z.string().trim().max(200).nullable().optional(),
   metaDescription: z.string().trim().max(500).nullable().optional(),
 });
@@ -144,7 +172,7 @@ export const createVariantSchema = z.object({
   // column still exists in the database for compatibility but is no longer
   // settable through this API and is ignored by every pricing calculation —
   // see resolve-effective-rate.ts's own doc comment.
-  /** Authoritative price for a FIXED-category product (2026-08-31) — ignored for WEIGHT_BASED. Required-when-FIXED is enforced by the use-case, which knows the product's category, not here. */
+  /** Authoritative price for a FIXED product (2026-08-31; pricingMode moved to Product 2026-09-14) — ignored for WEIGHT_BASED. Required-when-FIXED is enforced by the use-case, which knows the product's own pricingMode, not here. */
   fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),
   fabric: z.string().trim().max(200).nullable().optional(),
   fit: z.string().trim().max(200).nullable().optional(),
@@ -161,7 +189,7 @@ export const updateVariantSchema = z.object({
   size: z.string().trim().min(1, "Size is required").max(30).optional(),
   weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams").optional(),
   // No `ratePerKgOverridePaise` field — see createVariantSchema's own comment.
-  /** Authoritative price for a FIXED-category product (2026-08-31) — ignored for WEIGHT_BASED. */
+  /** Authoritative price for a FIXED product (2026-08-31; pricingMode moved to Product 2026-09-14) — ignored for WEIGHT_BASED. */
   fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),
   fabric: z.string().trim().max(200).nullable().optional(),
   fit: z.string().trim().max(200).nullable().optional(),

@@ -97,23 +97,18 @@ async function main() {
   // `imageUrl` points at a file in apps/web/public/imgs (served at /imgs/…).
   // The homepage category rail prefers this over its derived-from-a-product
   // fallback. Swap these files (or the paths) for real category art.
-  // `pricingMode` (2026-08-31, client-reported business rule): weight-based
-  // pricing only makes sense for clothing — ornaments/footwear/accessories
-  // get an admin-set fixed price instead. Accessories is the only FIXED
-  // category today; the rest default to WEIGHT_BASED explicitly here rather
-  // than relying silently on the schema default.
   const categoryDefs = [
-    { name: "Tops", slug: "tops", imageUrl: "/imgs/cat-tops.jpg", pricingMode: "WEIGHT_BASED" as const },
-    { name: "Dresses", slug: "dresses", imageUrl: "/imgs/cat-dresses.jpg", pricingMode: "WEIGHT_BASED" as const },
-    { name: "Bottoms", slug: "bottoms", imageUrl: "/imgs/cat-bottoms.jpg", pricingMode: "WEIGHT_BASED" as const },
-    { name: "Ethnic Wear", slug: "ethnic-wear", imageUrl: "/imgs/cat-ethnic-wear.jpg", pricingMode: "WEIGHT_BASED" as const },
-    { name: "Accessories", slug: "accessories", imageUrl: "/imgs/cat-accessories.jpg", pricingMode: "FIXED" as const },
+    { name: "Tops", slug: "tops", imageUrl: "/imgs/cat-tops.jpg" },
+    { name: "Dresses", slug: "dresses", imageUrl: "/imgs/cat-dresses.jpg" },
+    { name: "Bottoms", slug: "bottoms", imageUrl: "/imgs/cat-bottoms.jpg" },
+    { name: "Ethnic Wear", slug: "ethnic-wear", imageUrl: "/imgs/cat-ethnic-wear.jpg" },
+    { name: "Accessories", slug: "accessories", imageUrl: "/imgs/cat-accessories.jpg" },
   ];
   const categories: Record<string, { id: string }> = {};
   for (const c of categoryDefs) {
     categories[c.slug] = await prisma.category.upsert({
       where: { slug: c.slug },
-      update: { imageUrl: c.imageUrl, pricingMode: c.pricingMode },
+      update: { imageUrl: c.imageUrl },
       create: c,
     });
   }
@@ -358,6 +353,15 @@ async function main() {
     const variantPrices = p.variants.map((v) => priceForWeight(v.weightGrams, DEFAULT_RATE_PER_KG_PAISE));
     const minPrice = Math.min(...variantPrices);
 
+    // pricingMode (2026-08-31, client-reported business rule; moved from
+    // Category to Product 2026-09-14 — see PricingMode's own doc comment in
+    // schema.prisma): weight-based pricing only makes sense for clothing —
+    // ornaments/footwear/accessories get an admin-set fixed price instead.
+    // Every product currently seeded under "accessories" is FIXED; every
+    // other product defaults to WEIGHT_BASED explicitly here rather than
+    // relying silently on the schema default.
+    const isFixedCategory = p.categorySlug === "accessories";
+
     const product = await prisma.product.upsert({
       where: { slug: p.slug },
       update: {},
@@ -366,6 +370,7 @@ async function main() {
         slug: p.slug,
         description: p.description,
         categoryId: categories[p.categorySlug]!.id,
+        pricingMode: isFixedCategory ? "FIXED" : "WEIGHT_BASED",
         minPricePaiseCache: minPrice,
         collections: {
           create: p.collections.map((slug) => ({
@@ -392,10 +397,11 @@ async function main() {
       data: imageRows.map((row) => ({ ...row, productId: product.id })),
     });
 
-    // FIXED-category variants (2026-08-31): seeded with fixedPricePaise equal
+    // FIXED-product variants (2026-08-31): seeded with fixedPricePaise equal
     // to what the weight formula would have produced, so nothing visibly
     // changes at cutover — admin sets real fixed prices from here.
-    const isFixedCategory = p.categorySlug === "accessories";
+    // (`isFixedCategory` computed above, alongside the product's own
+    // pricingMode.)
 
     for (const v of p.variants) {
       const sku = `${p.slug}-${v.color}-${v.size}`.toUpperCase().replace(/\s+/g, "-");

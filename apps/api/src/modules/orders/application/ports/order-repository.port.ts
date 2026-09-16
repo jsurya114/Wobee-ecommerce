@@ -1,4 +1,4 @@
-import type { OrderStatus, PricingMode } from "@woobe/types";
+import type { OfferDiscountType, OrderStatus, PricingMode } from "@woobe/types";
 import type { OrderEntity, OrderSummaryEntity, AdminOrderSummaryEntity } from "../../domain/entities/order.entity";
 
 export interface CreateOrderItemInput {
@@ -12,12 +12,21 @@ export interface CreateOrderItemInput {
   pricingMode: PricingMode;
   /** Null for FIXED lines. */
   unitRatePerKgPaise: number | null;
+  /** Phase 2 (2026-09-14) — the BASE price per unit, before any automatic Offer discount. Equal to `unitPricePaise` when no offer applied. */
+  basePricePaise: number;
   unitPricePaise: number;
   quantity: number;
   lineTotalPaise: number;
   taxAmountPaise: number;
   /** Coupon discount allocated to this line (largest-remainder split of the order-level discount across eligible lines). 0 when no coupon. */
   discountPaise: number;
+  /** Phase 2 (2026-09-14) — snapshot of the automatic Offer applied to this line, if any. Null when no offer applied. */
+  offerId: string | null;
+  offerNameSnapshot: string | null;
+  offerDiscountType: OfferDiscountType | null;
+  offerDiscountValue: number | null;
+  /** The actual paise amount the offer deducted from this line (quantity x per-unit discount). 0 when no offer applied. */
+  offerDiscountPaise: number;
 }
 
 export interface CreateOrderInput {

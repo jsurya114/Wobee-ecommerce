@@ -8,3 +8,21 @@
 body {
   @apply bg-surface text-text-primary font-body;
 }
+
+/* Phase 2 (2026-09-14) — the homepage offer strip's "moving" scroll
+   (OfferStrip.tsx). A plain CSS keyframe rather than a JS animation
+   library: the content is a single duplicated track scrolling left by
+   exactly half its own width, so the loop point is seamless regardless of
+   how much offer text there is. Respects `prefers-reduced-motion` at the
+   component level (the `animate-none` class swap, not here) — kept as a
+   real CSS animation, not `@media (prefers-reduced-motion)` here, so the
+   component's own JS-computed track duration (proportional to content
+   length) stays authoritative. */
+@keyframes offer-strip-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}

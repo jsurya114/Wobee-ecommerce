@@ -9,11 +9,13 @@ import { listVisibleBannersUseCase } from "../banners/banners.module";
 import { listCategoriesUseCase } from "../categories/categories.module";
 import { listCollectionsUseCase } from "../collections/collections.module";
 import { findInStockVariantIdsUseCase } from "../inventory/inventory.module";
+import { listActiveOffersForStripUseCase } from "../offers/offers.module";
 import { getBestSellingVariantQuantitiesUseCase } from "../orders/orders.module";
 import {
   countActiveProductsBySizeUseCase,
   getCategoryImagesUseCase,
   getProductsByIdsUseCase,
+  groupProductsByOfferUseCase,
   listProductsUseCase,
   resolveProductIdsForVariantsUseCase,
 } from "../products/products.module";
@@ -62,9 +64,11 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   listCategoriesUseCase,
   getCategoryImagesUseCase,
   listVisibleBannersUseCase,
+  listActiveOffersForStripUseCase,
   listProductsUseCase,
   inStockProductIdsProvider,
   countActiveProductsBySizeUseCase,
+  groupProductsByOfferUseCase,
 );
 
 const HOME_TTL_SECONDS = 60;
@@ -86,8 +90,16 @@ const HOME_TTL_SECONDS = 60;
  * admin CONTENT writes (a product/category/banner edit) and is bumped at
  * runtime; this one tracks the response SHAPE and is bumped at deploy time,
  * by hand, in code review, same as any other schema-version constant.
+ *
+ * Bumped 2 -> 3 (Phase 2, 2026-09-14) for exactly the scenario above:
+ * `activeOffers` was added to `HomePageView`. Bumped 3 -> 4 (storefront
+ * offer-discovery pass, 2026-09-15) for the same reason: `offeredProducts`
+ * was added. Bumped 4 -> 5 (offer merchandising pass, 2026-09-15) because
+ * `offeredProducts` was REMOVED and replaced with the differently-shaped
+ * `offerCampaigns` — a stale cache entry from the previous shape would
+ * otherwise still validate as JSON and get served with neither field intact.
  */
-const HOME_PAGE_SCHEMA_VERSION = 2;
+const HOME_PAGE_SCHEMA_VERSION = 5;
 
 /**
  * ADR-017 (Caching Strategy) — the whole aggregate cached as one unit,

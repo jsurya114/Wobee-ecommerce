@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { OfferReaderPort } from "../ports/offer-reader.port";
 import type { PricingReaderPort } from "../ports/pricing-reader.port";
 import type { ProductRepositoryPort, ProductSummaryProjection } from "../ports/product-repository.port";
 import { GetRelatedProductsUseCase, RELATED_PRODUCTS_LIMIT } from "./get-related-products.use-case";
@@ -36,7 +37,11 @@ function build(overrides: {
       Promise.resolve(inputs.map((i) => ({ pricePaise: Math.round((i.weightGrams * RATE) / 1000), ratePerKgPaise: RATE }))),
     ),
   };
-  return { useCase: new GetRelatedProductsUseCase(productRepository, pricingReader), findBySlug, findRelatedProducts };
+  // No offers in play for this use-case's own tests — resolveApplicableOffersUseCase's own tests cover offer matching/precedence.
+  const offerReader: OfferReaderPort = {
+    resolveMany: (inputs) => Promise.resolve(inputs.map((i) => ({ pricePaise: i.basePricePaise, appliedOffer: null }))),
+  };
+  return { useCase: new GetRelatedProductsUseCase(productRepository, pricingReader, offerReader), findBySlug, findRelatedProducts };
 }
 
 describe("GetRelatedProductsUseCase", () => {

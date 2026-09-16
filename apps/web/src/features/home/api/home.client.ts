@@ -34,6 +34,26 @@ export interface HomeBanner {
   ctaUrl: string | null;
 }
 
+/** Phase 2 (2026-09-14) — one currently active, in-schedule offer for the homepage promo strip. Already filtered server-side (isOfferActive) — a scheduled or expired offer is simply absent, never included with a flag. */
+export interface HomeOffer {
+  id: string;
+  name: string;
+  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+  discountValue: number;
+  scope: "ALL_PRODUCTS" | "CATEGORY" | "PRODUCTS";
+}
+
+/**
+ * One dynamic per-Offer homepage campaign section (offer merchandising pass,
+ * 2026-09-15) — `offer` is the same lean shape `activeOffers` (the strip)
+ * already uses, so the storefront renders "20% OFF"/"₹300 OFF" from one
+ * shared formatter regardless of which of the two this came from.
+ */
+export interface HomeOfferCampaign {
+  offer: HomeOffer;
+  products: ProductSummary[];
+}
+
 export interface HomeBudgetTile {
   label: string;
   maxPricePaise: number;
@@ -49,6 +69,8 @@ export interface HomeSizeOption {
 
 export interface HomePageData {
   banners: HomeBanner[];
+  /** Phase 2 (2026-09-14) — the promo strip's data; `[]` hides the strip entirely (never rendered empty). */
+  activeOffers: HomeOffer[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummary[];
   /** Rendered as "Loved by Customers" (merchandising logic corrections, 2026-09-06) — see GetHomePageUseCase's own doc comment for what now counts toward this. */
@@ -62,6 +84,18 @@ export interface HomePageData {
   budgetTiles: HomeBudgetTile[];
   /** "Shop your size" rail — already sorted (curated order) and already filtered to sizes with at least one live variant. */
   sizeAvailability: HomeSizeOption[];
+  /**
+   * Dynamic per-Offer campaign sections (offer merchandising pass,
+   * 2026-09-15) — replaces the earlier generic "Shop our offers" rail.
+   * Distinct from `activeOffers` above (the promo STRIP describing the
+   * offers themselves): each entry is one active offer's own purchasable,
+   * in-stock products at their effective price, cheapest first. `[]` hides
+   * the whole area (never a rendered-empty/generic section, same convention
+   * as `activeOffers`). Every entry's product prices are resolved the SAME
+   * way as the PLP/PDP/cart (one shared offer-resolution path) — never a
+   * second computation that could disagree.
+   */
+  offerCampaigns: HomeOfferCampaign[];
 }
 
 /**
@@ -85,4 +119,25 @@ export interface HomePageData {
  */
 export function getHomePage(): Promise<HomePageData> {
   return apiFetch<HomePageData>("/api/v1/home", { next: { revalidate: 60 } });
+}
+
+/**
+ * Just the offer-strip slice of `getHomePage()` — used by the storefront
+ * layout (2026-09-16) so the marquee can sit above `SiteHeader`, sitewide,
+ * not just on the homepage. Same URL + options as `getHomePage()`'s own
+ * call, so on `/` itself Next.js's per-request fetch de-dupe collapses this
+ * and the homepage's own `getHomePage()` call into one round trip; on every
+ * other page it's a plain 60s-cached hit, same cost as any other cached
+ * read. Swallows a failed fetch to `[]` (`OfferStrip` already renders
+ * nothing for that) deliberately — this call now runs on EVERY page via the
+ * shared layout, so a `home` API blip must only cost the decorative strip,
+ * never take the header/nav down on pages (cart, checkout, login…) that
+ * have nothing to do with the homepage.
+ */
+export async function getActiveOffersForStrip(): Promise<HomeOffer[]> {
+  try {
+    return (await getHomePage()).activeOffers;
+  } catch {
+    return [];
+  }
 }

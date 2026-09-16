@@ -31,6 +31,29 @@ export interface ListProductsFilter {
   inStockVariantIds?: string[];
   minPricePaise?: number;
   maxPricePaise?: number;
+  /**
+   * Offer-filtering pass (2026-09-15) — when true, restrict to products
+   * with a currently-applicable automatic Offer (same precedence/window
+   * rules as `resolveApplicableOffer`, evaluated in SQL — see
+   * `product.repository.ts`'s own doc comment on the offer-resolution
+   * fragment). Also changes what `price_asc`/`price_desc` sort BY for
+   * every request, offer-filtered or not: the customer's current effective
+   * selling price (base minus offer discount), never the raw base price,
+   * and never any coupon (coupons are checkout/cart-only).
+   */
+  onOffer?: boolean;
+  /**
+   * Offer merchandising pass (2026-09-15) — restrict to products for which
+   * THIS ONE offer is the winning offer (same precedence rules as
+   * `onOffer`, just pinned to one offer id instead of "any"). Backs the
+   * homepage campaign sections' "See all" CTA (`/products?offerId=`) and the
+   * offer strip's own click-through — a public, read-only filter (an offer
+   * id is not sensitive; its name/discount are already shown in the strip
+   * and campaign section). An id that doesn't match any currently-active
+   * offer simply yields zero results, same as any other filter combination
+   * that matches nothing — never a 404/error.
+   */
+  offerId?: string;
   sort: ProductSort;
   page: number;
   limit: number;
@@ -54,9 +77,12 @@ export interface RepresentativeVariantProjection {
  * representative variant plus the product's category pricing mode.
  * `ListProductsUseCase` / `GetProductsByIdsUseCase` resolve `fromWeightGrams`
  * / `fromRatePerKgPaise` (null for FIXED, see resolveFromPricing) and drop
- * both fields before the entity leaves the application layer.
+ * both fields before the entity leaves the application layer. Phase 2
+ * (2026-09-14): `offerPricePaise`/`offer` are ALSO unresolved at this
+ * layer, for the same reason — `resolveFromPricing` (offer-aware since
+ * that phase) is what adds both, one batched call for the whole page.
  */
-export type ProductSummaryProjection = Omit<ProductSummaryEntity, "fromWeightGrams" | "fromRatePerKgPaise"> & {
+export type ProductSummaryProjection = Omit<ProductSummaryEntity, "fromWeightGrams" | "fromRatePerKgPaise" | "offerPricePaise" | "offer"> & {
   representativeVariant: RepresentativeVariantProjection | null;
   pricingMode: PricingMode;
 };
@@ -97,6 +123,8 @@ export interface CreateProductInput {
   description?: string;
   brand?: string;
   categoryId: string;
+  /** Product-level (2026-09-14) — see PricingMode's own doc comment in schema.prisma. */
+  pricingMode: PricingMode;
   metaTitle?: string;
   metaDescription?: string;
 }
@@ -107,6 +135,8 @@ export interface UpdateProductInput {
   description?: string | null;
   brand?: string | null;
   categoryId?: string;
+  /** Omitted = leave the product's current pricingMode untouched. */
+  pricingMode?: PricingMode;
   metaTitle?: string | null;
   metaDescription?: string | null;
 }
@@ -152,6 +182,20 @@ export interface AddProductImageInput {
 
 export interface ProductRepositoryPort {
   findMany(filter: ListProductsFilter): Promise<ListProductsResult>;
+  /**
+   * Homepage "campaign section per active Offer" (offer merchandising pass,
+   * 2026-09-15) — for EVERY currently-active offer, its top `limit` eligible
+   * products (cheapest effective price first), where "eligible" means that
+   * offer is the one actually winning precedence for that product (same
+   * `offerLateralJoin` resolution `findMany`'s `onOffer` filter uses). ONE
+   * ranked SQL query (a window function partitioned per offer) regardless of
+   * how many offers are active or how large the catalogue is — never one
+   * query per offer, and never a full-catalogue fetch grouped in Node. An
+   * offer with zero matching products is simply absent from the result — the
+   * caller (`GroupProductsByOfferUseCase`) decides how to render that, not
+   * this repository.
+   */
+  findTopProductsPerOffer(params: { limit: number; inStockVariantIds?: string[] }): Promise<{ offerId: string; productId: string }[]>;
   findBySlug(slug: string): Promise<ProductDetailEntity | null>;
   /**
    * Typeahead for the search box (redesign) — active products whose name
@@ -174,7 +218,7 @@ export interface ProductRepositoryPort {
     categoryId: string;
     limit: number;
   }): Promise<ProductSummaryProjection[]>;
-  /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. `pricingMode` is the product's CATEGORY pricing mode (2026-08-31) — needed alongside the variant's own weight/rate/fixedPricePaise to price the line. */
+  /** Used by the cart module (via this module's exported use-case) to price/display cart lines without importing Prisma itself. `pricingMode` is the product's OWN pricing mode (2026-08-31; moved off Category 2026-09-14) — needed alongside the variant's own weight/rate/fixedPricePaise to price the line. */
   findVariantsByIds(
     variantIds: string[],
   ): Promise<
@@ -187,8 +231,30 @@ export interface ProductRepositoryPort {
       pricingMode: PricingMode;
     })[]
   >;
-  /** The product's category pricing mode (2026-08-31) — used by admin's create/update-variant use-cases to decide whether a variant needs `ratePerKgOverridePaise` or `fixedPricePaise`. Null if the product doesn't exist. */
+  /** The product's own pricing mode (2026-08-31; moved off Category 2026-09-14) — used by admin's create/update-variant use-cases to decide whether a variant needs `fixedPricePaise`. Null if the product doesn't exist. */
   findProductPricingMode(productId: string): Promise<PricingMode | null>;
+  /**
+   * All of a product's variants' pricing-relevant fields — used ONLY by
+   * UpdateProductUseCase when `pricingMode` is part of an edit, to (a)
+   * validate the FIXED-mode invariant ("every variant already has a
+   * fixedPricePaise") before allowing a WEIGHT_BASED -> FIXED switch, and
+   * (b) know which variants to reprice afterward. Not used by any
+   * customer-facing path.
+   */
+  findVariantsForPricingModeSwitch(
+    productId: string,
+  ): Promise<{ id: string; weightGrams: number; fixedPricePaise: number | null; isActive: boolean }[]>;
+  /**
+   * Applies a pricingMode switch's resulting per-variant state in one
+   * transaction (UpdateProductUseCase): WEIGHT_BASED clears every variant's
+   * now-meaningless `fixedPricePaise`; FIXED leaves it as-is (already
+   * validated present). Either way every variant's `effectivePricePaiseCache`
+   * (the listing/sort display cache) is recomputed for the new mode — never
+   * left stale under the old mode's math.
+   */
+  repriceVariantsForPricingModeSwitch(
+    updates: { id: string; fixedPricePaise: number | null; effectivePricePaiseCache: number }[],
+  ): Promise<void>;
   findByIds(productIds: string[]): Promise<ProductSummaryProjectionWithStatus[]>;
   /** Week 2 Day 8 Part 2 (week2 (1).md §12) — batched variantId→productId lookup for `home`'s Best Sellers rail (orders' OrderItem only has variantId; resolving to the product it belongs to is `products`' own data). Missing/unknown variant ids are simply absent from the returned map, never an error — a variant sold in the past can be deleted or reassigned since. */
   findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>>;

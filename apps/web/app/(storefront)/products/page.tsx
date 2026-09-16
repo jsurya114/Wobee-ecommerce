@@ -5,6 +5,7 @@ import { listProducts, PRODUCT_SORT_VALUES, type ProductListParams, type Product
 import { CategoryFilter } from "@/features/catalog/components/CategoryFilter";
 import { CollectionFilter } from "@/features/catalog/components/CollectionFilter";
 import { FiltersPanel } from "@/features/catalog/components/FiltersPanel";
+import { OnOfferQuickFilter } from "@/features/catalog/components/OnOfferQuickFilter";
 import { PlpControlBar } from "@/features/catalog/components/PlpControlBar";
 import { ProductResults } from "@/features/catalog/components/ProductResults";
 import { SizeQuickFilter } from "@/features/catalog/components/SizeQuickFilter";
@@ -90,6 +91,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     inStock: first(raw.inStock) === "true" ? "true" : undefined,
     minPrice: first(raw.minPrice),
     maxPrice: first(raw.maxPrice),
+    onOffer: first(raw.onOffer) === "true" ? "true" : undefined,
+    offerId: first(raw.offerId),
     sort: parseExplicitSort(first(raw.sort)),
   };
 
@@ -112,7 +115,14 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   });
 
   const hasActiveFilters = Boolean(
-    currentParams.q || currentParams.size || currentParams.color || currentParams.inStock || currentParams.minPrice || currentParams.maxPrice,
+    currentParams.q ||
+      currentParams.size ||
+      currentParams.color ||
+      currentParams.inStock ||
+      currentParams.minPrice ||
+      currentParams.maxPrice ||
+      currentParams.onOffer ||
+      currentParams.offerId,
   );
 
   // Remounts ProductResults (and its accumulated "load more" pages) fresh
@@ -126,6 +136,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
       <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
       <PlpControlBar>
+        <OnOfferQuickFilter currentParams={currentParams} />
         <SizeQuickFilter currentParams={currentParams} />
         <FiltersPanel currentParams={currentParams} />
         <SortSelector currentParams={currentParams} />
