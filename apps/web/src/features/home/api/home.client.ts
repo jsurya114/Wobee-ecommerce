@@ -120,3 +120,24 @@ export interface HomePageData {
 export function getHomePage(): Promise<HomePageData> {
   return apiFetch<HomePageData>("/api/v1/home", { next: { revalidate: 60 } });
 }
+
+/**
+ * Just the offer-strip slice of `getHomePage()` — used by the storefront
+ * layout (2026-09-16) so the marquee can sit above `SiteHeader`, sitewide,
+ * not just on the homepage. Same URL + options as `getHomePage()`'s own
+ * call, so on `/` itself Next.js's per-request fetch de-dupe collapses this
+ * and the homepage's own `getHomePage()` call into one round trip; on every
+ * other page it's a plain 60s-cached hit, same cost as any other cached
+ * read. Swallows a failed fetch to `[]` (`OfferStrip` already renders
+ * nothing for that) deliberately — this call now runs on EVERY page via the
+ * shared layout, so a `home` API blip must only cost the decorative strip,
+ * never take the header/nav down on pages (cart, checkout, login…) that
+ * have nothing to do with the homepage.
+ */
+export async function getActiveOffersForStrip(): Promise<HomeOffer[]> {
+  try {
+    return (await getHomePage()).activeOffers;
+  } catch {
+    return [];
+  }
+}

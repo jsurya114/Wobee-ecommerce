@@ -3,9 +3,13 @@ import { BottomNav } from "@/features/auth/components/BottomNav";
 import { SiteFooter } from "@/features/auth/components/SiteFooter";
 import { SiteHeader } from "@/features/auth/components/SiteHeader";
 import { FloatingCartWeightIndicator } from "@/features/cart/components/FloatingCartWeightIndicator";
+import { getActiveOffersForStrip } from "@/features/home/api/home.client";
+import { OfferStrip } from "@/features/home/components/OfferStrip";
 import { WhatsAppButton } from "@/features/support/components/WhatsAppButton";
 
-export default function StorefrontLayout({ children }: { children: ReactNode }) {
+export default async function StorefrontLayout({ children }: { children: ReactNode }) {
+  const activeOffers = await getActiveOffersForStrip();
+
   return (
     // Sticky-footer shell: full viewport height, content column grows to fill
     // it so SiteFooter always sits at the bottom edge — on short pages it no
@@ -27,6 +31,17 @@ export default function StorefrontLayout({ children }: { children: ReactNode }) 
       >
         Skip to content
       </a>
+      {/*
+        Sitewide, above SiteHeader (2026-09-16 — previously homepage-only,
+        below the header). Kept AFTER the skip link in DOM order even though
+        it's visually first: the strip's own offer links stay focusable, so
+        putting it before the skip link would force a keyboard user to tab
+        through promo links before reaching the Bypass Blocks shortcut that
+        link exists for. Not sticky — scrolls away with the page, same as
+        it always has; SiteHeader (sticky) is what stays pinned once this
+        strip has scrolled past.
+      */}
+      <OfferStrip offers={activeOffers} />
       <SiteHeader />
       {/* flex-1 pushes the footer to the bottom on short pages. pb-20 reserves space for BottomNav's fixed height so it never covers page content (md:pb-0 — desktop has no bottom nav). */}
       <div id="main-content" className="flex-1 pb-20 md:pb-0">

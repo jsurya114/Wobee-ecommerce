@@ -4,7 +4,6 @@ import { TestimonialsSection } from "@/features/home/components/TestimonialsSect
 import { FeaturedCollections } from "@/features/home/components/FeaturedCollections";
 import { CompactSearchBar } from "@/features/catalog/components/CompactSearchBar";
 import { formatOfferBadgeLabel } from "@/features/catalog/lib/format-offer-badge";
-import { OfferStrip } from "@/features/home/components/OfferStrip";
 import { ProductRail } from "@/features/home/components/ProductRail";
 import { PromoCarousel } from "@/features/home/components/PromoCarousel";
 import { ShopByBudget } from "@/features/home/components/ShopByBudget";
@@ -23,9 +22,7 @@ function railItem(product: ProductSummary) {
 }
 /**
  * Shop-first homepage (redesign spec §B). One `GET /api/v1/home` call feeds
- * every section: the offer strip (Phase 2, 2026-09-14 — the topmost
- * element, above even the promo carousel, per that phase's own "near the
- * top of the storefront" requirement), the category rail, Shop your size,
+ * every section: the category rail, Shop your size,
  * one dynamic campaign rail PER active Offer (offer merchandising pass,
  * 2026-09-15 — `home.offerCampaigns`, titled from each Offer's own `name`;
  * replaces the earlier single generic "Shop our offers" rail entirely, see
@@ -64,7 +61,7 @@ export default async function HomePage() {
   return (
     <main>
       <ScrollToHashOnLoad />
-      <OfferStrip offers={home.activeOffers} />
+      {/* Offer strip lives in the shared storefront layout now (sitewide, above SiteHeader, 2026-09-16) — not rendered here. */}
       <CompactSearchBar />
       <PromoCarousel banners={home.banners} />
       <CategoryRail categories={home.categoryTiles} />
