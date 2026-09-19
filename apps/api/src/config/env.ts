@@ -63,6 +63,18 @@ const envSchema = z.object({
   API_PUBLIC_URL: z.string().url().default("http://localhost:4000"),
   MEDIA_UPLOAD_DIR: z.string().default("uploads"),
 
+  // Media storage backend (2026-09-19). "local" = LocalDiskMediaStorage
+  // (dev/tests only — served by app.ts's /uploads mount, dies with the
+  // container). "s3" = private S3 bucket + CloudFront delivery: the API
+  // writes/deletes objects with its own AWS identity (EC2 instance role — no
+  // access keys anywhere), and the URLs it returns are CloudFront URLs built
+  // from MEDIA_PUBLIC_BASE_URL. NODE_ENV=production REQUIRES "s3" (see the
+  // superRefine below). None of these are secrets.
+  MEDIA_STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  AWS_REGION: z.string().min(1).optional(),
+  MEDIA_S3_BUCKET: z.string().min(1).optional(),
+  MEDIA_PUBLIC_BASE_URL: z.string().url().optional(),
+
   // Registration-OTP email delivery (SmtpOtpNotifier). All optional — when
   // SMTP_HOST is unset the auth module falls back to DevOtpNotifier (logs
   // the code in dev; the API also returns it as `devCode` in non-prod).
@@ -110,6 +122,33 @@ const envSchemaWithRefinements = envSchema.superRefine((data, ctx) => {
       path: ["GOOGLE_CLIENT_ID"],
       message: "GOOGLE_CLIENT_ID is required when NODE_ENV=production",
     });
+  }
+
+  if (data.NODE_ENV === "production" && data.MEDIA_STORAGE_DRIVER !== "s3") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["MEDIA_STORAGE_DRIVER"],
+      message: 'MEDIA_STORAGE_DRIVER must be "s3" when NODE_ENV=production (local-disk media does not survive a redeploy)',
+    });
+  }
+
+  if (data.MEDIA_STORAGE_DRIVER === "s3") {
+    for (const key of ["AWS_REGION", "MEDIA_S3_BUCKET", "MEDIA_PUBLIC_BASE_URL"] as const) {
+      if (!data[key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when MEDIA_STORAGE_DRIVER=s3`,
+        });
+      }
+    }
+    if (data.MEDIA_PUBLIC_BASE_URL && !data.MEDIA_PUBLIC_BASE_URL.startsWith("https://")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MEDIA_PUBLIC_BASE_URL"],
+        message: "MEDIA_PUBLIC_BASE_URL must be an https:// URL (the CloudFront media origin)",
+      });
+    }
   }
 });
 

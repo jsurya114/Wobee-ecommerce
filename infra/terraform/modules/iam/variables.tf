@@ -17,6 +17,11 @@ variable "rds_secret_arn" {
   type        = string
 }
 
+variable "ecr_repository_arn" {
+  description = "ARN of the ECR repository the instance role may pull the API image from."
+  type        = string
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

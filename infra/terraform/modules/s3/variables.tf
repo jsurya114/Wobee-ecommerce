@@ -8,6 +8,12 @@ variable "enable_versioning" {
   default     = true
 }
 
+variable "noncurrent_version_retention_days" {
+  description = "How long a superseded/deleted version stays recoverable before it is permanently removed."
+  type        = number
+  default     = 30
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

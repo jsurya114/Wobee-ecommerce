@@ -61,32 +61,36 @@ export function createApp(options: CreateAppOptions = {}): Application {
     res.status(result.ready ? 200 : 503).json({ status: result.ready ? "ready" : "not-ready", ...result.details });
   });
 
-  // Serves what LocalDiskMediaStorage.getUrl() points at (Week 2 Day 4,
-  // week2 (1).md §13). Helmet's default `Cross-Origin-Resource-Policy:
-  // same-origin` would otherwise block apps/web/apps/admin (different
-  // origins/ports) from loading these as plain <img> sources — relaxed to
-  // `cross-origin` for this one static mount only, everything else (the
-  // JSON API, already governed by the CORS allowlist above) keeps helmet's
-  // stricter default.
-  app.use(
-    "/uploads",
-    (req, res, next) => {
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      next();
-    },
-    express.static(path.resolve(process.cwd(), env.MEDIA_UPLOAD_DIR), {
-      // Every key here is a randomUUID() minted once at upload time and
-      // never reused or overwritten (local-disk-media-storage.service.ts) —
-      // these URLs are content-immutable by construction, so a long,
-      // immutable cache lifetime is safe (unlike serve-static's `maxAge: 0`
-      // default, which forces a conditional GET, and therefore a disk
-      // `stat()`, on every single repeat image view). Also the setting a
-      // future CloudFront distribution in front of this needs to actually
-      // cache effectively at the edge instead of revalidating on every hit.
-      maxAge: "365d",
-      immutable: true,
-    }),
-  );
+  // Serves what LocalDiskMediaStorage.getUrl() points at — ONLY when that
+  // dev/test driver is active. With MEDIA_STORAGE_DRIVER=s3 (production) media
+  // is delivered by CloudFront and this API serves no files at all.
+  if (env.MEDIA_STORAGE_DRIVER === "local") {
+    // (Week 2 Day 4, week2 (1).md §13.) Helmet's default `Cross-Origin-Resource-Policy:
+    // same-origin` would otherwise block apps/web/apps/admin (different
+    // origins/ports) from loading these as plain <img> sources — relaxed to
+    // `cross-origin` for this one static mount only, everything else (the
+    // JSON API, already governed by the CORS allowlist above) keeps helmet's
+    // stricter default.
+    app.use(
+      "/uploads",
+      (req, res, next) => {
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        next();
+      },
+      express.static(path.resolve(process.cwd(), env.MEDIA_UPLOAD_DIR), {
+        // Every key here is a randomUUID() minted once at upload time and
+        // never reused or overwritten (local-disk-media-storage.service.ts) —
+        // these URLs are content-immutable by construction, so a long,
+        // immutable cache lifetime is safe (unlike serve-static's `maxAge: 0`
+        // default, which forces a conditional GET, and therefore a disk
+        // `stat()`, on every single repeat image view). Also the setting a
+        // future CloudFront distribution in front of this needs to actually
+        // cache effectively at the edge instead of revalidating on every hit.
+        maxAge: "365d",
+        immutable: true,
+      }),
+    );
+  }
 
   // Every module mounts at /api/v1/<module-name> — see src/modules/index.ts.
   for (const { path, router } of moduleRouters) {

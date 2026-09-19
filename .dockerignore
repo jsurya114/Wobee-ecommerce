@@ -1,0 +1,42 @@
+# Keep the build context small and free of anything secret or machine-local.
+.git
+.github
+.claude
+.DS_Store
+
+# Secrets / local env — never bake into an image. The *.example templates are
+# excluded too: nothing in the image reads them.
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+**/*.tfstate*
+**/*.tfvars
+
+# Dependencies and build output are recreated inside the image.
+**/node_modules
+**/dist
+**/.next
+**/out
+**/coverage
+**/*.tsbuildinfo
+packages/database/generated
+
+# Local runtime state
+uploads
+**/uploads
+
+# Not needed to build or run the API image
+apps/web
+apps/admin
+packages/ui
+infra
+docs
+project_planning
+journal.md
+review.md
+Readme.md
+DECISIONS_PENDING.md
+docker-compose.yml

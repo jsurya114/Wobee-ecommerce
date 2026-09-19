@@ -1,15 +1,15 @@
 /**
  * Provider-independent storage abstraction (week2 (1).md §13's own
  * architecture diagram: `Application -> MediaStorage interface ->
- * S3/Cloudinary implementation`). `LocalDiskMediaStorage` is the only
- * implementation this week (see its own doc comment for why); swapping in
- * a real S3/Cloudinary adapter later means writing one more class against
- * this same interface, touching nothing in `application` or `interface`.
+ * S3/Cloudinary implementation`). Two implementations exist:
+ * `S3MediaStorage` (production: private S3 bucket, CloudFront URLs) and
+ * `LocalDiskMediaStorage` (local dev/tests). `createMediaStorage` picks one
+ * from configuration; nothing in `application` or `interface` knows which.
  */
 export interface SavedMedia {
-  /** Storage-layer key — a local disk path today, an S3 object key tomorrow. Never exposed to a client directly. */
+  /** Storage-layer key — a filename under the upload dir locally, an S3 object key in production. Never exposed to a client directly. */
   key: string;
-  /** A URL a browser can load directly. */
+  /** A URL a browser can load directly (a CloudFront URL in production — never an S3 URL). */
   url: string;
 }
 

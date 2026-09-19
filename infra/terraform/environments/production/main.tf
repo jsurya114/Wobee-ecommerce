@@ -47,6 +47,18 @@ resource "aws_ssm_parameter" "valkey_password" {
   tags = local.common_tags
 }
 
+# Public media delivery: Browser -> CloudFront (OAC, HTTPS) -> private S3.
+module "cloudfront_media" {
+  source = "../../modules/cloudfront-media"
+
+  name_prefix                 = local.name_prefix
+  bucket_id                   = module.s3.bucket_id
+  bucket_arn                  = module.s3.bucket_arn
+  bucket_regional_domain_name = module.s3.bucket_regional_domain_name
+  price_class                 = var.media_cdn_price_class
+  tags                        = local.common_tags
+}
+
 module "security" {
   source = "../../modules/security"
 
@@ -76,11 +88,47 @@ module "rds" {
 module "iam" {
   source = "../../modules/iam"
 
-  name_prefix      = local.name_prefix
-  s3_bucket_arn    = module.s3.bucket_arn
-  valkey_param_arn = aws_ssm_parameter.valkey_password.arn
-  rds_secret_arn   = module.rds.master_user_secret_arn
-  tags             = local.common_tags
+  name_prefix        = local.name_prefix
+  s3_bucket_arn      = module.s3.bucket_arn
+  valkey_param_arn   = aws_ssm_parameter.valkey_password.arn
+  rds_secret_arn     = module.rds.master_user_secret_arn
+  ecr_repository_arn = module.ecr.repository_arn
+  tags               = local.common_tags
+}
+
+# ---- CI/CD: GitHub Actions -> ECR -> EC2 (via SSM), authenticated by OIDC ----
+# Independent of the EC2/RDS/Valkey stack above: none of these three modules
+# reads an EC2 output, so they can be applied first with
+# `terraform apply -target=module.github_oidc` (which pulls in ecr and
+# ssm_deploy) — see docs/deployment.md.
+
+module "ecr" {
+  source = "../../modules/ecr"
+
+  name                  = "${local.name_prefix}-api"
+  image_retention_count = var.ecr_image_retention_count
+  tags                  = local.common_tags
+}
+
+module "ssm_deploy" {
+  source = "../../modules/ssm-deploy"
+
+  name_prefix        = local.name_prefix
+  ecr_repository_url = module.ecr.repository_url
+  aws_region         = var.aws_region
+  tags               = local.common_tags
+}
+
+module "github_oidc" {
+  source = "../../modules/github-oidc"
+
+  github_repository     = var.github_repository
+  github_branch         = var.github_branch
+  existing_provider_arn = var.existing_github_oidc_provider_arn
+  ecr_repository_arn    = module.ecr.repository_arn
+  ssm_document_arn      = module.ssm_deploy.document_arn
+  instance_tags         = { Project = var.project, Environment = var.environment }
+  tags                  = local.common_tags
 }
 
 module "ec2" {
@@ -109,27 +157,22 @@ module "monitoring" {
   tags            = local.common_tags
 }
 
-# S3 Gateway VPC Endpoint — keeps EC2 <-> S3 media traffic on the AWS
-# backbone instead of routing out via the internet, at no additional cost,
-# and scoped by policy to only the Woobe media bucket (not all of S3).
+# S3 Gateway VPC Endpoint — keeps EC2 <-> S3 traffic on the AWS backbone
+# instead of routing out via the internet, at no additional cost.
+#
+# Deliberately NO custom endpoint policy (the default allows all S3 access
+# through the endpoint; IAM and bucket policies still decide who may do what).
+# An earlier revision restricted it to the media bucket, but with this
+# endpoint in the route table ALL of the instance's S3 traffic goes through
+# it, including AWS-owned buckets the box depends on: ECR image layers
+# (prod-<region>-starport-layer-bucket, needed by every `docker pull` in the
+# deploy), the Amazon Linux 2023 package repositories, and SSM. A
+# media-bucket-only policy would have made image pulls and dnf fail.
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = module.networking.vpc_id
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [module.networking.public_route_table_id]
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = "*"
-      Action    = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
-      Resource = [
-        module.s3.bucket_arn,
-        "${module.s3.bucket_arn}/*"
-      ]
-    }]
-  })
 
   tags = merge(local.common_tags, { Name = "${local.name_prefix}-s3-endpoint" })
 }

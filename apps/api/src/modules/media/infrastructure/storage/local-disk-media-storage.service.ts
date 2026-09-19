@@ -1,12 +1,16 @@
-import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../../../../config/env";
 import type { MediaStoragePort, SavedMedia } from "../../application/ports/media-storage.port";
+import { generateMediaKey } from "./media-key";
 
 /**
+ * DEV/TEST-ONLY implementation of MediaStoragePort — production uses
+ * S3MediaStorage (env.ts refuses to boot in production with this driver).
+ * Historical context from when this was the only implementation follows.
+ *
  * Local-disk implementation of MediaStoragePort (week2 (1).md §13's own
- * architecture diagram) — no S3/Cloudinary credentials are approved yet
+ * architecture diagram) — no S3/Cloudinary credentials were approved yet
  * (`DECISIONS_PENDING.md`-style gap, same situation Razorpay was in before
  * Week 1 Day 5's real keys). Rather than a dead "not configured" stub that
  * would make reviews-with-photos/product-media untestable end to end, this
@@ -24,8 +28,7 @@ export class LocalDiskMediaStorage implements MediaStoragePort {
 
   async save(buffer: Buffer, originalFilename: string, mimeType: string): Promise<SavedMedia> {
     await mkdir(this.uploadDir, { recursive: true });
-    const extension = extensionForMimeType(mimeType) ?? path.extname(originalFilename) ?? "";
-    const key = `${randomUUID()}${extension}`;
+    const key = generateMediaKey(originalFilename, mimeType);
     await writeFile(path.join(this.uploadDir, key), buffer);
     return { key, url: this.getUrl(key) };
   }
@@ -43,18 +46,5 @@ export class LocalDiskMediaStorage implements MediaStoragePort {
 
   getUrl(key: string): string {
     return `${env.API_PUBLIC_URL}/uploads/${key}`;
-  }
-}
-
-function extensionForMimeType(mimeType: string): string | null {
-  switch (mimeType) {
-    case "image/jpeg":
-      return ".jpg";
-    case "image/png":
-      return ".png";
-    case "image/webp":
-      return ".webp";
-    default:
-      return null;
   }
 }

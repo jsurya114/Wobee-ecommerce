@@ -20,12 +20,12 @@
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "prisma": "^6.2.1"
   },
   "devDependencies": {
     "@woobe/config": "workspace:*",
     "@types/node": "^22.10.5",
-    "prisma": "^6.2.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "eslint": "^9.18.0",

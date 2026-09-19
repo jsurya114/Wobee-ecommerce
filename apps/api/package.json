@@ -14,6 +14,7 @@
     "boundaries:check": "depcruise src --config .dependency-cruiser.cjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1135.0",
     "@woobe/database": "workspace:*",
     "@woobe/types": "workspace:*",
     "@woobe/utils": "workspace:*",
@@ -31,6 +32,7 @@
     "multer": "^2.3.0",
     "nodemailer": "^9.1.1",
     "razorpay": "^2.9.8",
+    "tsx": "^4.19.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -49,7 +51,6 @@
     "dependency-cruiser": "^16.7.0",
     "eslint": "^9.18.0",
     "supertest": "^7.0.0",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   }
