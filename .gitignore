@@ -42,3 +42,16 @@ uploads/
 
 # Personal Claude Code overrides (not shared with the team)
 .claude/settings.local.json
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.json
+tfplan
+tfplan.*
+crash.log
+crash.*.log
+infra/terraform/environments/*/terraform.tfvars
+!infra/terraform/environments/*/terraform.tfvars.example
