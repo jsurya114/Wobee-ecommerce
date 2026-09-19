@@ -4,6 +4,7 @@ import cors from "cors";
 import express, { type Application } from "express";
 import helmet from "helmet";
 import { env } from "./config/env";
+import { resolveTrustProxyHops } from "./config/trust-proxy";
 import { captureRawBody } from "./middleware/capture-raw-body";
 import { errorHandler } from "./middleware/error-handler";
 import { notFoundHandler } from "./middleware/not-found";
@@ -29,6 +30,10 @@ export interface CreateAppOptions {
 export function createApp(options: CreateAppOptions = {}): Application {
   const checkReadiness = options.checkReadiness ?? (async (): Promise<ReadinessResult> => ({ ready: true }));
   const app = express();
+
+  // Behind nginx in production: use the client address nginx established
+  // (rate limits key on req.ip). See config/trust-proxy.ts.
+  app.set("trust proxy", resolveTrustProxyHops(env.NODE_ENV, env.TRUST_PROXY_HOPS));
 
   app.use(helmet());
   app.use(

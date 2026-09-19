@@ -69,3 +69,14 @@ output "ssm_deploy_document_name" {
   description = "SSM Run Command document that performs the on-instance deploy."
   value       = module.ssm_deploy.document_name
 }
+
+output "cloudflare_dns_record" {
+  description = "The DNS record to create in Cloudflare by hand (nothing here changes Cloudflare). It MUST be proxied: the security group only admits Cloudflare's ranges."
+  value = {
+    type    = "A"
+    name    = var.api_domain
+    content = module.ec2.public_ip
+    proxied = true
+    ssl_tls = "Full (strict), with a Cloudflare Origin CA certificate for ${var.api_domain}"
+  }
+}

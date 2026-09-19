@@ -70,9 +70,10 @@ The API and Worker containers are started by the deploy pipeline, not by this
 configuration (`user_data` only installs Docker/Compose and starts Valkey).
 Media is served from a private S3 bucket through CloudFront (`s3` and
 `cloudfront-media` modules; the API's `S3MediaStorage` adapter is built).
-Still not built: a TLS reverse proxy (Caddy/Nginx + Cloudflare Origin CA cert)
-in front of the API, and secret injection beyond a hand-created
-`/opt/woobe/app/api.env` — see `docs/deployment.md` → Known limitations.
+The HTTPS edge (nginx container, Cloudflare Origin CA certificate placed by
+hand, Cloudflare proxied DNS) is prepared in `user_data` but not live — see
+`docs/deployment.md` → "HTTPS edge". Still not built: secret injection beyond
+a hand-created `/opt/woobe/app/api.env`.
 
 ## Phase 2 (not built yet)
 

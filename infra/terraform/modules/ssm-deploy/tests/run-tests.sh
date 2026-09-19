@@ -8,6 +8,7 @@
 #   ONLY="S12 S13" ...run-tests.sh      # run selected scenarios (they share state, so
 #                                        # later ones may need earlier ones)
 #   KEEP_IMAGES=1 ...run-tests.sh       # keep the ~850 MB test image between runs
+#   API_EXTRA_ENV=API_BIND_HOST=127.0.0.1 ...run-tests.sh   # extra line(s) for every scenario's api.env
 #
 # What runs: a local registry, Postgres 16 and Redis (all on the host network,
 # unusual ports), the REAL API image built from apps/api/Dockerfile, small STUB
@@ -156,6 +157,7 @@ AWS_REGION=ap-south-2
 MEDIA_S3_BUCKET=dt-bucket
 MEDIA_PUBLIC_BASE_URL=https://dt.cloudfront.net
 API_PORT=$API_PORT
+${API_EXTRA_ENV:-}
 $*
 EOF
 }

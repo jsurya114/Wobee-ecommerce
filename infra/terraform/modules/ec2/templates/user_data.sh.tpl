@@ -2,12 +2,13 @@
 # Woobe backend EC2 bootstrap — infrastructure readiness only.
 #
 # This script installs Docker + the Compose plugin, enables unattended
-# security patching, confirms the SSM Agent is running, and starts a
-# self-hosted Valkey container. It deliberately does NOT start the Woobe
-# API or Worker containers: no production Dockerfile exists in the
-# repository yet, so there is nothing safe to deploy here. Once Dockerfiles
-# exist, the actual application deployment is a separate, later step (see
-# the accompanying infrastructure report for what's blocking it).
+# security patching, confirms the SSM Agent is running, starts a self-hosted
+# Valkey container, and starts nginx (the HTTPS edge in front of the API). It
+# deliberately does NOT start the Woobe API or Worker containers: those are
+# deployed by the GitHub Actions pipeline through the SSM document in
+# modules/ssm-deploy (see docs/deployment.md). nginx additionally needs a
+# Cloudflare Origin CA certificate placed on the host by hand; until it is
+# there the nginx container just waits (see the nginx block below).
 set -euo pipefail
 exec > >(tee /var/log/woobe-bootstrap.log) 2>&1
 
@@ -75,6 +76,54 @@ chmod 600 /opt/woobe/valkey/docker-compose.yml
 
 cd /opt/woobe/valkey && docker compose up -d
 
+# >>> nginx-edge (executed verbatim by modules/ec2/tests/run-nginx-tests.sh)
+# ---- nginx: the HTTPS edge ------------------------------------------------------
+# Cloudflare (proxied) --HTTPS--> nginx :80/:443 on this host --HTTP--> the API
+# container on 127.0.0.1:${api_port}. nginx is a separate container from the
+# application image; it uses host networking so it can reach the API (host
+# networking as well) on loopback, and so port ${api_port} never has to be
+# published. The config is rendered by Terraform from
+# templates/nginx/api.conf.tpl. The certificate and key are NEVER in Git or
+# user_data: /opt/woobe/certs/origin.pem + origin.key are created on this host
+# by hand (docs/deployment.md, "HTTPS certificate"). Until both exist the
+# container waits instead of crash-looping; once they appear it starts on its
+# own within a few seconds.
+mkdir -p /opt/woobe/nginx/conf.d /opt/woobe/certs
+chmod 700 /opt/woobe/certs
+
+cat > /opt/woobe/nginx/conf.d/api.conf <<'NGINX_CONF'
+${nginx_conf}
+NGINX_CONF
+
+cat > /opt/woobe/nginx/docker-compose.yml <<'NGINX_COMPOSE'
+services:
+  nginx:
+    image: ${nginx_image}
+    container_name: woobe-nginx
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /opt/woobe/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /opt/woobe/certs:/etc/nginx/certs:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -s /etc/nginx/certs/origin.pem ] && [ -s /etc/nginx/certs/origin.key ]; do
+          echo "nginx is waiting for /opt/woobe/certs/origin.pem and origin.key (Cloudflare Origin CA certificate)"
+          sleep 5
+        done
+        nginx -t && exec nginx -g "daemon off;"
+NGINX_COMPOSE
+
+cd /opt/woobe/nginx && docker compose up -d
+# <<< nginx-edge
+
 echo "== Woobe EC2 bootstrap complete: $(date -u) =="
-echo "== Docker + Compose + self-hosted Valkey are ready."
-echo "== API/Worker containers are NOT started — no production Dockerfile exists yet."
+echo "== Docker + Compose + self-hosted Valkey + nginx are set up."
+echo "== nginx serves HTTPS once /opt/woobe/certs/origin.pem and origin.key exist."
+echo "== API/Worker containers are deployed by the GitHub Actions pipeline, not here."

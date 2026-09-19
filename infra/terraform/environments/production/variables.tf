@@ -147,3 +147,15 @@ variable "media_cdn_price_class" {
   type        = string
   default     = "PriceClass_200"
 }
+
+variable "api_domain" {
+  description = "Public hostname for the API (Cloudflare-proxied). nginx on the EC2 serves only this name; the Origin CA certificate must cover it."
+  type        = string
+  default     = "api.woobe.in"
+}
+
+variable "api_port" {
+  description = "API container port on the host. Must match API_PORT in /opt/woobe/app/api.env (default 4000). Deliberately has no security-group rule: only nginx on the same host reaches it."
+  type        = number
+  default     = 4000
+}
