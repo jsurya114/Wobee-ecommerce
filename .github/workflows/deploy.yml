@@ -1,0 +1,395 @@
+name: Deploy
+
+# Production deploy: CI -> approval gate -> build/push image to ECR -> deploy to
+# EC2 through SSM -> verify (with automatic rollback on the instance).
+#
+#   * push to main          : test, build the commit's image, deploy it.
+#   * workflow_dispatch     : (a) no inputs  = same as a push, for the current main.
+#                             (b) image_sha  = redeploy / roll back to an image that
+#                                 ALREADY exists in ECR (no rebuild, no CI re-run:
+#                                 only this pipeline can push to that repository,
+#                                 and only after CI passed).
+#
+# AWS access is GitHub OIDC only — there are no AWS keys in GitHub. The IAM
+# role trusts exactly repo:jsurya114/Wobee-ecommerce:ref:refs/heads/main.
+#
+# WHY `environment: production` IS ONLY ON THE `approve` JOB: a job that
+# declares an environment gets the OIDC subject
+# `repo:<repo>:environment:production` INSTEAD of `...:ref:refs/heads/main`,
+# which the role deliberately does not trust. So the environment (protection
+# rules, deployment history) is attached to a gate job that never touches AWS,
+# and the jobs that assume the role stay environment-free. Deploy jobs depend
+# on the gate, so an environment approval still blocks them.
+#
+# This is a safe single-instance in-place deploy — NOT zero-downtime, NOT a
+# rolling deploy. See docs/deployment.md.
+#
+# Build/deploy stay off until the repository variable DEPLOY_ENABLED is "true"
+# (kill switch; set it only after `terraform apply` and creating api.env).
+#
+# A GREEN RUN DOES NOT MEAN "DEPLOYED". The `gate` job decides up front and the
+# final `result` job (always runs) states the real outcome, via
+# .github/scripts/deploy-status.sh (unit-tested by test-deploy-status.sh):
+#   DEPLOYED                              deploy job succeeded
+#   DEPLOYMENT SKIPPED — NOTHING WAS DEPLOYED   DEPLOY_ENABLED is not "true"
+#                                         (warning annotation + run summary;
+#                                         the result job's name shows the deploy
+#                                         job as "skipped")
+#   DEPLOYMENT BLOCKED — NOT DEPLOYED     another manual deploy/rollback is queued or
+#                                         running (see CONCURRENCY below); run turns red
+#   DEPLOYMENT FAILED — NOT DEPLOYED      anything else (run turns red)
+# A dispatch from any ref other than main FAILS the run instead of skipping.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_sha:
+        description: "Redeploy/roll back to an EXISTING ECR image: its 40-char git SHA. Leave empty to build and deploy the current main."
+        required: false
+        type: string
+        default: ""
+      run_migrations:
+        description: "Only with image_sha: run prisma migrate deploy first. Keep false for a rollback (a rollback must not migrate)."
+        required: false
+        type: boolean
+        default: false
+
+# CONCURRENCY — how pushes, redeploys and rollbacks interact. GitHub keeps at
+# most ONE running and ONE pending run per concurrency group, and a newer
+# pending run REPLACES (cancels) the older pending one. With a single shared
+# group that let a newer push silently replace a queued, explicitly requested
+# rollback. So:
+#  1. Run level (this block): all pushes share `production-push` (a newer
+#     pending push still replaces an older pending push: latest commit wins).
+#     Every MANUAL run (workflow_dispatch: redeploy or rollback) gets its OWN
+#     group keyed by run id, so nothing can ever replace or cancel it.
+#  2. Job level: only the `deploy` job — the one that changes production — is
+#     serialized, in the shared group `production-deploy` (see that job). This
+#     is what guarantees two AWS deployments never run at the same time, and a
+#     running deploy is never cancelled mid-rollout (`cancel-in-progress: false`).
+#  3. The `gate` job refuses, LOUDLY (result: DEPLOYMENT BLOCKED, run turns red),
+#     any run that starts while ANOTHER manual run is queued, waiting for approval
+#     or running — so a push after a rollback is never silently deployed over it.
+#     A manual run itself never fails because a push is deploying: it waits its
+#     turn in the `production-deploy` lock.
+# Known limit: two manual runs dispatched within the same second can both pass
+# the gate; the job-level lock would then let the later one replace the earlier
+# one's pending deploy. See docs/deployment.md.
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && format('production-manual-{0}', github.run_id) || 'production-push' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-south-2
+  # Identifiers, not secrets. Must match `terraform output` in
+  # infra/terraform/environments/production.
+  AWS_ROLE_ARN: arn:aws:iam::185658217213:role/woobe-github-actions-deploy
+  ECR_REPOSITORY: woobe-production-api
+  SSM_DOCUMENT: woobe-production-deploy
+  INSTANCE_NAME_TAG: woobe-production-backend
+  DEPLOY_LOG_GROUP: /woobe-production/deploy
+
+jobs:
+  # Decides, loudly, whether this run may deploy. No AWS access. Refuses (red)
+  # any run not on main; reports "SKIPPED" (warning) when DEPLOY_ENABLED is off.
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # list in-flight manual deploy runs (read-only)
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+      blocked: ${{ steps.gate.outputs.blocked }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Decide whether this run may deploy
+        id: gate
+        env:
+          DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/deploy-status.sh gate
+
+  # Tests still run on every push to main even when deployment is disabled.
+  ci:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.result == 'success' && inputs.image_sha == '' }}
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  approve:
+    needs: [gate, ci]
+    # `!cancelled()` so a skipped ci (image redeploy) does not skip this job;
+    # a FAILED ci still does.
+    if: >-
+      ${{ !cancelled()
+      && needs.gate.result == 'success'
+      && needs.gate.outputs.enabled == 'true'
+      && github.ref == 'refs/heads/main'
+      && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Production deployment approved
+        run: echo "Deploying to production from $GITHUB_REF at $GITHUB_SHA"
+
+  image:
+    needs: approve
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # request the GitHub OIDC token for AWS
+      contents: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      digest: ${{ steps.resolve.outputs.digest }}
+      run-migrations: ${{ steps.plan.outputs.run_migrations }}
+    steps:
+      - name: Decide what to deploy
+        id: plan
+        env:
+          INPUT_SHA: ${{ inputs.image_sha }}
+          INPUT_MIGRATIONS: ${{ inputs.run_migrations }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_SHA" ]; then
+            case "$INPUT_SHA" in
+              *[!0-9a-f]*) echo "::error::image_sha must be a lowercase 40-character git SHA"; exit 1 ;;
+            esac
+            [ "${#INPUT_SHA}" -eq 40 ] || { echo "::error::image_sha must be 40 characters"; exit 1; }
+            {
+              echo "mode=reuse"
+              echo "tag=$INPUT_SHA"
+              echo "run_migrations=$([ "$INPUT_MIGRATIONS" = "true" ] && echo true || echo false)"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "mode=build"
+              echo "tag=$GITHUB_SHA"
+              echo "run_migrations=true"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.plan.outputs.mode == 'build'
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Tags are immutable, so a re-run for a commit that was already pushed
+      # must reuse that image instead of failing on the push.
+      - name: Check whether the image already exists in ECR
+        id: exists
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+               --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Refuse to redeploy an image that does not exist
+        if: steps.plan.outputs.mode == 'reuse' && steps.exists.outputs.exists != 'true'
+        run: |
+          echo "::error::No image tagged ${{ steps.plan.outputs.tag }} in ECR repository $ECR_REPOSITORY (expired or never built)."
+          exit 1
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        if: steps.plan.outputs.mode == 'build' && steps.exists.outputs.exists != 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # The EC2 host is Graviton (arm64); this x86 runner cross-builds via QEMU.
+      - name: Set up QEMU
+        if: steps.plan.outputs.mode == 'build' && steps.exists.outputs.exists != 'true'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        if: steps.plan.outputs.mode == 'build' && steps.exists.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: steps.plan.outputs.mode == 'build' && steps.exists.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          # Plain single-platform manifest (no attestation manifests), so ECR
+          # lifecycle rules can never orphan a child manifest of an index.
+          provenance: false
+          sbom: false
+
+      # Deploy the exact digest, never the tag. Read it back from ECR (the
+      # source of truth) and cross-check it against what the build reported.
+      - name: Resolve the image digest
+        id: resolve
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          DIGEST="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$TAG" --query 'imageDetails[0].imageDigest' --output text)"
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::Could not resolve a digest for $ECR_REPOSITORY:$TAG"; exit 1 ;;
+          esac
+          if [ -n "$BUILT_DIGEST" ] && [ "$BUILT_DIGEST" != "$DIGEST" ]; then
+            echo "::error::ECR digest $DIGEST does not match the built digest $BUILT_DIGEST"; exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Image"
+            echo "- repository: \`$ECR_REPOSITORY\`"
+            echo "- tag: \`$TAG\`"
+            echo "- digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: image
+    # The ONLY job that changes production, so the ONLY serialized one: every
+    # run (push, redeploy, rollback) queues for this single lock, guaranteeing
+    # two AWS deployments never overlap. A running deploy is never cancelled.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy via SSM Run Command
+        env:
+          IMAGE_TAG: ${{ needs.image.outputs.tag }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          RUN_MIGRATIONS: ${{ needs.image.outputs.run-migrations }}
+        run: |
+          set -euo pipefail
+
+          case "$IMAGE_TAG" in *[!0-9a-f]*|"") echo "::error::'$IMAGE_TAG' is not a git SHA"; exit 1 ;; esac
+          case "$IMAGE_DIGEST" in sha256:*) ;; *) echo "::error::'$IMAGE_DIGEST' is not an image digest"; exit 1 ;; esac
+          case "$RUN_MIGRATIONS" in true|false) ;; *) echo "::error::bad RUN_MIGRATIONS"; exit 1 ;; esac
+
+          echo "Deploying tag=$IMAGE_TAG digest=$IMAGE_DIGEST migrations=$RUN_MIGRATIONS"
+
+          COMMAND_ID="$(aws ssm send-command \
+            --document-name "$SSM_DOCUMENT" \
+            --targets "Key=tag:Name,Values=$INSTANCE_NAME_TAG" \
+            --parameters "{\"ImageTag\":[\"$IMAGE_TAG\"],\"ImageDigest\":[\"$IMAGE_DIGEST\"],\"RunMigrations\":[\"$RUN_MIGRATIONS\"]}" \
+            --timeout-seconds 1800 \
+            --cloud-watch-output-config "CloudWatchOutputEnabled=true,CloudWatchLogGroupName=$DEPLOY_LOG_GROUP" \
+            --comment "GitHub Actions run $GITHUB_RUN_ID" \
+            --query 'Command.CommandId' --output text)"
+          echo "SSM command: $COMMAND_ID (full transcript also in CloudWatch log group $DEPLOY_LOG_GROUP)"
+
+          # A tag-targeted command "succeeds" even if it matched no instance,
+          # so insist on at least one invocation.
+          INSTANCE_ID=""
+          for _ in $(seq 1 12); do
+            INSTANCE_ID="$(aws ssm list-command-invocations --command-id "$COMMAND_ID" \
+              --query 'CommandInvocations[0].InstanceId' --output text)"
+            [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ] && break
+            sleep 5
+          done
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "::error::DEPLOY FAILED — no instance tagged Name=$INSTANCE_NAME_TAG is online in SSM; nothing was deployed."
+            exit 1
+          fi
+          echo "Target instance: $INSTANCE_ID"
+
+          STATUS="Pending"
+          for _ in $(seq 1 200); do # up to ~33 minutes (the document times out at 30)
+            STATUS="$(aws ssm get-command-invocation --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" --query 'Status' --output text)"
+            case "$STATUS" in
+              Pending|InProgress|Delayed) sleep 10 ;;
+              *) break ;;
+            esac
+          done
+
+          echo "::group::Deploy output (stdout)"
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text
+          echo "::endgroup::"
+          echo "::group::Deploy output (stderr: errors, diagnostics, rollback)"
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text
+          echo "::endgroup::"
+
+          {
+            echo "### Deploy"
+            echo "- tag: \`$IMAGE_TAG\`"
+            echo "- digest: \`$IMAGE_DIGEST\`"
+            echo "- migrations: \`$RUN_MIGRATIONS\`"
+            echo "- instance: \`$INSTANCE_ID\`"
+            echo "- SSM status: \`$STATUS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$STATUS" in
+            Success)
+              echo "DEPLOY SUCCESS: $IMAGE_TAG is live on $INSTANCE_ID (health, readiness and stability verified)."
+              ;;
+            Failed)
+              echo "::error::DEPLOY FAILED — the script exited non-zero. If it reached container start it attempted an automatic rollback; the output above says whether that rollback succeeded."
+              exit 1
+              ;;
+            *)
+              echo "::error::DEPLOY FAILED — SSM status '$STATUS'. The instance may be in an intermediate state: check the CloudWatch log group $DEPLOY_LOG_GROUP and, over Session Manager, 'docker ps' on the instance."
+              exit 1
+              ;;
+          esac
+
+  # Always runs, last. States the real outcome so a green run is never
+  # mistaken for a deployment: the job name carries the deploy job's result
+  # (success / skipped / failure), and the script emits DEPLOYED, a
+  # DEPLOYMENT SKIPPED warning, or fails the run.
+  result:
+    name: Deployment result (deploy job ${{ needs.deploy.result }})
+    needs: [gate, ci, approve, image, deploy]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Report the deployment outcome
+        env:
+          GATE_RESULT: ${{ needs.gate.result }}
+          GATE_ENABLED: ${{ needs.gate.outputs.enabled }}
+          GATE_BLOCKED: ${{ needs.gate.outputs.blocked }}
+          CI_RESULT: ${{ needs.ci.result }}
+          APPROVE_RESULT: ${{ needs.approve.result }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          IMAGE_TAG: ${{ needs.image.outputs.tag }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+        run: .github/scripts/deploy-status.sh result

@@ -55,3 +55,5 @@ crash.log
 crash.*.log
 infra/terraform/environments/*/terraform.tfvars
 !infra/terraform/environments/*/terraform.tfvars.example
+*.auto.tfvars
+*.auto.tfvars.json

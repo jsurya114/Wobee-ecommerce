@@ -19,8 +19,11 @@ infra/terraform/
     ec2/            Backend EC2 instance, EIP, user_data bootstrap
     rds/            PostgreSQL 16, Single-AZ, AWS-managed master password
     s3/              Private media bucket
-    iam/             Least-privilege EC2 instance role
+    iam/             Least-privilege EC2 instance role (incl. ECR pull)
     monitoring/      CloudWatch alarms + SNS topic
+    ecr/             Private, immutable-tag ECR repo for the API image
+    github-oidc/     GitHub OIDC provider + role pinned to repo:jsurya114/Wobee-ecommerce:ref:refs/heads/main
+    ssm-deploy/      SSM Run Command document (deploy.sh) that GitHub Actions triggers
   environments/
     production/      Root module wiring everything together
 ```
@@ -50,15 +53,26 @@ public ingress path to RDS or Valkey, and that no `Auto Scaling Group`,
 `Load Balancer`, or `NAT Gateway` resource appears. **Do not run
 `terraform apply` without an explicit go-ahead.**
 
+## CI/CD
+
+`.github/workflows/deploy.yml` builds `apps/api/Dockerfile`, pushes it to ECR
+and runs the `ssm-deploy` document on the instance by image digest,
+authenticating to AWS via GitHub OIDC only (no stored keys). It is a safe
+single-instance in-place deploy with health verification and automatic
+rollback — not zero-downtime. Full flow, first-time setup, rollback and
+troubleshooting: [`docs/deployment.md`](../../docs/deployment.md). The
+`ecr`, `ssm_deploy` and `github_oidc` modules do not depend on EC2/RDS, so
+they can be applied first with `terraform apply -target=module.github_oidc`.
+
 ## What's deliberately not deployed yet
 
-Docker and the Compose plugin are installed on the EC2 instance, and a
-self-hosted Valkey container is started, but the Woobe API and Worker
-containers are **not** started by this configuration. No production
-Dockerfile exists in the repository yet — building one, plus the actual
-container deployment (compose file wiring API + Worker + Nginx/Caddy +
-Valkey, TLS via a Cloudflare Origin CA certificate, and secret injection
-for JWT/Razorpay/SMTP credentials) is a separate, later piece of work.
+The API and Worker containers are started by the deploy pipeline, not by this
+configuration (`user_data` only installs Docker/Compose and starts Valkey).
+Media is served from a private S3 bucket through CloudFront (`s3` and
+`cloudfront-media` modules; the API's `S3MediaStorage` adapter is built).
+Still not built: a TLS reverse proxy (Caddy/Nginx + Cloudflare Origin CA cert)
+in front of the API, and secret injection beyond a hand-created
+`/opt/woobe/app/api.env` — see `docs/deployment.md` → Known limitations.
 
 ## Phase 2 (not built yet)
 

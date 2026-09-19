@@ -6,18 +6,19 @@
 // (`/media`, §13's own "Admin uploads" bullet) — but `uploadMediaUseCase`
 // itself is exported below for `testimonials` (2026-09-11) to reuse behind
 // its own customer-ownership authorization instead of this module's
-// admin-only one, same S3-ready storage backend either way. See
+// admin-only one, same storage backend either way (S3 + CloudFront in production, local disk in dev/tests). See
 // testimonials.module.ts's own MediaUploaderPort adapter.
+import { env } from "../../config/env";
 import { DeleteMediaUseCase } from "./application/use-cases/delete-media.use-case";
 import { GetMediaUseCase } from "./application/use-cases/get-media.use-case";
 import { UploadMediaUseCase } from "./application/use-cases/upload-media.use-case";
 import { MediaRepository } from "./infrastructure/repositories/media.repository";
-import { LocalDiskMediaStorage } from "./infrastructure/storage/local-disk-media-storage.service";
+import { createMediaStorage } from "./infrastructure/storage/create-media-storage";
 import { MediaController } from "./interface/http/media.controller";
 import { createMediaRouter } from "./interface/http/media.routes";
 
 const mediaRepository = new MediaRepository();
-const mediaStorage = new LocalDiskMediaStorage();
+const mediaStorage = createMediaStorage(env);
 
 export const uploadMediaUseCase = new UploadMediaUseCase(mediaStorage, mediaRepository);
 const getMediaUseCase = new GetMediaUseCase(mediaRepository);

@@ -117,3 +117,33 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "github_repository" {
+  description = "GitHub repository (owner/name) whose Actions workflows may assume the deploy role via OIDC."
+  type        = string
+  default     = "jsurya114/Wobee-ecommerce"
+}
+
+variable "github_branch" {
+  description = "The only branch whose workflow runs may assume the deploy role."
+  type        = string
+  default     = "main"
+}
+
+variable "existing_github_oidc_provider_arn" {
+  description = "ARN of an existing token.actions.githubusercontent.com OIDC provider to reuse. Empty = create one (none exists in account 185658217213 as of 2026-09-19)."
+  type        = string
+  default     = ""
+}
+
+variable "ecr_image_retention_count" {
+  description = "Most recent API images kept in ECR; older ones expire. Also the manual-rollback window."
+  type        = number
+  default     = 20
+}
+
+variable "media_cdn_price_class" {
+  description = "CloudFront price class for media delivery. PriceClass_200 includes India edge locations; PriceClass_100 does not."
+  type        = string
+  default     = "PriceClass_200"
+}

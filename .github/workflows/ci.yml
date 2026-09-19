@@ -1,9 +1,12 @@
 name: CI
 
+# Pull requests into main run this directly. Pushes to main run it through
+# deploy.yml (workflow_call), so CI is a hard gate on every production deploy
+# and is not run twice. Nothing here touches AWS or deploys.
 on:
   pull_request:
-  push:
     branches: [main]
+  workflow_call:
 
 jobs:
   ci:
@@ -55,6 +58,11 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fast, dependency-free: guards the Deploy workflow's outcome reporting
+      # (a skipped deploy must never read as a successful one).
+      - name: Deploy-status script tests
+        run: .github/scripts/test-deploy-status.sh
 
       - uses: actions/setup-node@v4
         with:
