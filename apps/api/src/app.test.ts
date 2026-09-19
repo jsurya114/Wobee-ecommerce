@@ -2,6 +2,12 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app";
 
+describe("trust proxy", () => {
+  it("is off under test (no proxy in front), so X-Forwarded-For cannot choose a client IP", () => {
+    expect(createApp().get("trust proxy")).toBe(0);
+  });
+});
+
 describe("GET /health", () => {
   it("returns ok status", async () => {
     const app = createApp();

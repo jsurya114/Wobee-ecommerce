@@ -34,6 +34,11 @@ try {
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   API_PORT: z.coerce.number().int().positive().default(4000),
+  // Address the HTTP server binds to. UNSET = today's behavior (every interface, IPv4 + IPv6).
+  // Production runs nginx on the same host with host networking, so it sets 127.0.0.1 and the API is
+  // reachable only over loopback. Must be an IP literal: a blank value, "localhost" or a malformed
+  // address fails startup instead of silently meaning "everything" (see docs/deployment.md).
+  API_BIND_HOST: z.string().ip().optional(),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
@@ -48,6 +53,11 @@ const envSchema = z.object({
   ADMIN_ORIGIN: z.string().url().default("http://localhost:3001"),
   COOKIE_DOMAIN: z.string().default("localhost"),
   COOKIE_SECRET: z.string().min(1, "COOKIE_SECRET is required"),
+
+  // Reverse-proxy hops to trust for the client IP (see config/trust-proxy.ts).
+  // Unset = 1 in production (behind nginx), 0 elsewhere. A blank value counts as
+  // unset, not 0 — a blank line in api.env must not silently switch this off.
+  TRUST_PROXY_HOPS: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(0).max(5).optional()),
 
   // Stubbed until Week 1 Day 5 (ADR-014) — see DECISIONS_PENDING.md #4.
   RAZORPAY_KEY_ID: z.string().optional(),

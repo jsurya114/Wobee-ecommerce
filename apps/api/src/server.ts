@@ -20,10 +20,12 @@ const app = createApp({
   },
 });
 
-const server = app.listen(env.API_PORT, () => {
+const onListening = (): void => {
   // eslint-disable-next-line no-console
   console.log(`[api] listening on http://localhost:${env.API_PORT} (${env.NODE_ENV})`);
-});
+};
+// The host is passed ONLY when API_BIND_HOST is set; unset keeps the original listen(port) call.
+const server = env.API_BIND_HOST ? app.listen(env.API_PORT, env.API_BIND_HOST, onListening) : app.listen(env.API_PORT, onListening);
 
 async function shutdown(signal: string): Promise<void> {
   // eslint-disable-next-line no-console

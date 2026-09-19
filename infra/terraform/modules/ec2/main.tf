@@ -42,6 +42,13 @@ resource "aws_instance" "backend" {
     valkey_maxmemory_mb = var.valkey_maxmemory_mb
     compose_version     = var.compose_version
     aws_region          = var.aws_region
+    api_port            = var.api_port
+    nginx_image         = var.nginx_image
+    nginx_conf = templatefile("${path.module}/templates/nginx/api.conf.tpl", {
+      api_domain            = var.api_domain
+      api_port              = var.api_port
+      cloudflare_ipv4_cidrs = var.cloudflare_ipv4_cidrs
+    })
   })
   # A user_data change (e.g. bumping the Compose version) replaces the
   # instance rather than silently no-op'ing on an already-running box —

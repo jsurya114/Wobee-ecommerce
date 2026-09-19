@@ -144,6 +144,9 @@ module "ec2" {
   valkey_maxmemory_mb       = var.valkey_maxmemory_mb
   compose_version           = var.compose_version
   aws_region                = var.aws_region
+  api_domain                = var.api_domain
+  api_port                  = var.api_port
+  cloudflare_ipv4_cidrs     = var.cloudflare_ipv4_cidrs
   tags                      = local.common_tags
 }
 

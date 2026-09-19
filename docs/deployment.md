@@ -4,7 +4,7 @@
 
 **What this is:** a *safe single-instance in-place deployment with health verification and automatic rollback*. It is **not** zero-downtime, **not** highly available, and **not** a rolling deploy: there is one EC2 instance and no load balancer, so the API is briefly unavailable each time containers are swapped.
 
-**Initial architecture:** one EC2 (Graviton `t4g.small`, arm64) · no ALB · self-hosted Valkey on that EC2 · RDS PostgreSQL (private) · private ECR · SSM for deployment · media in a private S3 bucket delivered through CloudFront · Cloudflare in front of the API (planned) · web/admin on Vercel (deployed by Vercel's own Git integration, not by this pipeline).
+**Initial architecture:** one EC2 (Graviton `t4g.small`, arm64) · no ALB · self-hosted Valkey on that EC2 · RDS PostgreSQL (private) · private ECR · SSM for deployment · media in a private S3 bucket delivered through CloudFront · Cloudflare → nginx on the same EC2 → API (prepared; see "HTTPS edge" below — not live yet) · web/admin on Vercel (deployed by Vercel's own Git integration, not by this pipeline).
 
 ## 1. Architecture
 
@@ -128,13 +128,152 @@ Every failure exits non-zero and never prints `DEPLOY SUCCESS`. Rolled-back migr
 
 The worker cannot be tried beside the running worker on a spare port (it has no port, and a second worker would compete for real queue jobs), so a worker-only failure is found in phase 4 (brief downtime, then rollback) rather than in phase 3.
 
+## HTTPS edge: Cloudflare → nginx → API (current, single EC2)
+
+**Status: prepared and validated locally only. Nothing is applied, nothing is live.** `https://api.woobe.in` does not exist yet, and none of this has been run against real AWS or Cloudflare.
+
+```
+Browser / Razorpay
+     │  HTTPS (Cloudflare's edge certificate)
+     ▼
+Cloudflare  — DNS record for api.woobe.in, PROXIED; SSL/TLS mode "Full (strict)"
+     │  HTTPS to the origin (Cloudflare's IP ranges only)
+     ▼
+EC2 security group — 443 from Cloudflare ranges only · 80 closed · nothing on 4000 / 22 / 6379
+     ▼
+nginx container (host network) :80 / :443 — TLS terminates HERE (Cloudflare Origin CA certificate)
+     │  plain HTTP over loopback
+     ▼
+API container 127.0.0.1:4000 — never reachable from the internet
+```
+
+This is the **current** architecture: **one EC2 instance, no load balancer.** Deployments still have brief downtime (§6); this is **not** highly available and **not** zero-downtime. An ALB with Auto Scaling is future work (§15) and would take over TLS termination from this nginx.
+
+### What was added
+- **nginx as its own container** (`nginx:1.28-alpine`, pinned by digest, multi-arch incl. arm64), separate from the application image, in `/opt/woobe/nginx/docker-compose.yml`, started by `user_data` alongside Valkey. The API, worker and deploy pipeline are unchanged; `deploy.sh` still verifies the API directly on `127.0.0.1:4000`.
+- **Config rendered by Terraform** from `infra/terraform/modules/ec2/templates/nginx/api.conf.tpl` (domain, API port and the Cloudflare ranges come from Terraform variables) into `/opt/woobe/nginx/conf.d/api.conf`.
+- **`TRUST_PROXY_HOPS` in the API.** Behind nginx every request arrives from `127.0.0.1`; without a trusted proxy `req.ip` is that address for everyone, and the rate limiters (`middleware/rate-limit.ts`, keyed by `req.ip`) would share **one bucket for all users** — a few failed logins by anyone would lock everyone out. The API now trusts exactly one hop by default in production (0 elsewhere); nginx overwrites `X-Forwarded-For` with the real client address, so it cannot be forged.
+- **No security-group change was needed** — the existing rules already are the desired set (below).
+
+### nginx behavior
+| Concern | Behavior |
+|---|---|
+| Ports | Listens on **80 and 443** only. It never listens on, and the host never publishes, the API port. |
+| Unknown names | Requests to any other hostname, the bare IP, or an unknown TLS server name are refused (plain HTTP: connection closed; TLS: handshake rejected). |
+| HTTP | `301` to `https://api.woobe.in<path+query>` (fixed target, not built from the `Host` header). Port 80 is closed in the security group by default; Cloudflare's "Always Use HTTPS" redirects at the edge, and this is the origin's own backstop. |
+| Proxying | To `127.0.0.1:4000` over HTTP/1.1 with keep-alive. Method, path, query, body and all other headers pass through untouched (including `Content-Type`, `Authorization`, `X-Razorpay-*`). |
+| Preserved / set | `Host` (kept), `X-Forwarded-Proto` (`https`), `X-Forwarded-Host`, `X-Real-IP` and `X-Forwarded-For` (both = the real client address; any client-sent value is **overwritten**, not appended). |
+| Real client IP | `CF-Connecting-IP` is believed **only** from Cloudflare's IPv4 ranges (the same list as the security group, one Terraform variable). From anyone else it is ignored. |
+| Timeouts | connect 5 s, send 60 s, read 60 s (below Cloudflare's 100 s, so slow upstreams answer `504` from nginx, not Cloudflare's `524`); no retry to another upstream. |
+| Body limit | `client_max_body_size 6m` (the API accepts images up to 5 MB; nginx's 1 MB default would 413 every upload). |
+| TLS | TLS 1.2 and 1.3, no session tickets. |
+| `/health`, `/ready` | Proxied, GET and HEAD only. |
+
+### HTTPS certificate approach: Cloudflare Origin CA (chosen)
+TLS terminates at nginx using a **Cloudflare Origin CA certificate** for `api.woobe.in`. It is trusted by Cloudflare only, which is all that ever connects (the security group admits nothing else), and it needs no renewal automation (validity up to 15 years). **Let's Encrypt/Certbot is deliberately not used:** HTTP-01 validation needs Let's Encrypt to reach port 80, which the security group closes and Cloudflare proxies away; DNS-01 would need a Cloudflare API token stored on the host, another secret to manage. **No certificate or key is ever in Git or `user_data`; they exist only on the instance.**
+
+Create it on the instance (Session Manager) so the private key never leaves the host:
+```bash
+sudo -i
+cd /opt/woobe/certs                                   # root-only directory (700), created by user_data
+openssl req -new -newkey rsa:2048 -nodes -keyout origin.key -out origin.csr -subj "/CN=api.woobe.in"
+chmod 600 origin.key
+cat origin.csr                                        # copy this
+# Cloudflare dashboard → SSL/TLS → Origin Server → Create Certificate → "Use my private key and CSR"
+#   hostnames: api.woobe.in · validity: 15 years → paste the returned "Origin Certificate" into:
+nano origin.pem && chmod 600 origin.pem
+# sanity checks
+openssl x509 -in origin.pem -noout -subject -enddate
+[ "$(openssl x509 -in origin.pem -noout -pubkey | openssl md5)" = "$(openssl pkey -in origin.key -pubout | openssl md5)" ] && echo "key matches certificate"
+```
+Until **both** `origin.pem` and `origin.key` exist the nginx container simply **waits** (it does not crash-loop); within about 5 seconds of the second file appearing it validates the config (`nginx -t`) and starts serving.
+
+**Renewal / expiry.** There is no automatic renewal: an Origin CA certificate lasts as long as you chose (up to 15 years). Put the expiry date (`openssl x509 -in origin.pem -noout -enddate`) in a calendar. To replace it: repeat the commands above (new key + CSR), overwrite `origin.key` and `origin.pem`, then reload without dropping connections: `sudo docker exec woobe-nginx nginx -t && sudo docker exec woobe-nginx nginx -s reload`. If the certificate expires, Cloudflare in Full (strict) mode fails with `526`. (The reload step was tested locally: the new certificate is served immediately.)
+
+### Cloudflare configuration (done by hand — nothing here changes Cloudflare)
+| Setting | Value |
+|---|---|
+| DNS record | Type **A**, name **`api`** (→ `api.woobe.in`), content = the instance's Elastic IP (`terraform output ec2_public_ip`; also printed by `terraform output cloudflare_dns_record`), **Proxied (orange cloud)**. It must be proxied: the security group only admits Cloudflare's ranges, so an unproxied record cannot work. |
+| SSL/TLS mode | **Full (strict)** — HTTPS from Cloudflare to the origin, certificate validated (the Origin CA certificate above satisfies it). Never "Flexible" (plain HTTP to the origin) or "Full" (unvalidated). |
+| Always Use HTTPS | On. Minimum TLS version 1.2. |
+| Recommended hardening | **Authenticated Origin Pulls**: the security group admits *any* Cloudflare customer's traffic, so a third party could point their own proxied zone at this IP. AOP makes nginx accept only your zone. Not configured here (it needs the Cloudflare origin-pull CA on the host plus `ssl_verify_client on`); worth doing before launch. |
+| Razorpay webhook | Bot Fight Mode / "Super Bot Fight Mode" / managed challenges can block Razorpay's server-to-server POSTs. Add a WAF **skip** rule for `POST /api/v1/payments/razorpay/webhook` (the HMAC signature is the authentication). |
+| Rate limiting / WAF | Optional, at the edge (e.g. `/api/v1/auth/*`); the API also rate-limits per client IP. |
+
+No other DNS records are assumed here. The storefront/admin domains, `WEB_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_DOMAIN` and the web apps' `NEXT_PUBLIC_API_URL` (`https://api.woobe.in`) still need their final values (§7).
+
+### Security-group behavior (unchanged by this work)
+| Port | Inbound |
+|---|---|
+| 443 | Cloudflare's 15 IPv4 ranges only (`cloudflare_ipv4_cidrs`) |
+| 80 | **Closed** by default (`allow_http_80 = false`); if enabled, Cloudflare ranges only |
+| 4000 (API) | **No rule** — reachable only from nginx on the same host, over loopback |
+| 22 | No rule (Session Manager only) |
+| 6379 (Valkey) | No rule (loopback only) |
+| 5432 (RDS) | Only from the EC2 security group |
+
+The API is kept private by two layers: the security group has no rule for its port, and in production the API itself binds to loopback only (`API_BIND_HOST=127.0.0.1`, see "Why the API binds to loopback" below). If `API_BIND_HOST` is not set the API listens on every interface of the host and the security group is the only barrier.
+
+### Why the API binds to loopback (`API_BIND_HOST=127.0.0.1`)
+The API container uses **host networking**, so by default it listens on every interface of the instance — the VPC address, and the Docker bridges other containers sit on — and only the security group keeps port 4000 private. Production therefore sets, in `/opt/woobe/app/api.env`:
+
+```
+API_BIND_HOST=127.0.0.1
+```
+The API then listens on `127.0.0.1:4000` only. Tested locally (real Docker, host network namespace): with the setting the socket is `127.0.0.1:4000` and every other host address (`eth0`, bridges) and a container in a separate network namespace get *connection refused*, while loopback answers; without it the same probes get `200`.
+
+**Why this is safe with the current architecture.** Everything that talks to the API is on the same host and already uses the literal `127.0.0.1`: nginx's upstream (nginx also uses host networking), the container `HEALTHCHECK`, and `deploy.sh`'s port probe and `/health` / `/ready` checks — including the candidate API on `API_PORT + 100`, which reads the same `api.env`. Nothing uses `localhost` (which can resolve to `::1`) or the host's own address. The worker has no HTTP server.
+
+**Behavior of the setting**
+- **Unset = unchanged** (`listen(port)`: every interface, IPv4 and IPv6). It is deliberately *not* defaulted to `0.0.0.0` because that would silently drop IPv6.
+- It must be an **IP address**. A blank value, `localhost`, or a malformed address makes the API **refuse to start** — a blank hardening setting silently meaning "listen everywhere" would be the worst failure mode. An address that is not on the host also fails at startup, so a wrong value is caught by the deploy's candidate check before anything is replaced.
+- Forgetting the line is safe but not hardened: nothing breaks, the API just stays on every interface (security group only).
+- `[::1]` is not served when bound to `127.0.0.1`; nothing in this design uses it. `curl localhost:4000/health` on the host still works (curl falls back to IPv4).
+
+**Revisit this setting if the network architecture changes.**
+- **Bridge networking** for nginx or the API: a bridged nginx cannot reach the host's loopback, so the API would have to listen on an address that container can reach (and only that).
+- **An ALB, or any load balancer or other host, reaching the instance directly** (the future architecture, §15): traffic arrives on the instance's private address, so `API_BIND_HOST` must be unset (or that private address), and the security group must then admit that port **only from the load balancer's security group**.
+- **Multiple instances** behind a load balancer: the same applies to each.
+These are configuration changes; no code change is needed.
+
+### Health endpoints
+`https://api.woobe.in/health` (liveness, no dependencies) and `https://api.woobe.in/ready` (Postgres + Valkey) reach the API through nginx; GET and HEAD only. `/ready` returns only booleans (`database`, `redis`), no addresses or credentials. The container `HEALTHCHECK` and `deploy.sh` verification are unchanged (direct to `127.0.0.1:4000`). An external uptime monitor must go through Cloudflare, since nothing else can reach the origin.
+
+### Razorpay webhook
+Register **`https://api.woobe.in/api/v1/payments/razorpay/webhook`** in the Razorpay dashboard **only after the real HTTPS endpoint exists** — Razorpay cannot reach anything else and there is nothing useful to test before then. The proxy preserves the method, path, query, `Content-Type`, `X-Razorpay-Signature` / `X-Razorpay-Event-Id` and the **exact request bytes** (the signature is an HMAC over the raw body). Tested locally against the real handler: a correctly signed body is accepted, the same signature over a changed body is rejected with 401. The Razorpay business logic was not touched. Also set `RAZORPAY_WEBHOOK_SECRET` in `api.env`.
+
+### Changing the nginx configuration
+The config is applied at **first boot** from `user_data`, and Terraform replaces the instance when `user_data` changes (`user_data_replace_on_change`) — a new instance means re-creating `api.env` and the certificate by hand. For a small change on a running host: edit `/opt/woobe/nginx/conf.d/api.conf` over Session Manager, run `sudo docker exec woobe-nginx nginx -t && sudo docker exec woobe-nginx nginx -s reload`, and make the same change in `api.conf.tpl` so Terraform and the host do not drift.
+
+### Troubleshooting
+| Symptom | Likely cause |
+|---|---|
+| `521` from Cloudflare | nginx is not running or not on 443: `docker ps`, `docker logs woobe-nginx` (usually still waiting for the certificate files). |
+| `526` | Origin certificate missing, expired, wrong hostname, or the private key does not match it. |
+| `525` | TLS handshake failed: SSL mode "Full (strict)" but nginx has no valid certificate yet. |
+| `522` / timeouts | Security group is not admitting Cloudflare (stale range list) or the record is not proxied. |
+| `502` from nginx | API container is down or not on `API_PORT` (must equal Terraform's `api_port`, default 4000): `docker ps`, `curl -s localhost:4000/health` on the host. |
+| `504` | API took longer than 60 s. |
+| `502` and the API container is running | `API_BIND_HOST` is set to something other than `127.0.0.1` (e.g. the private IP): nginx connects to `127.0.0.1:4000`. A value that is not an address of the host makes the API exit at startup instead. |
+| `413` on uploads | Over 6 MB (the API limit is 5 MB). |
+| Everyone gets rate-limited after a few attempts | `TRUST_PROXY_HOPS` is 0, so all clients look like `127.0.0.1`. Leave it unset in production. |
+| Wrong client IPs in logs | Cloudflare ranges changed; update `cloudflare_ipv4_cidrs` (it feeds both the security group and nginx). |
+| nginx restarts in a loop | `docker logs woobe-nginx` shows the `nginx -t` error. |
+
 ## 7. Environment and secrets model
 
 The image contains **no** env file and no secrets. On the instance everything is in `/opt/woobe/app/api.env` (`root:root`, mode `600`, created once by hand over Session Manager; Docker `--env-file` format: `KEY=value`, **no quotes**, unlike `.env.example`).
 
+Non-secret hardening lines the production `api.env` should contain (alongside the required secrets and media settings below):
+```
+# /opt/woobe/app/api.env — docker --env-file format: NAME=value, no quotes
+API_BIND_HOST=127.0.0.1      # API reachable only over loopback (nginx on the same host)
+# TRUST_PROXY_HOPS           # leave unset: defaults to 1 in production (one proxy hop: nginx)
+```
+
 | Class | Variables |
 |---|---|
-| Public / non-secret config | `MEDIA_STORAGE_DRIVER` (must be `s3`), `AWS_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_PUBLIC_BASE_URL` (see §7), `API_PORT`, `WEB_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_DOMAIN`, `API_PUBLIC_URL`, `MEDIA_UPLOAD_DIR`, `JWT_ACCESS_TOKEN_TTL`, `JWT_REFRESH_TOKEN_TTL`, `BCRYPT_SALT_ROUNDS`, `SMTP_HOST/PORT/SECURE/FROM`, `SUPPORT_EMAIL`, `STAFF_INVITATION_TTL_HOURS`, `GOOGLE_CLIENT_ID` (required in production), `RAZORPAY_KEY_ID`; `NODE_ENV=production` is set in the image |
+| Public / non-secret config | `API_BIND_HOST` (set `127.0.0.1` in production — see "Why the API binds to loopback"), `TRUST_PROXY_HOPS` (leave unset: 1 in production behind nginx), `MEDIA_STORAGE_DRIVER` (must be `s3`), `AWS_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_PUBLIC_BASE_URL` (see §7), `API_PORT`, `WEB_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_DOMAIN`, `API_PUBLIC_URL`, `MEDIA_UPLOAD_DIR`, `JWT_ACCESS_TOKEN_TTL`, `JWT_REFRESH_TOKEN_TTL`, `BCRYPT_SALT_ROUNDS`, `SMTP_HOST/PORT/SECURE/FROM`, `SUPPORT_EMAIL`, `STAFF_INVITATION_TTL_HOURS`, `GOOGLE_CLIENT_ID` (required in production), `RAZORPAY_KEY_ID`; `NODE_ENV=production` is set in the image |
 | Runtime secrets | `DATABASE_URL`, `REDIS_URL` (contains the Valkey password), `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `SMTP_USER`, `SMTP_PASS` |
 | AWS-provided identity | Credentials — including the S3 access the media adapter uses — come from the EC2 instance role via the metadata service (IMDSv2, hop limit 2 so containers can reach it). Nothing to configure, and no access keys exist anywhere. |
 | Deploy-time config | Workflow `env`: role ARN, ECR repo, SSM document, instance name tag, log group (identifiers, not secrets). Repo variable `DEPLOY_ENABLED`. GitHub Environment `production`. **No GitHub secrets are used.** |
@@ -232,13 +371,21 @@ terraform apply -var aws_profile=woobe
 # 2b. … OR only the OIDC/ECR/SSM foundation first (no EC2/RDS billing)
 terraform apply -var aws_profile=woobe -target=module.github_oidc -target=module.ssm_deploy
 
-# 3. After the EC2 exists: create /opt/woobe/app/api.env over Session Manager (see §7).
+# 3. After the EC2 exists: create /opt/woobe/app/api.env over Session Manager (see §7; include API_BIND_HOST=127.0.0.1).
 #    Media values: terraform output s3_media_bucket_name / media_public_base_url
 aws ssm start-session --profile woobe --region ap-south-2 --target "$(terraform output -raw ec2_instance_id)"
+
+# 3b. HTTPS: create the Origin CA certificate ON the instance (commands in "HTTPS edge" above),
+#     then, in Cloudflare, create the proxied A record and set SSL/TLS to Full (strict).
+#     terraform output cloudflare_dns_record   # the values to enter
 
 # 4. GitHub: Settings → Environments → New "production" → deployment branches: main only
 #    (optionally required reviewers). Then turn the pipeline on:
 gh variable set DEPLOY_ENABLED --body true
+
+# 5. After the first successful deploy, verify from OUTSIDE (through Cloudflare):
+curl -sS https://api.woobe.in/health && curl -sS https://api.woobe.in/ready
+#    then register the Razorpay webhook URL (see "Razorpay webhook").
 ```
 Run a full `terraform apply` before the first deploy — the EC2 role's ECR pull policy is part of it.
 
@@ -253,12 +400,13 @@ The pipeline is already built on immutable images, digests, and external orchest
 ## 16. Known limitations and open items
 
 - Media: see §7 "Behaviors to know" — deleted images can linger in the CDN cache, and custom media domains are a later step. The S3/CloudFront path has been unit-tested with a fake S3 client; it has **not** been exercised against real AWS (OAC read path, IAM, the 403→404 mapping) and needs a first-deploy check: upload an image through the admin and load its CloudFront URL.
-- **No reverse proxy or TLS exists — no Nginx, no Caddy, no certificate, no Cloudflare origin config — anywhere in the repo or Terraform.** The EC2 security group admits 443 from Cloudflare, but nothing on the instance listens there, so the API is not reachable from the internet after a deploy (with host networking it listens on :4000 on the host; only the security group keeps that private). TLS terminates nowhere, HTTP→HTTPS redirection and Cloudflare→origin certificate validation (Full (strict) + Origin CA) are undesigned, and Razorpay's webhook cannot reach the API. This is the main remaining blocker for a usable production API (not for `terraform apply`).
+- **HTTPS edge is prepared, not live.** nginx + certificate + Cloudflare steps are documented and were validated locally against real Docker (including the real API, worker and Valkey), but nothing has run on real AWS or Cloudflare: the Origin CA certificate, the Cloudflare DNS/SSL settings and the security-group path are unverified until the first real deploy. Until then the API is not reachable from the internet. Recommended before launch: Authenticated Origin Pulls (see "HTTPS edge").
 - Availability: single instance, brief downtime per deploy, no automatic recovery of a dead host, no alarm on API health.
 - **Image size (measured):** the API image is 856 MB unpacked / 181 MiB compressed in ECR (was 1.74 GB / 366 MiB — 50.7% smaller). The old size was ~735 MB of pnpm store/caches left in the layer plus devDependencies; the multi-stage build now keeps caches on BuildKit cache mounts and installs production dependencies only. What remains is required: the Node base (~247 MB) and Prisma (client + CLI + engines, ~208 MB). `node dist/server.js` still cannot run: all four workspace packages export raw TypeScript (`main: ./src/index.ts`, no build script), which Node loads as ESM and rejects (`ERR_UNSUPPORTED_DIR_IMPORT` on `../generated/client`); the Next apps consume those packages as source, so pre-compiling them is a repo-wide change. `tsx` and the `prisma` CLI are therefore runtime dependencies (moved from devDependencies in `apps/api` and `packages/database`; same versions).
 - Cross-builds arm64 under QEMU (slow); a native `ubuntu-24.04-arm` runner is faster if your plan allows.
 - GitHub Actions are pinned to major-version tags, not commit SHAs. The base image is pinned by digest and needs deliberate bumps for security patches.
 - Terraform state is local (inherited from Phase 1); use a remote backend before a second operator applies.
+- **HTTPS edge tests (real Docker, no AWS, no Cloudflare, no real certificate):** `infra/terraform/modules/ec2/tests/run-nginx-tests.sh` renders the nginx config with `terraform console` (offline), **executes the nginx block of the rendered `user_data`** (real Compose, the pinned nginx image) and drives it with a header/body-echo stub and then the real API, a real worker and a real Valkey (with a password): waits for the certificate then starts on its own; HTTP→HTTPS redirect; unknown hosts / SNI / bare IP refused; path, query, method, body (byte-for-byte), `Content-Type` and `X-Razorpay-*` preserved; client-sent `X-Forwarded-For`/`X-Real-IP` overwritten; `CF-Connecting-IP` believed only from Cloudflare ranges; 5 MB upload passes, 7 MB gets 413; slow upstream gets 504; `/health` and `/ready` through nginx; a correctly signed Razorpay webhook accepted by the real handler and the same signature over a changed body rejected (401); rate-limit buckets keyed by the real client IP; certificate renewal by file replacement + `nginx -s reload`. 57 assertions, mutation-checked (trusting any IP, appending `X-Forwarded-For`, dropping the upload limit, altering `Host`, and switching off `TRUST_PROXY_HOPS` are each caught by the intended assertions). **Not tested:** a real Cloudflare Origin CA certificate, real Cloudflare in front, the security group on real AWS, or Docker Compose v2.29.7 on Amazon Linux (the tests ran Compose v5 locally).
 - **Tested locally (real Docker, no AWS):** `infra/terraform/modules/ssm-deploy/tests/run-tests.sh` runs `deploy.sh` end to end against a local registry, Postgres 16, Redis and the real image, with stub images that fail in specific ways and a `docker` shim that injects failures: first deploy, redeploy, graceful and forced shutdown, API-startup / health / readiness / crash-window failures (old release untouched), worker-startup failure and post-swap crash loop and `docker run` failure (rollback), migration failure, pull failure, malformed `api.env`, Docker rejecting the env file, failed first-ever deploys (no false success, nothing left behind, no rollback claimed), a leftover container never used as a rollback target, and no secrets or shell tracing in any output. `.github/scripts/test-deploy-status.sh` covers the workflow's skipped/success/failure reporting (also run in CI). Run it with Docker running; it refuses to start if `woobe-api`, `woobe-worker` or `woobe-api-candidate` containers exist. Also tested: the optimized image (API, worker, Prisma migrate + client queries), Amazon Linux 2023 package resolution for `user_data`, RDS 16.15 orderability on `db.t4g.micro` in ap-south-2, and Cloudflare CIDRs vs the live list. **Not tested against real AWS:** SSM tag-targeting, ECR pull via the instance role, the real RDS TLS handshake, CloudFront OAC reads, a real upload, CloudWatch output config. Expect to verify the first deploy by hand.
 
 ### Review findings (2026-09-19); the deploy.sh and DEPLOY_ENABLED items are now fixed, see the first two bullets
@@ -268,7 +416,7 @@ Important, not blocking the first deployment:
 - **Remaining deploy-safety concerns:** (1) a worker-only failure is found after the swap (brief downtime, then rollback); (2) the candidate runs the new code against the real database and Redis (no traffic, but it is not a sandbox); (3) problems that only appear on the real port are also found after the swap; (4) if containers exist with no verified-good record, a post-swap failure cannot be rolled back; (5) two manual runs dispatched within the same second can race past the gate (see Concurrency, Limits); (6) a rollback restarts old code against an already-migrated schema (§8). The earlier concern that a newer push could replace a pending rollback is fixed (see Concurrency).
 - **Valkey.** Started with `--appendonly no`, no volume, and `--maxmemory-policy allkeys-lru`. BullMQ expects `noeviction` (it warns otherwise): under memory pressure `allkeys-lru` can evict queue keys, and any Valkey restart loses queued notification jobs (their Postgres rows stay `PENDING`). `volatile-lru` would evict only TTL'd cache keys and never the queue.
 - **Media orphans.** Removing a product image deletes only the `ProductImage` row (its `url` is a plain string with no link to `Media`); the S3 object and `Media` row remain unless `DELETE /media/:id` is called separately.
-- API binds `0.0.0.0:4000` under host networking; protected solely by the security group. Bind it to loopback when the reverse proxy is added.
+- The API binds to loopback only when `API_BIND_HOST=127.0.0.1` is set in `api.env` (recommended for production; §"Why the API binds to loopback"). It is a manual line: `deploy.sh` does not require it, so forgetting it leaves the API on every interface with only the security group in front. A `deploy.sh` pre-flight requirement is a possible follow-up. Nginx config changes need a host replacement or a manual edit + reload (see "Changing the nginx configuration").
 - `api.env` is a hand-made file (temporary mechanism): fine for `terraform apply` and for a first, operator-run deploy; not reproducible for a replaced instance or fully unattended provisioning.
 - No alarm on API health/uptime and no CloudWatch agent (disk); Terraform state is local; GitHub Actions pinned by tag; the digest-pinned base image needs deliberate bumps.
 
