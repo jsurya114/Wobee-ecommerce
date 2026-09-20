@@ -5,8 +5,14 @@ useDefault = true
 
 [allowlist]
 description = "Known false positives: literal negative-test credentials in test fixtures, not real secrets."
+regexTarget = "match"
 regexes = [
   # infra/terraform/modules/observability/tests/run-sync-tests.sh — asserts Grafana
   # rejects a WRONG password (401); "wrong" is the literal test value, not a credential.
-  '''-u admin:wrong''',
+  '''admin:wrong''',
+]
+paths = [
+  # Same file: fall back to a path-level exclusion in case the finding spans a
+  # different substring than the regex above anticipates.
+  '''infra/terraform/modules/observability/tests/run-sync-tests\.sh''',
 ]
