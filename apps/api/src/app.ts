@@ -10,6 +10,8 @@ import { errorHandler } from "./middleware/error-handler";
 import { notFoundHandler } from "./middleware/not-found";
 import { requestId } from "./middleware/request-id";
 import { moduleRouters } from "./modules";
+import { httpMetricsMiddleware } from "./shared/infrastructure/observability/prometheus/http-metrics.middleware";
+import { metricsHandler } from "./shared/infrastructure/observability/prometheus/metrics-route";
 
 export interface ReadinessResult {
   ready: boolean;
@@ -48,6 +50,19 @@ export function createApp(options: CreateAppOptions = {}): Application {
   app.use(express.json({ verify: captureRawBody }));
   app.use(cookieParser(env.COOKIE_SECRET));
   app.use(requestId);
+  // Before every route (including /health, /ready, /metrics) so it can
+  // exclude exactly those three itself — see the middleware's own comment
+  // for why. Must run before the module routers below so `req.route` is
+  // populated by the time it reads it on response finish.
+  app.use(httpMetricsMiddleware);
+
+  // Prometheus scrapes this directly on loopback (127.0.0.1:API_PORT),
+  // never through nginx — see metrics-route.ts and
+  // nginx-monitoring-exposure.test.ts for the two independent layers that
+  // keep it off the public internet.
+  app.get("/metrics", (req, res, next) => {
+    metricsHandler(req, res).catch(next);
+  });
 
   // Liveness only — deliberately does no I/O, so it can never itself become
   // the reason a healthy-but-overloaded process gets killed.

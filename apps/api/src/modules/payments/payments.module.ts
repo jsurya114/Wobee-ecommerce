@@ -6,6 +6,7 @@
 // port, which calls the owning module's own use-case (ARCHITECTURE.md §3.3).
 import { finalizeReservationUseCase, releaseReservationUseCase } from "../inventory/inventory.module";
 import { confirmOrderUseCase, getOrderForPaymentUseCase, markOrderPaymentFailedUseCase, notifyOrderEventUseCase } from "../orders/orders.module";
+import { observability } from "../../shared/infrastructure/observability/prometheus/prometheus-observability";
 import type { InventoryFinalizationPort } from "./application/ports/inventory-finalization.port";
 import type { OrderPort } from "./application/ports/order-port";
 import { ConfirmCodOrderUseCase } from "./application/use-cases/confirm-cod-order.use-case";
@@ -39,7 +40,7 @@ const inventoryFinalization: InventoryFinalizationPort = {
 };
 
 const createRazorpayOrderUseCase = new CreateRazorpayOrderUseCase(orderPort, paymentRepository, razorpayService);
-const confirmCodOrderUseCase = new ConfirmCodOrderUseCase(orderPort, paymentRepository, inventoryFinalization, transactionRunner);
+const confirmCodOrderUseCase = new ConfirmCodOrderUseCase(orderPort, paymentRepository, inventoryFinalization, transactionRunner, observability);
 const handleRazorpayWebhookUseCase = new HandleRazorpayWebhookUseCase(
   razorpayService,
   webhookEventRepository,
@@ -47,6 +48,7 @@ const handleRazorpayWebhookUseCase = new HandleRazorpayWebhookUseCase(
   orderPort,
   inventoryFinalization,
   transactionRunner,
+  observability,
 );
 
 /** Exported for cross-module use — `refunds` (ADR-025) reads/writes Payment only through these two, never directly. */

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { IssueRefundForCancelledOrderUseCase } from "./issue-refund-for-cancelled-order.use-case";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import type { PaymentReaderPort } from "../ports/payment-reader.port";
 import type { PaymentRefundWriterPort } from "../ports/payment-refund-writer.port";
 import type { RazorpayRefundGatewayPort } from "../ports/razorpay-refund-gateway.port";
@@ -21,16 +22,24 @@ function buildUseCase(overrides: {
     create: vi.fn().mockImplementation(async (input) => ({ id: "refund-db-1", createdAt: new Date(), ...input })),
     markCompletedByReturnId: vi.fn().mockResolvedValue(undefined),
   };
-  const useCase = new IssueRefundForCancelledOrderUseCase(paymentReader, paymentRefundWriter, gateway, refundRepository);
-  return { useCase, paymentReader, paymentRefundWriter, gateway, refundRepository };
+  const observability: ObservabilityPort = {
+    recordOrderCreated: vi.fn(),
+    recordOrderEvent: vi.fn(),
+    recordRefundIssued: vi.fn(),
+    recordInventoryReservation: vi.fn(),
+    recordPaymentWebhook: vi.fn(),
+  };
+  const useCase = new IssueRefundForCancelledOrderUseCase(paymentReader, paymentRefundWriter, gateway, refundRepository, observability);
+  return { useCase, paymentReader, paymentRefundWriter, gateway, refundRepository, observability };
 }
 
 describe("IssueRefundForCancelledOrderUseCase", () => {
-  it("issues nothing when there is no payment (or it's COD) — nothing was ever collected pre-delivery", async () => {
-    const { useCase, gateway } = buildUseCase({ payment: null });
+  it("issues nothing when there is no payment (or it's COD) — nothing was ever collected pre-delivery, and this is not a metered refund attempt", async () => {
+    const { useCase, gateway, observability } = buildUseCase({ payment: null });
     const result = await useCase.execute("order-1");
     expect(result).toEqual({ refundIssued: false, reason: "not-applicable" });
     expect(gateway.refundPayment).not.toHaveBeenCalled();
+    expect(observability.recordRefundIssued).not.toHaveBeenCalled();
   });
 
   it("issues nothing for a COD payment even though status is CAPTURED", async () => {
@@ -42,8 +51,8 @@ describe("IssueRefundForCancelledOrderUseCase", () => {
     expect(gateway.refundPayment).not.toHaveBeenCalled();
   });
 
-  it("refunds a captured Razorpay payment, writes a COMPLETED Refund row, and marks the Payment refunded", async () => {
-    const { useCase, paymentRefundWriter, refundRepository } = buildUseCase({
+  it("refunds a captured Razorpay payment, writes a COMPLETED Refund row, marks the Payment refunded, and records success", async () => {
+    const { useCase, paymentRefundWriter, refundRepository, observability } = buildUseCase({
       payment: { id: "p1", provider: "RAZORPAY", status: "CAPTURED", amountPaise: 1000, razorpayPaymentId: "pay_abc" },
     });
     const result = await useCase.execute("order-1");
@@ -56,10 +65,11 @@ describe("IssueRefundForCancelledOrderUseCase", () => {
       providerRefundId: "rfnd_1",
     });
     expect(paymentRefundWriter.markRefunded).toHaveBeenCalledWith("p1");
+    expect(observability.recordRefundIssued).toHaveBeenCalledWith({ result: "success" });
   });
 
-  it("records a FAILED Refund row and does not throw when the gateway call fails", async () => {
-    const { useCase, refundRepository } = buildUseCase({
+  it("records a FAILED Refund row, a failure metric, and does not throw when the gateway call fails", async () => {
+    const { useCase, refundRepository, observability } = buildUseCase({
       payment: { id: "p1", provider: "RAZORPAY", status: "CAPTURED", amountPaise: 1000, razorpayPaymentId: "pay_abc" },
       refundPayment: vi.fn().mockRejectedValue(new Error("Razorpay is not configured")),
     });
@@ -72,6 +82,7 @@ describe("IssueRefundForCancelledOrderUseCase", () => {
       amountPaise: 1000,
       providerRefundId: undefined,
     });
+    expect(observability.recordRefundIssued).toHaveBeenCalledWith({ result: "failure" });
   });
 
   it("still reports success when the gateway refund and COMPLETED row succeed but markRefunded fails afterward", async () => {

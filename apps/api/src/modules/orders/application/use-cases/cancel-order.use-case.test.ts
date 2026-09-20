@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CancelOrderUseCase } from "./cancel-order.use-case";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import type { OrderRepositoryPort } from "../ports/order-repository.port";
 import type { InventoryRestockPort } from "../ports/inventory-restock.port";
@@ -27,13 +28,20 @@ function buildUseCase(overrides: { findByIdResult?: OrderEntity; transitionChang
   } as unknown as OrderRepositoryPort;
   const inventoryRestock: InventoryRestockPort = { restock: vi.fn().mockResolvedValue(undefined) };
   const transaction: TransactionPort = { run: (fn) => fn("tx") };
-  const useCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transaction);
-  return { useCase, orderRepository, inventoryRestock };
+  const observability: ObservabilityPort = {
+    recordOrderCreated: vi.fn(),
+    recordOrderEvent: vi.fn(),
+    recordRefundIssued: vi.fn(),
+    recordInventoryReservation: vi.fn(),
+    recordPaymentWebhook: vi.fn(),
+  };
+  const useCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transaction, observability);
+  return { useCase, orderRepository, inventoryRestock, observability };
 }
 
 describe("CancelOrderUseCase", () => {
   it("cancels a CONFIRMED order and restocks its finalized inventory", async () => {
-    const { useCase, orderRepository, inventoryRestock } = buildUseCase();
+    const { useCase, orderRepository, inventoryRestock, observability } = buildUseCase();
 
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" }, "Customer request");
 
@@ -44,6 +52,10 @@ describe("CancelOrderUseCase", () => {
       expect.objectContaining({ cancelledAt: expect.any(Date), cancellationReason: "Customer request" }),
     );
     expect(inventoryRestock.restock).toHaveBeenCalledWith([{ variantId: "variant-1", quantity: 2 }], "tx");
+    // Business-metrics semantics: recorded exactly once, only after the
+    // transaction committed a real transition.
+    expect(observability.recordOrderEvent).toHaveBeenCalledTimes(1);
+    expect(observability.recordOrderEvent).toHaveBeenCalledWith({ event: "cancelled" });
   });
 
   it("also allows cancelling a PROCESSING order", async () => {
@@ -75,18 +87,20 @@ describe("CancelOrderUseCase", () => {
     );
   });
 
-  it("is a no-op for an already CANCELLED order — never touches the transition or inventory", async () => {
-    const { useCase, orderRepository, inventoryRestock } = buildUseCase({ findByIdResult: order({ status: "CANCELLED" }) });
+  it("is a no-op for an already CANCELLED order — never touches the transition, inventory, or metrics", async () => {
+    const { useCase, orderRepository, inventoryRestock, observability } = buildUseCase({ findByIdResult: order({ status: "CANCELLED" }) });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
     expect(result.changed).toBe(false);
     expect(orderRepository.transitionStatus).not.toHaveBeenCalled();
     expect(inventoryRestock.restock).not.toHaveBeenCalled();
+    expect(observability.recordOrderEvent).not.toHaveBeenCalled();
   });
 
-  it("is idempotent — a concurrent cancel that already won skips the restock (no double-restock)", async () => {
-    const { useCase, inventoryRestock } = buildUseCase({ transitionChanged: false });
+  it("is idempotent — a concurrent cancel that already won skips the restock AND the metric (no double-count)", async () => {
+    const { useCase, inventoryRestock, observability } = buildUseCase({ transitionChanged: false });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
     expect(result.changed).toBe(false);
     expect(inventoryRestock.restock).not.toHaveBeenCalled();
+    expect(observability.recordOrderEvent).not.toHaveBeenCalled();
   });
 });

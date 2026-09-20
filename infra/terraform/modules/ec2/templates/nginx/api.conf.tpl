@@ -115,6 +115,18 @@ server {
         proxy_pass http://woobe_api;
     }
 
+    # /metrics is Prometheus's scrape endpoint (host-internal Prometheus,
+    # via modules/ec2's observability bootstrap — see docs/deployment.md,
+    # "Observability"). Without this block, the catch-all `location /`
+    # below would proxy it to the public internet exactly like any other
+    # API route; Prometheus never goes through nginx at all — it scrapes
+    # http://127.0.0.1:${api_port}/metrics directly on the same host. This
+    # must stay ABOVE the catch-all: nginx uses the first matching
+    # `location`, so an entry below `location /` would never be reached.
+    location = /metrics {
+        return 403;
+    }
+
     location / {
         proxy_pass http://woobe_api;
     }

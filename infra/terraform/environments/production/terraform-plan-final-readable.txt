@@ -1,0 +1,1781 @@
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # aws_ssm_parameter.valkey_password will be created
+  + resource "aws_ssm_parameter" "valkey_password" {
+      + arn            = (known after apply)
+      + data_type      = (known after apply)
+      + has_value_wo   = (known after apply)
+      + id             = (known after apply)
+      + insecure_value = (known after apply)
+      + key_id         = (known after apply)
+      + name           = "/woobe-production/valkey/password"
+      + tags           = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all       = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tier           = (known after apply)
+      + type           = "SecureString"
+      + value          = (sensitive value)
+      + value_wo       = (write-only attribute)
+      + version        = (known after apply)
+    }
+
+  # aws_vpc_endpoint.s3 will be created
+  + resource "aws_vpc_endpoint" "s3" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = (known after apply)
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.ap-south-2.s3"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-s3-endpoint"
+          + "Project"     = "Woobe"
+        }
+      + tags_all              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-s3-endpoint"
+          + "Project"     = "Woobe"
+        }
+      + vpc_endpoint_type     = "Gateway"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # random_password.valkey will be created
+  + resource "random_password" "valkey" {
+      + bcrypt_hash = (sensitive value)
+      + id          = (known after apply)
+      + length      = 32
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = true
+      + numeric     = true
+      + result      = (sensitive value)
+      + special     = false
+      + upper       = true
+    }
+
+  # module.cloudfront_media.aws_cloudfront_distribution.media will be created
+  + resource "aws_cloudfront_distribution" "media" {
+      + arn                             = (known after apply)
+      + caller_reference                = (known after apply)
+      + comment                         = "woobe-production public media (private S3 origin via OAC)"
+      + continuous_deployment_policy_id = (known after apply)
+      + domain_name                     = (known after apply)
+      + enabled                         = true
+      + etag                            = (known after apply)
+      + hosted_zone_id                  = (known after apply)
+      + http_version                    = "http2and3"
+      + id                              = (known after apply)
+      + in_progress_validation_batches  = (known after apply)
+      + is_ipv6_enabled                 = true
+      + last_modified_time              = (known after apply)
+      + price_class                     = "PriceClass_200"
+      + retain_on_delete                = false
+      + staging                         = false
+      + status                          = (known after apply)
+      + tags                            = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-media-cdn"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                        = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-media-cdn"
+          + "Project"     = "Woobe"
+        }
+      + trusted_key_groups              = (known after apply)
+      + trusted_signers                 = (known after apply)
+      + wait_for_deployment             = true
+
+      + custom_error_response {
+          + error_caching_min_ttl = 10
+          + error_code            = 403
+          + response_code         = 404
+            # (1 unchanged attribute hidden)
+        }
+
+      + default_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = true
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03"
+          + target_origin_id           = "s3-media"
+          + trusted_key_groups         = (known after apply)
+          + trusted_signers            = (known after apply)
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+
+      + origin {
+          + connection_attempts      = 3
+          + connection_timeout       = 10
+          + domain_name              = (known after apply)
+          + origin_access_control_id = (known after apply)
+          + origin_id                = "s3-media"
+            # (1 unchanged attribute hidden)
+        }
+
+      + restrictions {
+          + geo_restriction {
+              + locations        = (known after apply)
+              + restriction_type = "none"
+            }
+        }
+
+      + viewer_certificate {
+          + cloudfront_default_certificate = true
+          + minimum_protocol_version       = "TLSv1"
+        }
+    }
+
+  # module.cloudfront_media.aws_cloudfront_origin_access_control.media will be created
+  + resource "aws_cloudfront_origin_access_control" "media" {
+      + arn                               = (known after apply)
+      + description                       = "OAC for the woobe-production private media bucket"
+      + etag                              = (known after apply)
+      + id                                = (known after apply)
+      + name                              = "woobe-production-media-oac"
+      + origin_access_control_origin_type = "s3"
+      + signing_behavior                  = "always"
+      + signing_protocol                  = "sigv4"
+    }
+
+  # module.cloudfront_media.aws_s3_bucket_policy.media will be created
+  + resource "aws_s3_bucket_policy" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + policy = (known after apply)
+    }
+
+  # module.ec2.aws_eip.backend will be created
+  + resource "aws_eip" "backend" {
+      + allocation_id        = (known after apply)
+      + arn                  = (known after apply)
+      + association_id       = (known after apply)
+      + carrier_ip           = (known after apply)
+      + customer_owned_ip    = (known after apply)
+      + domain               = "vpc"
+      + id                   = (known after apply)
+      + instance             = (known after apply)
+      + ipam_pool_id         = (known after apply)
+      + network_border_group = (known after apply)
+      + network_interface    = (known after apply)
+      + private_dns          = (known after apply)
+      + private_ip           = (known after apply)
+      + ptr_record           = (known after apply)
+      + public_dns           = (known after apply)
+      + public_ip            = (known after apply)
+      + public_ipv4_pool     = (known after apply)
+      + tags                 = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-backend-eip"
+          + "Project"     = "Woobe"
+        }
+      + tags_all             = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-backend-eip"
+          + "Project"     = "Woobe"
+        }
+      + vpc                  = (known after apply)
+    }
+
+  # module.ec2.aws_instance.backend will be created
+  + resource "aws_instance" "backend" {
+      + ami                                  = (sensitive value)
+      + arn                                  = (known after apply)
+      + associate_public_ip_address          = (known after apply)
+      + availability_zone                    = (known after apply)
+      + cpu_core_count                       = (known after apply)
+      + cpu_threads_per_core                 = (known after apply)
+      + disable_api_stop                     = (known after apply)
+      + disable_api_termination              = (known after apply)
+      + ebs_optimized                        = (known after apply)
+      + enable_primary_ipv6                  = (known after apply)
+      + get_password_data                    = false
+      + host_id                              = (known after apply)
+      + host_resource_group_arn              = (known after apply)
+      + iam_instance_profile                 = "woobe-production-ec2-profile"
+      + id                                   = (known after apply)
+      + instance_initiated_shutdown_behavior = (known after apply)
+      + instance_lifecycle                   = (known after apply)
+      + instance_state                       = (known after apply)
+      + instance_type                        = "t4g.small"
+      + ipv6_address_count                   = (known after apply)
+      + ipv6_addresses                       = (known after apply)
+      + key_name                             = (known after apply)
+      + monitoring                           = (known after apply)
+      + outpost_arn                          = (known after apply)
+      + password_data                        = (known after apply)
+      + placement_group                      = (known after apply)
+      + placement_partition_number           = (known after apply)
+      + primary_network_interface_id         = (known after apply)
+      + private_dns                          = (known after apply)
+      + private_ip                           = (known after apply)
+      + public_dns                           = (known after apply)
+      + public_ip                            = (known after apply)
+      + secondary_private_ips                = (known after apply)
+      + security_groups                      = (known after apply)
+      + source_dest_check                    = true
+      + spot_instance_request_id             = (known after apply)
+      + subnet_id                            = (known after apply)
+      + tags                                 = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-backend"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                             = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-backend"
+          + "Project"     = "Woobe"
+        }
+      + tenancy                              = (known after apply)
+      + user_data                            = "d86888f40a1848b3583826c94ab9a59828151e4e"
+      + user_data_base64                     = (known after apply)
+      + user_data_replace_on_change          = true
+      + vpc_security_group_ids               = (known after apply)
+
+      + capacity_reservation_specification (known after apply)
+
+      + cpu_options (known after apply)
+
+      + ebs_block_device (known after apply)
+
+      + enclave_options (known after apply)
+
+      + ephemeral_block_device (known after apply)
+
+      + instance_market_options (known after apply)
+
+      + maintenance_options (known after apply)
+
+      + metadata_options {
+          + http_endpoint               = "enabled"
+          + http_protocol_ipv6          = "disabled"
+          + http_put_response_hop_limit = 2
+          + http_tokens                 = "required"
+          + instance_metadata_tags      = (known after apply)
+        }
+
+      + network_interface (known after apply)
+
+      + private_dns_name_options (known after apply)
+
+      + root_block_device {
+          + delete_on_termination = true
+          + device_name           = (known after apply)
+          + encrypted             = true
+          + iops                  = (known after apply)
+          + kms_key_id            = (known after apply)
+          + tags_all              = (known after apply)
+          + throughput            = (known after apply)
+          + volume_id             = (known after apply)
+          + volume_size           = 30
+          + volume_type           = "gp3"
+        }
+    }
+
+  # module.ecr.aws_ecr_lifecycle_policy.this will be created
+  + resource "aws_ecr_lifecycle_policy" "this" {
+      + id          = (known after apply)
+      + policy      = jsonencode(
+            {
+              + rules = [
+                  + {
+                      + action       = {
+                          + type = "expire"
+                        }
+                      + description  = "Expire untagged images after 7 days"
+                      + rulePriority = 1
+                      + selection    = {
+                          + countNumber = 7
+                          + countType   = "sinceImagePushed"
+                          + countUnit   = "days"
+                          + tagStatus   = "untagged"
+                        }
+                    },
+                  + {
+                      + action       = {
+                          + type = "expire"
+                        }
+                      + description  = "Keep only the most recent 20 images (rollback window)"
+                      + rulePriority = 2
+                      + selection    = {
+                          + countNumber = 20
+                          + countType   = "imageCountMoreThan"
+                          + tagStatus   = "any"
+                        }
+                    },
+                ]
+            }
+        )
+      + registry_id = (known after apply)
+      + repository  = "woobe-production-api"
+    }
+
+  # module.ecr.aws_ecr_repository.this will be created
+  + resource "aws_ecr_repository" "this" {
+      + arn                  = (known after apply)
+      + force_delete         = false
+      + id                   = (known after apply)
+      + image_tag_mutability = "IMMUTABLE"
+      + name                 = "woobe-production-api"
+      + registry_id          = (known after apply)
+      + repository_url       = (known after apply)
+      + tags                 = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-api"
+          + "Project"     = "Woobe"
+        }
+      + tags_all             = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-api"
+          + "Project"     = "Woobe"
+        }
+
+      + encryption_configuration {
+          + encryption_type = "AES256"
+          + kms_key         = (known after apply)
+        }
+
+      + image_scanning_configuration {
+          + scan_on_push = true
+        }
+    }
+
+  # module.github_oidc.aws_iam_openid_connect_provider.github[0] will be created
+  + resource "aws_iam_openid_connect_provider" "github" {
+      + arn             = (known after apply)
+      + client_id_list  = [
+          + "sts.amazonaws.com",
+        ]
+      + id              = (known after apply)
+      + tags            = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all        = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + thumbprint_list = (known after apply)
+      + url             = "https://token.actions.githubusercontent.com"
+    }
+
+  # module.github_oidc.aws_iam_role.deploy will be created
+  + resource "aws_iam_role" "deploy" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = (known after apply)
+      + create_date           = (known after apply)
+      + description           = "Assumed by GitHub Actions (jsurya114/Wobee-ecommerce, branch main) to push images to ECR and trigger the SSM deploy."
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "woobe-github-actions-deploy"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-github-actions-deploy"
+          + "Project"     = "Woobe"
+        }
+      + tags_all              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-github-actions-deploy"
+          + "Project"     = "Woobe"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.github_oidc.aws_iam_role_policy.deploy will be created
+  + resource "aws_iam_role_policy" "deploy" {
+      + id          = (known after apply)
+      + name        = "woobe-github-actions-deploy-policy"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.iam.aws_iam_instance_profile.ec2 will be created
+  + resource "aws_iam_instance_profile" "ec2" {
+      + arn         = (known after apply)
+      + create_date = (known after apply)
+      + id          = (known after apply)
+      + name        = "woobe-production-ec2-profile"
+      + name_prefix = (known after apply)
+      + path        = "/"
+      + role        = "woobe-production-ec2-role"
+      + tags        = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-ec2-profile"
+          + "Project"     = "Woobe"
+        }
+      + tags_all    = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-ec2-profile"
+          + "Project"     = "Woobe"
+        }
+      + unique_id   = (known after apply)
+    }
+
+  # module.iam.aws_iam_role.ec2 will be created
+  + resource "aws_iam_role" "ec2" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ec2.amazonaws.com"
+                        }
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "woobe-production-ec2-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-ec2-role"
+          + "Project"     = "Woobe"
+        }
+      + tags_all              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-ec2-role"
+          + "Project"     = "Woobe"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.iam.aws_iam_role_policy.cloudwatch_agent will be created
+  + resource "aws_iam_role_policy" "cloudwatch_agent" {
+      + id          = (known after apply)
+      + name        = "woobe-production-cloudwatch-agent"
+      + name_prefix = (known after apply)
+      + policy      = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = [
+                          + "cloudwatch:PutMetricData",
+                        ]
+                      + Condition = {
+                          + StringEquals = {
+                              + "cloudwatch:namespace" = "woobe-production"
+                            }
+                        }
+                      + Effect    = "Allow"
+                      + Resource  = "*"
+                      + Sid       = "MetricsPublish"
+                    },
+                  + {
+                      + Action   = [
+                          + "logs:CreateLogGroup",
+                          + "logs:CreateLogStream",
+                          + "logs:PutLogEvents",
+                          + "logs:DescribeLogStreams",
+                        ]
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:logs:ap-south-2:185658217213:log-group:/woobe-production/*"
+                      + Sid      = "LogDelivery"
+                    },
+                  + {
+                      + Action   = [
+                          + "logs:DescribeLogGroups",
+                        ]
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:logs:ap-south-2:185658217213:log-group:*"
+                      + Sid      = "LogGroupLookup"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + role        = (known after apply)
+    }
+
+  # module.iam.aws_iam_role_policy.ecr_pull will be created
+  + resource "aws_iam_role_policy" "ecr_pull" {
+      + id          = (known after apply)
+      + name        = "woobe-production-ecr-pull"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.iam.aws_iam_role_policy.runtime_secrets_read will be created
+  + resource "aws_iam_role_policy" "runtime_secrets_read" {
+      + id          = (known after apply)
+      + name        = "woobe-production-runtime-secrets-read"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.iam.aws_iam_role_policy.s3_media_access will be created
+  + resource "aws_iam_role_policy" "s3_media_access" {
+      + id          = (known after apply)
+      + name        = "woobe-production-s3-media-access"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.iam.aws_iam_role_policy_attachment.ssm_core will be created
+  + resource "aws_iam_role_policy_attachment" "ssm_core" {
+      + id         = (known after apply)
+      + policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      + role       = "woobe-production-ec2-role"
+    }
+
+  # module.monitoring.aws_cloudwatch_metric_alarm.ec2_cpu_high will be created
+  + resource "aws_cloudwatch_metric_alarm" "ec2_cpu_high" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Woobe backend EC2 sustained CPU above 80% for 15 minutes"
+      + alarm_name                            = "woobe-production-ec2-cpu-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = (known after apply)
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "CPUUtilization"
+      + namespace                             = "AWS/EC2"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + threshold                             = 80
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.monitoring.aws_cloudwatch_metric_alarm.ec2_status_check_failed will be created
+  + resource "aws_cloudwatch_metric_alarm" "ec2_status_check_failed" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Woobe backend EC2 failing system or instance status checks"
+      + alarm_name                            = "woobe-production-ec2-status-check-failed"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = (known after apply)
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "StatusCheckFailed"
+      + namespace                             = "AWS/EC2"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Maximum"
+      + tags                                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + threshold                             = 0
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.monitoring.aws_cloudwatch_metric_alarm.rds_connections_high will be created
+  + resource "aws_cloudwatch_metric_alarm" "rds_connections_high" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Woobe RDS connection count trending toward the small instance's practical ceiling"
+      + alarm_name                            = "woobe-production-rds-connections-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "woobe-production-postgres"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "DatabaseConnections"
+      + namespace                             = "AWS/RDS"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + threshold                             = 40
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.monitoring.aws_cloudwatch_metric_alarm.rds_cpu_high will be created
+  + resource "aws_cloudwatch_metric_alarm" "rds_cpu_high" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Woobe RDS sustained CPU above 80% for 15 minutes"
+      + alarm_name                            = "woobe-production-rds-cpu-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "woobe-production-postgres"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "CPUUtilization"
+      + namespace                             = "AWS/RDS"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + threshold                             = 80
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.monitoring.aws_cloudwatch_metric_alarm.rds_free_storage_low will be created
+  + resource "aws_cloudwatch_metric_alarm" "rds_free_storage_low" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Woobe RDS free storage below 2 GiB"
+      + alarm_name                            = "woobe-production-rds-free-storage-low"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "woobe-production-postgres"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + metric_name                           = "FreeStorageSpace"
+      + namespace                             = "AWS/RDS"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + threshold                             = 2147483648
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.monitoring.aws_cloudwatch_metric_alarm.rds_freeable_memory_low will be created
+  + resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory_low" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Woobe RDS freeable memory critically low"
+      + alarm_name                            = "woobe-production-rds-freeable-memory-low"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "woobe-production-postgres"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "FreeableMemory"
+      + namespace                             = "AWS/RDS"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + threshold                             = 100000000
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.monitoring.aws_sns_topic.alerts will be created
+  + resource "aws_sns_topic" "alerts" {
+      + arn                         = (known after apply)
+      + beginning_archive_time      = (known after apply)
+      + content_based_deduplication = false
+      + fifo_throughput_scope       = (known after apply)
+      + fifo_topic                  = false
+      + id                          = (known after apply)
+      + name                        = "woobe-production-alerts"
+      + name_prefix                 = (known after apply)
+      + owner                       = (known after apply)
+      + policy                      = (known after apply)
+      + signature_version           = (known after apply)
+      + tags                        = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-alerts"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                    = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-alerts"
+          + "Project"     = "Woobe"
+        }
+      + tracing_config              = (known after apply)
+    }
+
+  # module.networking.aws_internet_gateway.this will be created
+  + resource "aws_internet_gateway" "this" {
+      + arn      = (known after apply)
+      + id       = (known after apply)
+      + owner_id = (known after apply)
+      + tags     = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-igw"
+          + "Project"     = "Woobe"
+        }
+      + tags_all = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-igw"
+          + "Project"     = "Woobe"
+        }
+      + vpc_id   = (known after apply)
+    }
+
+  # module.networking.aws_route_table.private will be created
+  + resource "aws_route_table" "private" {
+      + arn              = (known after apply)
+      + id               = (known after apply)
+      + owner_id         = (known after apply)
+      + propagating_vgws = (known after apply)
+      + route            = (known after apply)
+      + tags             = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-private-rt"
+          + "Project"     = "Woobe"
+        }
+      + tags_all         = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-private-rt"
+          + "Project"     = "Woobe"
+        }
+      + vpc_id           = (known after apply)
+    }
+
+  # module.networking.aws_route_table.public will be created
+  + resource "aws_route_table" "public" {
+      + arn              = (known after apply)
+      + id               = (known after apply)
+      + owner_id         = (known after apply)
+      + propagating_vgws = (known after apply)
+      + route            = [
+          + {
+              + cidr_block                 = "0.0.0.0/0"
+              + gateway_id                 = (known after apply)
+                # (11 unchanged attributes hidden)
+            },
+        ]
+      + tags             = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-public-rt"
+          + "Project"     = "Woobe"
+        }
+      + tags_all         = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-public-rt"
+          + "Project"     = "Woobe"
+        }
+      + vpc_id           = (known after apply)
+    }
+
+  # module.networking.aws_route_table_association.private[0] will be created
+  + resource "aws_route_table_association" "private" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.networking.aws_route_table_association.private[1] will be created
+  + resource "aws_route_table_association" "private" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.networking.aws_route_table_association.public[0] will be created
+  + resource "aws_route_table_association" "public" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.networking.aws_route_table_association.public[1] will be created
+  + resource "aws_route_table_association" "public" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.networking.aws_subnet.private[0] will be created
+  + resource "aws_subnet" "private" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "ap-south-2a"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.0.11.0/24"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-private-ap-south-2a"
+          + "Project"     = "Woobe"
+          + "Tier"        = "private"
+        }
+      + tags_all                                       = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-private-ap-south-2a"
+          + "Project"     = "Woobe"
+          + "Tier"        = "private"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.networking.aws_subnet.private[1] will be created
+  + resource "aws_subnet" "private" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "ap-south-2b"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.0.12.0/24"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-private-ap-south-2b"
+          + "Project"     = "Woobe"
+          + "Tier"        = "private"
+        }
+      + tags_all                                       = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-private-ap-south-2b"
+          + "Project"     = "Woobe"
+          + "Tier"        = "private"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.networking.aws_subnet.public[0] will be created
+  + resource "aws_subnet" "public" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "ap-south-2a"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.0.1.0/24"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-public-ap-south-2a"
+          + "Project"     = "Woobe"
+          + "Tier"        = "public"
+        }
+      + tags_all                                       = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-public-ap-south-2a"
+          + "Project"     = "Woobe"
+          + "Tier"        = "public"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.networking.aws_subnet.public[1] will be created
+  + resource "aws_subnet" "public" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "ap-south-2b"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.0.2.0/24"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-public-ap-south-2b"
+          + "Project"     = "Woobe"
+          + "Tier"        = "public"
+        }
+      + tags_all                                       = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-public-ap-south-2b"
+          + "Project"     = "Woobe"
+          + "Tier"        = "public"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.networking.aws_vpc.this will be created
+  + resource "aws_vpc" "this" {
+      + arn                                  = (known after apply)
+      + cidr_block                           = "10.0.0.0/16"
+      + default_network_acl_id               = (known after apply)
+      + default_route_table_id               = (known after apply)
+      + default_security_group_id            = (known after apply)
+      + dhcp_options_id                      = (known after apply)
+      + enable_dns_hostnames                 = true
+      + enable_dns_support                   = true
+      + enable_network_address_usage_metrics = (known after apply)
+      + id                                   = (known after apply)
+      + instance_tenancy                     = "default"
+      + ipv6_association_id                  = (known after apply)
+      + ipv6_cidr_block                      = (known after apply)
+      + ipv6_cidr_block_network_border_group = (known after apply)
+      + main_route_table_id                  = (known after apply)
+      + owner_id                             = (known after apply)
+      + tags                                 = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-vpc"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                             = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-vpc"
+          + "Project"     = "Woobe"
+        }
+    }
+
+  # module.rds.aws_db_instance.this will be created
+  + resource "aws_db_instance" "this" {
+      + address                               = (known after apply)
+      + allocated_storage                     = 20
+      + apply_immediately                     = false
+      + arn                                   = (known after apply)
+      + auto_minor_version_upgrade            = true
+      + availability_zone                     = (known after apply)
+      + backup_retention_period               = 7
+      + backup_target                         = (known after apply)
+      + backup_window                         = (known after apply)
+      + ca_cert_identifier                    = (known after apply)
+      + character_set_name                    = (known after apply)
+      + copy_tags_to_snapshot                 = false
+      + database_insights_mode                = (known after apply)
+      + db_name                               = "woobe"
+      + db_subnet_group_name                  = "woobe-production-db-subnet-group"
+      + dedicated_log_volume                  = false
+      + delete_automated_backups              = true
+      + deletion_protection                   = true
+      + domain_fqdn                           = (known after apply)
+      + enabled_cloudwatch_logs_exports       = [
+          + "postgresql",
+        ]
+      + endpoint                              = (known after apply)
+      + engine                                = "postgres"
+      + engine_lifecycle_support              = (known after apply)
+      + engine_version                        = "16.15"
+      + engine_version_actual                 = (known after apply)
+      + final_snapshot_identifier             = "woobe-production-postgres-final"
+      + hosted_zone_id                        = (known after apply)
+      + id                                    = (known after apply)
+      + identifier                            = "woobe-production-postgres"
+      + identifier_prefix                     = (known after apply)
+      + instance_class                        = "db.t4g.micro"
+      + iops                                  = (known after apply)
+      + kms_key_id                            = (known after apply)
+      + latest_restorable_time                = (known after apply)
+      + license_model                         = (known after apply)
+      + listener_endpoint                     = (known after apply)
+      + maintenance_window                    = (known after apply)
+      + manage_master_user_password           = true
+      + master_user_secret                    = (known after apply)
+      + master_user_secret_kms_key_id         = (known after apply)
+      + monitoring_interval                   = 0
+      + monitoring_role_arn                   = (known after apply)
+      + multi_az                              = false
+      + nchar_character_set_name              = (known after apply)
+      + network_type                          = (known after apply)
+      + option_group_name                     = (known after apply)
+      + parameter_group_name                  = (known after apply)
+      + password_wo                           = (write-only attribute)
+      + performance_insights_enabled          = true
+      + performance_insights_kms_key_id       = (known after apply)
+      + performance_insights_retention_period = 7
+      + port                                  = (known after apply)
+      + publicly_accessible                   = false
+      + replica_mode                          = (known after apply)
+      + replicas                              = (known after apply)
+      + resource_id                           = (known after apply)
+      + skip_final_snapshot                   = false
+      + snapshot_identifier                   = (known after apply)
+      + status                                = (known after apply)
+      + storage_encrypted                     = true
+      + storage_throughput                    = (known after apply)
+      + storage_type                          = "gp3"
+      + tags                                  = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-postgres"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-postgres"
+          + "Project"     = "Woobe"
+        }
+      + timezone                              = (known after apply)
+      + username                              = "woobe_admin"
+      + vpc_security_group_ids                = (known after apply)
+    }
+
+  # module.rds.aws_db_subnet_group.this will be created
+  + resource "aws_db_subnet_group" "this" {
+      + arn                     = (known after apply)
+      + description             = "Managed by Terraform"
+      + id                      = (known after apply)
+      + name                    = "woobe-production-db-subnet-group"
+      + name_prefix             = (known after apply)
+      + subnet_ids              = (known after apply)
+      + supported_network_types = (known after apply)
+      + tags                    = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-db-subnet-group"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-db-subnet-group"
+          + "Project"     = "Woobe"
+        }
+      + vpc_id                  = (known after apply)
+    }
+
+  # module.s3.aws_s3_bucket.media will be created
+  + resource "aws_s3_bucket" "media" {
+      + acceleration_status         = (known after apply)
+      + acl                         = (known after apply)
+      + arn                         = (known after apply)
+      + bucket                      = "woobe-production-media-185658217213"
+      + bucket_domain_name          = (known after apply)
+      + bucket_prefix               = (known after apply)
+      + bucket_regional_domain_name = (known after apply)
+      + force_destroy               = false
+      + hosted_zone_id              = (known after apply)
+      + id                          = (known after apply)
+      + object_lock_enabled         = (known after apply)
+      + policy                      = (known after apply)
+      + region                      = (known after apply)
+      + request_payer               = (known after apply)
+      + tags                        = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-media"
+          + "Project"     = "Woobe"
+        }
+      + tags_all                    = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-media"
+          + "Project"     = "Woobe"
+        }
+      + website_domain              = (known after apply)
+      + website_endpoint            = (known after apply)
+
+      + cors_rule (known after apply)
+
+      + grant (known after apply)
+
+      + lifecycle_rule (known after apply)
+
+      + logging (known after apply)
+
+      + object_lock_configuration (known after apply)
+
+      + replication_configuration (known after apply)
+
+      + server_side_encryption_configuration (known after apply)
+
+      + versioning (known after apply)
+
+      + website (known after apply)
+    }
+
+  # module.s3.aws_s3_bucket_lifecycle_configuration.media will be created
+  + resource "aws_s3_bucket_lifecycle_configuration" "media" {
+      + bucket                                 = (known after apply)
+      + expected_bucket_owner                  = (known after apply)
+      + id                                     = (known after apply)
+      + transition_default_minimum_object_size = "all_storage_classes_128K"
+
+      + rule {
+          + id     = "expire-noncurrent-versions"
+          + status = "Enabled"
+            # (1 unchanged attribute hidden)
+
+          + abort_incomplete_multipart_upload {
+              + days_after_initiation = 7
+            }
+
+          + filter {
+                # (1 unchanged attribute hidden)
+            }
+
+          + noncurrent_version_expiration {
+              + noncurrent_days = 30
+            }
+        }
+      + rule {
+          + id     = "remove-expired-delete-markers"
+          + status = "Enabled"
+            # (1 unchanged attribute hidden)
+
+          + expiration {
+              + days                         = 0
+              + expired_object_delete_marker = true
+            }
+
+          + filter {
+                # (1 unchanged attribute hidden)
+            }
+        }
+    }
+
+  # module.s3.aws_s3_bucket_ownership_controls.media will be created
+  + resource "aws_s3_bucket_ownership_controls" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + rule {
+          + object_ownership = "BucketOwnerEnforced"
+        }
+    }
+
+  # module.s3.aws_s3_bucket_public_access_block.media will be created
+  + resource "aws_s3_bucket_public_access_block" "media" {
+      + block_public_acls       = true
+      + block_public_policy     = true
+      + bucket                  = (known after apply)
+      + id                      = (known after apply)
+      + ignore_public_acls      = true
+      + restrict_public_buckets = true
+    }
+
+  # module.s3.aws_s3_bucket_server_side_encryption_configuration.media will be created
+  + resource "aws_s3_bucket_server_side_encryption_configuration" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + rule {
+          + bucket_key_enabled = true
+
+          + apply_server_side_encryption_by_default {
+              + sse_algorithm     = "AES256"
+                # (1 unchanged attribute hidden)
+            }
+        }
+    }
+
+  # module.s3.aws_s3_bucket_versioning.media will be created
+  + resource "aws_s3_bucket_versioning" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + versioning_configuration {
+          + mfa_delete = (known after apply)
+          + status     = "Enabled"
+        }
+    }
+
+  # module.security.aws_security_group.ec2 will be created
+  + resource "aws_security_group" "ec2" {
+      + arn                    = (known after apply)
+      + description            = "Woobe backend EC2 — HTTPS from Cloudflare only, no public SSH"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = "woobe-production-ec2-sg"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-ec2-sg"
+          + "Project"     = "Woobe"
+        }
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-ec2-sg"
+          + "Project"     = "Woobe"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.security.aws_security_group.rds will be created
+  + resource "aws_security_group" "rds" {
+      + arn                    = (known after apply)
+      + description            = "Woobe RDS PostgreSQL — inbound only from the EC2 security group, never public"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = "woobe-production-rds-sg"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-rds-sg"
+          + "Project"     = "Woobe"
+        }
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Name"        = "woobe-production-rds-sg"
+          + "Project"     = "Woobe"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.security.aws_vpc_security_group_egress_rule.ec2_all_outbound will be created
+  + resource "aws_vpc_security_group_egress_rule" "ec2_all_outbound" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "0.0.0.0/0"
+      + description            = "Outbound: Razorpay, Google OAuth, SMTP, SSM, ECR, S3, package repos"
+      + id                     = (known after apply)
+      + ip_protocol            = "-1"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+    }
+
+  # module.security.aws_vpc_security_group_egress_rule.rds_all_outbound will be created
+  + resource "aws_vpc_security_group_egress_rule" "rds_all_outbound" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "0.0.0.0/0"
+      + description            = "Default egress — RDS does not initiate application-level outbound traffic"
+      + id                     = (known after apply)
+      + ip_protocol            = "-1"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["103.21.244.0/22"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "103.21.244.0/22"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["103.22.200.0/22"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "103.22.200.0/22"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["103.31.4.0/22"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "103.31.4.0/22"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["104.16.0.0/13"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "104.16.0.0/13"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["104.24.0.0/14"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "104.24.0.0/14"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["108.162.192.0/18"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "108.162.192.0/18"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["131.0.72.0/22"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "131.0.72.0/22"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["141.101.64.0/18"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "141.101.64.0/18"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["162.158.0.0/15"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "162.158.0.0/15"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["172.64.0.0/13"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "172.64.0.0/13"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["173.245.48.0/20"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "173.245.48.0/20"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["188.114.96.0/20"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "188.114.96.0/20"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["190.93.240.0/20"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "190.93.240.0/20"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["197.234.240.0/22"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "197.234.240.0/22"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.ec2_https_from_cloudflare["198.41.128.0/17"] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "ec2_https_from_cloudflare" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "198.41.128.0/17"
+      + description            = "HTTPS from Cloudflare edge"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                = 443
+    }
+
+  # module.security.aws_vpc_security_group_ingress_rule.rds_from_ec2 will be created
+  + resource "aws_vpc_security_group_ingress_rule" "rds_from_ec2" {
+      + arn                          = (known after apply)
+      + description                  = "PostgreSQL from the Woobe EC2 security group only"
+      + from_port                    = 5432
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + to_port                      = 5432
+    }
+
+  # module.ssm_deploy.aws_cloudwatch_log_group.deploy will be created
+  + resource "aws_cloudwatch_log_group" "deploy" {
+      + arn               = (known after apply)
+      + id                = (known after apply)
+      + log_group_class   = (known after apply)
+      + name              = "/woobe-production/deploy"
+      + name_prefix       = (known after apply)
+      + retention_in_days = 30
+      + skip_destroy      = false
+      + tags              = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all          = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+    }
+
+  # module.ssm_deploy.aws_ssm_document.deploy will be created
+  + resource "aws_ssm_document" "deploy" {
+      + arn              = (known after apply)
+      + content          = (known after apply)
+      + created_date     = (known after apply)
+      + default_version  = (known after apply)
+      + description      = (known after apply)
+      + document_format  = "JSON"
+      + document_type    = "Command"
+      + document_version = (known after apply)
+      + hash             = (known after apply)
+      + hash_type        = (known after apply)
+      + id               = (known after apply)
+      + latest_version   = (known after apply)
+      + name             = "woobe-production-deploy"
+      + owner            = (known after apply)
+      + parameter        = (known after apply)
+      + platform_types   = (known after apply)
+      + schema_version   = (known after apply)
+      + status           = (known after apply)
+      + tags             = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+      + tags_all         = {
+          + "Environment" = "production"
+          + "ManagedBy"   = "Terraform"
+          + "Project"     = "Woobe"
+        }
+    }
+
+Plan: 69 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + cloudflare_dns_record            = {
+      + content = (known after apply)
+      + name    = "api.woobe.in"
+      + proxied = true
+      + ssl_tls = "Full (strict), with a Cloudflare Origin CA certificate for api.woobe.in"
+      + type    = "A"
+    }
+  + ec2_instance_id                  = (known after apply)
+  + ec2_public_ip                    = (known after apply)
+  + ecr_api_repository_url           = (known after apply)
+  + github_actions_role_arn          = (known after apply)
+  + github_oidc_trusted_subject      = "repo:jsurya114/Wobee-ecommerce:ref:refs/heads/main"
+  + media_cloudfront_distribution_id = (known after apply)
+  + media_public_base_url            = (known after apply)
+  + rds_endpoint                     = (known after apply)
+  + rds_master_user_secret_arn       = (known after apply)
+  + rds_port                         = (known after apply)
+  + s3_media_bucket_arn              = (known after apply)
+  + s3_media_bucket_name             = (known after apply)
+  + sns_alert_topic_arn              = (known after apply)
+  + ssm_deploy_document_name         = "woobe-production-deploy"
+  + valkey_password_parameter_name   = "/woobe-production/valkey/password"
+  + vpc_id                           = (known after apply)

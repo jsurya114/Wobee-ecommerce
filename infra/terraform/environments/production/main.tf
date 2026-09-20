@@ -153,11 +153,12 @@ module "ec2" {
 module "monitoring" {
   source = "../../modules/monitoring"
 
-  name_prefix     = local.name_prefix
-  ec2_instance_id = module.ec2.instance_id
-  rds_instance_id = module.rds.identifier
-  alert_email     = var.alert_email
-  tags            = local.common_tags
+  name_prefix         = local.name_prefix
+  ec2_instance_id     = module.ec2.instance_id
+  rds_instance_id     = module.rds.identifier
+  valkey_maxmemory_mb = var.valkey_maxmemory_mb
+  alert_email         = var.alert_email
+  tags                = local.common_tags
 }
 
 # S3 Gateway VPC Endpoint — keeps EC2 <-> S3 traffic on the AWS backbone

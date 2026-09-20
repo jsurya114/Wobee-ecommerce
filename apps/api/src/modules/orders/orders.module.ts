@@ -13,6 +13,7 @@ import { redeemCouponUseCase } from "../coupons/coupons.module";
 import { reserveInventoryForCheckoutUseCase, restockFinalizedSaleUseCase } from "../inventory/inventory.module";
 import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { calculateGstUseCase } from "../pricing/pricing.module";
+import { observability } from "../../shared/infrastructure/observability/prometheus/prometheus-observability";
 import { getProductsByIdsUseCase, resolveProductIdsForVariantsUseCase } from "../products/products.module";
 import { createShipmentUseCase, evaluateShippingUseCase } from "../shipping/shipping.module";
 import { saveCheckoutAddressUseCase } from "../users/users.module";
@@ -106,6 +107,7 @@ const checkoutUseCase = new CheckoutUseCase(
   transactionRunner,
   couponRedeemer,
   addressSaver,
+  observability,
 );
 /** Exported for `returns`' customer-facing OrderReaderPort adapter (Week 2 Day 6) — keeps the exact same ownership-check semantics GetOrderUseCase's own doc comment describes. */
 export const getOrderUseCase = new GetOrderUseCase(orderRepository);
@@ -133,14 +135,14 @@ export const startProcessingOrderUseCase = new StartProcessingOrderUseCase(order
 /** 2026-09-06 order-processing audit — the PACKED checkpoint between PROCESSING and SHIPPED. */
 export const markOrderPackedUseCase = new MarkOrderPackedUseCase(orderRepository, auditLogger, transactionRunner);
 export const shipOrderUseCase = new ShipOrderUseCase(orderRepository, auditLogger, transactionRunner, shipmentCreator, notifyOrderEventUseCase);
-export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner, notifyOrderEventUseCase);
+export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, auditLogger, transactionRunner, notifyOrderEventUseCase, observability);
 /**
  * 2026-09-06 order-processing audit, finding I-1 — a courier-refused/
  * undeliverable parcel's only path forward from SHIPPED. Self-contained
  * (unlike cancellation, never needs composing with `refunds` in `admin` —
  * see the use-case's own doc comment for why).
  */
-export const markOrderReturnedToOriginUseCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transactionRunner);
+export const markOrderReturnedToOriginUseCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transactionRunner, observability);
 /**
  * Status transition + inventory restock ONLY. The refund and the
  * `ORDER_CANCELLED` audit entry that a cancellation also implies are
@@ -148,7 +150,7 @@ export const markOrderReturnedToOriginUseCase = new MarkOrderReturnedToOriginUse
  * `orders` cannot import `refunds` without recreating the
  * orders -> refunds -> payments -> orders import cycle (ADR-025).
  */
-export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transactionRunner);
+export const cancelOrderUseCase = new CancelOrderUseCase(orderRepository, inventoryRestock, transactionRunner, observability);
 export const listOrdersUseCase = new ListOrdersUseCase(orderRepository);
 export const getOrderForAdminUseCase = new GetOrderForAdminUseCase(orderRepository, resolveProductIdsForVariantsUseCase, getProductsByIdsUseCase);
 /** Exported for `returns`' own OrderReturnFlagWriterPort adapter (Week 2 Day 6). */

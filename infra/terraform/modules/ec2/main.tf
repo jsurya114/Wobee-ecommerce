@@ -38,8 +38,10 @@ resource "aws_instance" "backend" {
   }
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tpl", {
+    name_prefix         = var.name_prefix
     valkey_param_name   = var.valkey_param_name
     valkey_maxmemory_mb = var.valkey_maxmemory_mb
+    valkey_mem_limit_mb = var.valkey_maxmemory_mb * 3 / 2
     compose_version     = var.compose_version
     aws_region          = var.aws_region
     api_port            = var.api_port

@@ -5,6 +5,7 @@
 // Day 5 alongside payment confirmation — all on the same InventoryRepository.
 import { Router } from "express";
 import { recordAuditLogUseCase } from "../audit/audit.module";
+import { observability } from "../../shared/infrastructure/observability/prometheus/prometheus-observability";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
 import { AdjustInventoryUseCase } from "./application/use-cases/adjust-inventory.use-case";
 import { FinalizeReservationUseCase } from "./application/use-cases/finalize-reservation.use-case";
@@ -22,7 +23,7 @@ const auditLogger: AuditLoggerPort = { log: (entry) => recordAuditLogUseCase.exe
 
 export const getAvailableQuantitiesUseCase = new GetAvailableQuantitiesUseCase(inventoryRepository);
 /** Exported for cross-module use — see each use-case's own doc comment. */
-export const reserveInventoryForCheckoutUseCase = new ReserveInventoryForCheckoutUseCase(inventoryRepository);
+export const reserveInventoryForCheckoutUseCase = new ReserveInventoryForCheckoutUseCase(inventoryRepository, observability);
 export const finalizeReservationUseCase = new FinalizeReservationUseCase(inventoryRepository);
 export const releaseReservationUseCase = new ReleaseReservationUseCase(inventoryRepository);
 /** Week 2 Day 0 remediation — see the use-case's own doc comment. */

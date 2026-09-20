@@ -108,6 +108,46 @@ resource "aws_cloudwatch_metric_alarm" "rds_connections_high" {
   tags                = var.tags
 }
 
+# ---- Valkey (self-hosted, custom metrics pushed by a systemd timer on the
+# EC2 instance — see modules/ec2/templates/user_data.sh.tpl) --------------
+
+resource "aws_cloudwatch_metric_alarm" "valkey_down" {
+  alarm_name          = "${var.name_prefix}-valkey-down"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "ValkeyUp"
+  namespace           = var.name_prefix
+  period              = 60
+  statistic           = "Minimum"
+  threshold           = 1
+  # No datapoint at all (the push script itself can't run, e.g. Docker or
+  # the whole instance is down) is exactly as alarming as an explicit 0 —
+  # treat it the same way instead of leaving it as silent "insufficient data".
+  treat_missing_data = "breaching"
+  alarm_description  = "Woobe self-hosted Valkey not responding to PING for 3 consecutive checks"
+  alarm_actions      = [aws_sns_topic.alerts.arn]
+  ok_actions         = [aws_sns_topic.alerts.arn]
+  tags               = var.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "valkey_memory_pressure" {
+  alarm_name          = "${var.name_prefix}-valkey-memory-pressure"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "ValkeyUsedMemoryBytes"
+  namespace           = var.name_prefix
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = var.valkey_maxmemory_mb * 1024 * 1024 * 0.8
+  # Missing data here usually just means Valkey is down, which the
+  # valkey_down alarm above already covers — do not double-page for it.
+  treat_missing_data = "notBreaching"
+  alarm_description  = "Woobe Valkey used_memory above 80% of its configured maxmemory — with maxmemory-policy=noeviction, writes (including BullMQ job adds) will start failing once the cap is reached"
+  alarm_actions      = [aws_sns_topic.alerts.arn]
+  ok_actions         = [aws_sns_topic.alerts.arn]
+  tags               = var.tags
+}
+
 resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory_low" {
   alarm_name          = "${var.name_prefix}-rds-freeable-memory-low"
   comparison_operator = "LessThanThreshold"

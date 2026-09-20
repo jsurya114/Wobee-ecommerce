@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MarkOrderReturnedToOriginUseCase } from "./mark-order-returned-to-origin.use-case";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import type { OrderRepositoryPort } from "../ports/order-repository.port";
 import type { InventoryRestockPort } from "../ports/inventory-restock.port";
@@ -29,13 +30,20 @@ function buildUseCase(overrides: { findByIdResult?: OrderEntity; transitionChang
   const inventoryRestock: InventoryRestockPort = { restock: vi.fn().mockResolvedValue(undefined) };
   const auditLogger = { log: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLoggerPort;
   const transaction: TransactionPort = { run: (fn) => fn("tx") };
-  const useCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transaction);
-  return { useCase, orderRepository, inventoryRestock, auditLogger };
+  const observability: ObservabilityPort = {
+    recordOrderCreated: vi.fn(),
+    recordOrderEvent: vi.fn(),
+    recordRefundIssued: vi.fn(),
+    recordInventoryReservation: vi.fn(),
+    recordPaymentWebhook: vi.fn(),
+  };
+  const useCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transaction, observability);
+  return { useCase, orderRepository, inventoryRestock, auditLogger, observability };
 }
 
 describe("MarkOrderReturnedToOriginUseCase", () => {
   it("transitions SHIPPED -> RETURNED_TO_ORIGIN, restocks inventory exactly once, and audits it", async () => {
-    const { useCase, orderRepository, inventoryRestock, auditLogger } = buildUseCase();
+    const { useCase, orderRepository, inventoryRestock, auditLogger, observability } = buildUseCase();
 
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" });
 
@@ -48,6 +56,7 @@ describe("MarkOrderReturnedToOriginUseCase", () => {
       { actorId: "staff-1", actorRole: "ORDER_PROCESSING_STAFF", action: "ORDER_RETURNED_TO_ORIGIN", entityType: "Order", entityId: "order-1" },
       "tx",
     );
+    expect(observability.recordOrderEvent).toHaveBeenCalledWith({ event: "returned_to_origin" });
   });
 
   it("rejects marking returned-to-origin an order that isn't SHIPPED", async () => {
@@ -57,13 +66,14 @@ describe("MarkOrderReturnedToOriginUseCase", () => {
     );
   });
 
-  it("is a no-op for an already RETURNED_TO_ORIGIN order — never restocks or audits twice", async () => {
-    const { useCase, orderRepository, inventoryRestock, auditLogger } = buildUseCase({ findByIdResult: order({ status: "RETURNED_TO_ORIGIN" }) });
+  it("is a no-op for an already RETURNED_TO_ORIGIN order — never restocks, audits, or records the metric twice", async () => {
+    const { useCase, orderRepository, inventoryRestock, auditLogger, observability } = buildUseCase({ findByIdResult: order({ status: "RETURNED_TO_ORIGIN" }) });
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
     expect(result.changed).toBe(false);
     expect(orderRepository.transitionStatus).not.toHaveBeenCalled();
     expect(inventoryRestock.restock).not.toHaveBeenCalled();
     expect(auditLogger.log).not.toHaveBeenCalled();
+    expect(observability.recordOrderEvent).not.toHaveBeenCalled();
   });
 
   it("is idempotent under a concurrent race — a transition that already lost skips the restock and audit (no double-restock)", async () => {

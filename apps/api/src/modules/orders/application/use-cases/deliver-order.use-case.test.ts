@@ -1,9 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { DeliverOrderUseCase } from "./deliver-order.use-case";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import type { OrderEntity } from "../../domain/entities/order.entity";
 import type { OrderRepositoryPort } from "../ports/order-repository.port";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
 import type { TransactionPort } from "../ports/transaction.port";
+
+function fakeObservability(): ObservabilityPort {
+  return {
+    recordOrderCreated: vi.fn(),
+    recordOrderEvent: vi.fn(),
+    recordRefundIssued: vi.fn(),
+    recordInventoryReservation: vi.fn(),
+    recordPaymentWebhook: vi.fn(),
+  };
+}
 
 function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
   return {
@@ -29,7 +40,8 @@ describe("DeliverOrderUseCase", () => {
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
 
     const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction, notifyOrderEvent);
+    const observability = fakeObservability();
+    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction, notifyOrderEvent, observability);
     const result = await useCase.execute("order-1", { id: "staff-1", role: "ORDER_PROCESSING_STAFF" });
 
     expect(result.changed).toBe(true);
@@ -39,6 +51,7 @@ describe("DeliverOrderUseCase", () => {
     );
     expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({ action: "ORDER_DELIVERED" }), "tx");
     expect(notifyOrderEvent.execute).toHaveBeenCalledWith("order-1", "ORDER_DELIVERED");
+    expect(observability.recordOrderEvent).toHaveBeenCalledWith({ event: "delivered" });
   });
 
   it("rejects delivering an order that isn't SHIPPED", async () => {
@@ -46,10 +59,12 @@ describe("DeliverOrderUseCase", () => {
     const auditLogger = { log: vi.fn() } as unknown as AuditLoggerPort;
     const transaction: TransactionPort = { run: (fn) => fn("tx") };
     const notifyOrderEvent = { execute: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction, notifyOrderEvent);
+    const observability = fakeObservability();
+    const useCase = new DeliverOrderUseCase(orderRepository, auditLogger, transaction, notifyOrderEvent, observability);
 
     await expect(useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" })).rejects.toThrow(
       "Cannot deliver an order in status PROCESSING",
     );
+    expect(observability.recordOrderEvent).not.toHaveBeenCalled();
   });
 });

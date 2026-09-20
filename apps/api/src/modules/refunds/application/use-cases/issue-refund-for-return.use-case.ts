@@ -1,3 +1,4 @@
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import type { PaymentReaderPort } from "../ports/payment-reader.port";
 import type { PaymentRefundWriterPort } from "../ports/payment-refund-writer.port";
 import type { RazorpayRefundGatewayPort } from "../ports/razorpay-refund-gateway.port";
@@ -30,6 +31,7 @@ export class IssueRefundForReturnUseCase {
     private readonly paymentRefundWriter: PaymentRefundWriterPort,
     private readonly gateway: RazorpayRefundGatewayPort,
     private readonly refundRepository: RefundRepositoryPort,
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async issue(returnId: string, orderId: string, amountPaise: number): Promise<IssueRefundForReturnResult> {
@@ -70,6 +72,7 @@ export class IssueRefundForReturnUseCase {
       } catch {
         // Swallowed deliberately — same reasoning as IssueRefundForCancelledOrderUseCase's own comment.
       }
+      this.observability.recordRefundIssued({ result: "success" });
       return { outcome: "completed", refundId: created.id };
     } catch {
       const created = await this.refundRepository.create({
@@ -79,6 +82,7 @@ export class IssueRefundForReturnUseCase {
         status: "FAILED",
         amountPaise: safeAmountPaise,
       });
+      this.observability.recordRefundIssued({ result: "failure" });
       return { outcome: "failed", refundId: created.id };
     }
   }
