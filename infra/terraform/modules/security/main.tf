@@ -12,7 +12,7 @@
 
 resource "aws_security_group" "ec2" {
   name        = "${var.name_prefix}-ec2-sg"
-  description = "Woobe backend EC2 — HTTPS from Cloudflare only, no public SSH"
+  description = "Woobe backend EC2 - HTTPS from Cloudflare only, no public SSH"
   vpc_id      = var.vpc_id
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-ec2-sg" })
@@ -54,7 +54,7 @@ resource "aws_vpc_security_group_egress_rule" "ec2_all_outbound" {
 
 resource "aws_security_group" "rds" {
   name        = "${var.name_prefix}-rds-sg"
-  description = "Woobe RDS PostgreSQL — inbound only from the EC2 security group, never public"
+  description = "Woobe RDS PostgreSQL - inbound only from the EC2 security group, never public"
   vpc_id      = var.vpc_id
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-rds-sg" })
@@ -73,5 +73,5 @@ resource "aws_vpc_security_group_egress_rule" "rds_all_outbound" {
   security_group_id = aws_security_group.rds.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
-  description       = "Default egress — RDS does not initiate application-level outbound traffic"
+  description       = "Default egress - RDS does not initiate application-level outbound traffic"
 }

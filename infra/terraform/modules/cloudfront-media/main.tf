@@ -54,12 +54,14 @@ resource "aws_cloudfront_distribution" "media" {
 
   # The bucket grants CloudFront GetObject but deliberately NOT ListBucket
   # (that would let anyone list the bucket by requesting "/"), so S3 answers
-  # 403 for a key that does not exist. Present that as the 404 it really is,
-  # and only cache it briefly so a just-uploaded key is not stuck as "missing".
+  # 403 for a key that does not exist. Remapping that to a 404 status requires
+  # CloudFront to serve an actual custom error page (response_code and
+  # response_page_path must be set together or not at all — AWS rejects a
+  # response_code with no page); with no custom error page in this bucket,
+  # only the caching behavior is kept, so a just-uploaded key is not stuck
+  # looking "missing" for long.
   custom_error_response {
     error_code            = 403
-    response_code         = 404
-    response_page_path    = ""
     error_caching_min_ttl = 10
   }
 

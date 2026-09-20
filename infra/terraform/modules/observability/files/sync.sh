@@ -39,6 +39,17 @@ trap 'rm -f "$MANIFEST" "$MANIFEST.prom" "$MANIFEST.ds" "$ERR" "${NEWSECRET:-}";
 log() { printf '%s observability-sync: %s\n' "$(date -u +%FT%TZ)" "$*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
 
+# Two literal open/close brace characters must never sit adjacent anywhere in this file: it is
+# embedded verbatim into the SSM document's runShellScript content, and SSM's own document-parameter
+# syntax uses the same double-brace delimiters — a literal docker-inspect Go-template format string
+# makes SSM's CreateDocument content validation fail (e.g. InvalidDocumentContent: Parameter "else"
+# is not declared). OB/CB build the braces at runtime instead, so this source text never contains
+# two open or two close brace characters next to each other.
+OB='{'
+CB='}'
+docker_field() { docker inspect -f "${OB}${OB}$2${CB}${CB}" "$1"; } # container go-template-body(no braces)
+HEALTH_FMT="${OB}${OB}if .State.Health${CB}${CB}${OB}${OB}.State.Health.Status${CB}${CB}${OB}${OB}else${CB}${CB}nohealthcheck${OB}${OB}end${CB}${CB}"
+
 # ---- 1. wait for Docker (user_data may still be installing it on a first boot) ---------
 waited=0
 until docker info >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; do
@@ -132,7 +143,7 @@ validate_staged() {
   # bad config, and there is no running instance to disturb. promtool runs from Prometheus's OWN pinned image: no network,
   # read-only mount, no capabilities.
   if docker inspect woobe-prometheus >/dev/null 2>&1; then
-    prom_image="$(docker inspect -f '{{.Config.Image}}' woobe-prometheus)"
+    prom_image="$(docker_field woobe-prometheus .Config.Image)"
     docker run --rm --network none --user 0 --cap-drop ALL --entrypoint promtool \
       -v "$STAGE/prometheus:/etc/prometheus:ro" "$prom_image" check config /etc/prometheus/prometheus.yml >"$ERR" 2>&1 \
       || die "promtool rejected the new Prometheus configuration — nothing was changed: $(head -c 600 "$ERR")"
@@ -174,14 +185,14 @@ done
 # ---- 5. converge the containers ------------------------------------------------------------------
 # `up -d` only recreates a container whose definition or image changed; an unchanged stack is left running.
 cd "$OBS"
-PROM_STARTED_BEFORE="$(docker inspect -f '{{.State.StartedAt}}' woobe-prometheus 2>/dev/null || echo none)"
+PROM_STARTED_BEFORE="$(docker_field woobe-prometheus .State.StartedAt 2>/dev/null || echo none)"
 timeout 900 docker compose -p "$PROJECT" -f docker-compose.yml up -d --remove-orphans --quiet-pull \
   || die "docker compose up failed (image pull blocked? check outbound access to Docker Hub)"
 
 # Config edits are picked up without recreating anything:
 #  - Prometheus: rules/targets/prometheus.yml -> SIGHUP reload (file_sd targets also auto-refresh)
 #  - Grafana: dashboards auto-reload every 30s; a changed DATASOURCE needs a restart
-PROM_STARTED_AFTER="$(docker inspect -f '{{.State.StartedAt}}' woobe-prometheus 2>/dev/null || echo none)"
+PROM_STARTED_AFTER="$(docker_field woobe-prometheus .State.StartedAt 2>/dev/null || echo none)"
 if [ "$PROM_CHANGED" = 1 ] && [ "$PROM_STARTED_BEFORE" != none ] && [ "$PROM_STARTED_BEFORE" = "$PROM_STARTED_AFTER" ]; then
   # Prometheus was already running and compose left it alone: ask it to reload, then CONFIRM it accepted the new config.
   # (When compose just created/recreated it, it started with the new files: no reload needed.)
@@ -197,7 +208,7 @@ if [ "$PROM_CHANGED" = 1 ] && [ "$PROM_STARTED_BEFORE" != none ] && [ "$PROM_STA
   [ "$reloaded" = 1 ] || die "Prometheus did not accept the new configuration (prometheus_config_last_reload_successful is not 1); it keeps running the previous one"
   log "reloaded Prometheus configuration (SIGHUP, accepted)"
 fi
-if [ "$DATASOURCE_CHANGED" = 1 ] && [ "$(docker inspect -f '{{.State.Running}}' woobe-grafana 2>/dev/null)" = true ]; then
+if [ "$DATASOURCE_CHANGED" = 1 ] && [ "$(docker_field woobe-grafana .State.Running 2>/dev/null)" = true ]; then
   docker restart woobe-grafana >/dev/null && log "restarted Grafana to load the changed datasource"
 fi
 
@@ -205,7 +216,7 @@ fi
 deadline=$(( $(date +%s) + 240 ))
 for c in woobe-node-exporter woobe-prometheus woobe-grafana; do
   while :; do
-    state="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}nohealthcheck{{end}}' "$c" 2>/dev/null || echo missing)"
+    state="$(docker inspect -f "$HEALTH_FMT" "$c" 2>/dev/null || echo missing)"
     [ "$state" = healthy ] && break
     if [ "$(date +%s)" -gt "$deadline" ]; then
       log "last 20 log lines of $c:"; docker logs --tail 20 "$c" 2>&1 || true
