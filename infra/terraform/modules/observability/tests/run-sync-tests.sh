@@ -190,7 +190,7 @@ check "Grafana health ok"                          'curl -s localhost:3000/api/h
 check "admin login with the generated password works" "$(gf /api/datasources) | grep -q woobe-prometheus"
 check "the provisioned datasource is healthy"      "$(gf /api/datasources/uid/woobe-prometheus/health) | grep -q '\"status\":\"OK\"'"
 check "3 dashboards were auto-provisioned"         "[ \"\$($(gf '/api/search?type=dash-db') | grep -o woobe- | wc -l)\" -ge 3 ]"
-check "a wrong password is rejected (401)"         '[ "$(curl -s -o /dev/null -w "%{http_code}" -u admin:wrong localhost:3000/api/datasources)" = 401 ]'
+check "a wrong password is rejected (401)"         '[ "$(curl -s -o /dev/null -w "%{http_code}" -u admin:wrong localhost:3000/api/datasources)" = 401 ]' # gitleaks:allow — "wrong" is a literal negative-test password, not a real credential
 check "anonymous access is rejected (401)"         '[ "$(curl -s -o /dev/null -w "%{http_code}" localhost:3000/api/dashboards/home)" = 401 ]'
 check "self-signup is not possible"                '[ "$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"name\":\"x\",\"email\":\"x@x.com\",\"username\":\"x\",\"password\":\"Aa1!aaaaaa\"}" localhost:3000/api/user/signup)" != 200 ]'
 
