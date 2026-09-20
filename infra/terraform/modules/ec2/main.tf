@@ -57,6 +57,20 @@ resource "aws_instance" "backend" {
   user_data_replace_on_change = true
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-backend" })
+
+  # AMI is resolved dynamically from the AWS-published SSM parameter (see
+  # the data source above). If AWS rotates the underlying AL2023 AMI, the
+  # parameter's value changes on the next plan — without this, Terraform
+  # would read that as a diff on `ami` and replace the instance. For a
+  # Phase 1 single-instance server with instance-local state (api.env, the
+  # Cloudflare Origin CA cert/key, other runtime files placed outside
+  # Terraform), an AMI-driven replacement would destroy that state with no
+  # automated way to recreate it. Patching happens via `dnf-automatic`
+  # inside the running instance, not by rotating the AMI, so ignoring this
+  # drift is intentional, not an oversight.
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 # A dedicated Elastic IP, associated directly to the instance — this is

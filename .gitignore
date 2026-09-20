@@ -51,6 +51,7 @@ uploads/
 *.tfplan.json
 tfplan
 tfplan.*
+terraform-plan-readable.txt
 crash.log
 crash.*.log
 infra/terraform/environments/*/terraform.tfvars
