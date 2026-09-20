@@ -92,7 +92,12 @@ check "gate exposes the blocked output; result receives it"        'block gate |
 check "environment: appears exactly once, on the non-AWS approve job" '[ "$(grep -c "^    environment:" "$WF")" = 1 ] && block approve | grep -q "environment: production"'
 check "AWS jobs (image, deploy) declare no environment"            '! block image | grep -q "environment:" && ! block deploy | grep -q "environment:"'
 check "id-token: write only on the two AWS jobs"                   '[ "$(grep -c "id-token: write" "$WF")" = 2 ] && block image | grep -q "id-token: write" && block deploy | grep -q "id-token: write"'
-check "OIDC trust subject unchanged (branch ref, no environment)"  'grep -q "subject   = \"repo:\${var.github_repository}:ref:refs/heads/\${var.github_branch}\"" "$TFDIR/modules/github-oidc/main.tf" && ! grep -q "environment:" "$TFDIR/modules/github-oidc/main.tf" && grep -q "default     = \"jsurya114/Wobee-ecommerce\"" "$TFDIR/environments/production/variables.tf"'
+# The default value here is expected to change if the repo/owner is ever
+# renamed again (GitHub then permanently suffixes new numeric IDs onto the
+# OIDC sub claim — see infra/terraform/modules/github-oidc/variables.tf) --
+# this check guards the STRUCTURE (subject built from a branch ref, never an
+# environment), not a specific repository name.
+check "OIDC trust subject unchanged (branch ref, no environment)"  'grep -q "subject   = \"repo:\${var.github_repository}:ref:refs/heads/\${var.github_branch}\"" "$TFDIR/modules/github-oidc/main.tf" && ! grep -q "environment:" "$TFDIR/modules/github-oidc/main.tf" && grep -q "default     = \"jsurya114@187753860/Wobee-ecommerce@1345844181\"" "$TFDIR/environments/production/variables.tf"'
 
 echo; echo "passed: $pass  failed: $fail"
 [ "$fail" -eq 0 ]

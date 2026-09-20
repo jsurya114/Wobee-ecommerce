@@ -119,9 +119,9 @@ variable "alert_email" {
 }
 
 variable "github_repository" {
-  description = "GitHub repository (owner/name) whose Actions workflows may assume the deploy role via OIDC."
+  description = "GitHub repository whose Actions workflows may assume the deploy role via OIDC. owner@ownerID/name@repoID: the repo/owner has been renamed since, so GitHub's OIDC sub claim permanently includes the numeric IDs (confirmed via CloudTrail against a failed AssumeRoleWithWebIdentity call on 2026-09-20)."
   type        = string
-  default     = "jsurya114/Wobee-ecommerce"
+  default     = "jsurya114@187753860/Wobee-ecommerce@1345844181"
 }
 
 variable "github_branch" {

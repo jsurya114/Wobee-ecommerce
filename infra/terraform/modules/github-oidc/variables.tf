@@ -1,10 +1,20 @@
 variable "github_repository" {
-  description = "GitHub repository allowed to assume the role, as owner/name."
+  description = <<-EOT
+    GitHub repository allowed to assume the role, as owner/name — or, once the
+    repository or its owner has ever been renamed, owner@ownerID/name@repoID:
+    GitHub then permanently includes the numeric IDs in the OIDC `sub` claim
+    (an anti-spoofing measure so a freed-up old name can't be reused to
+    inherit trust), and an exact-match trust policy must match that literally.
+    Confirm the real value from a failed run's OIDC subject in CloudTrail
+    (`aws cloudtrail lookup-events --lookup-attributes
+    AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity`) rather
+    than assuming the plain owner/name form still applies.
+  EOT
   type        = string
 
   validation {
-    condition     = can(regex("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", var.github_repository))
-    error_message = "github_repository must be exactly owner/name — no wildcards."
+    condition     = can(regex("^[A-Za-z0-9._-]+(@[0-9]+)?/[A-Za-z0-9._-]+(@[0-9]+)?$", var.github_repository))
+    error_message = "github_repository must be owner/name or owner@ownerID/name@repoID — no wildcards."
   }
 }
 
