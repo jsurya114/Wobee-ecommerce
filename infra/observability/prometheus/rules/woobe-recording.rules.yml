@@ -1,0 +1,31 @@
+# Recording rules — only where they make dashboards/alerts simpler or cheaper.
+# Naming follows the Prometheus convention  level:metric:operations.
+#
+# Traffic guards: every ratio/quantile below is computed only when there IS
+# traffic (`> 0`), so an idle site produces "no data" instead of NaN/0-over-0,
+# and alert rules built on these can never divide by zero.
+groups:
+  - name: woobe_http_recording
+    rules:
+      - record: woobe:http_requests:rate5m
+        expr: sum(rate(woobe_http_requests_total[5m]))
+
+      - record: woobe:http_requests_5xx:rate5m
+        expr: sum(rate(woobe_http_requests_total{status_code=~"5.."}[5m])) or vector(0)
+
+      - record: woobe:http_request_error_ratio:rate5m
+        expr: woobe:http_requests_5xx:rate5m / (woobe:http_requests:rate5m > 0)
+
+      - record: woobe:http_request_duration_seconds:p50_rate5m
+        expr: histogram_quantile(0.50, sum by (le) (rate(woobe_http_request_duration_seconds_bucket[5m])))
+
+      - record: woobe:http_request_duration_seconds:p95_rate5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(woobe_http_request_duration_seconds_bucket[5m])))
+
+      - record: woobe:http_request_duration_seconds:p99_rate5m
+        expr: histogram_quantile(0.99, sum by (le) (rate(woobe_http_request_duration_seconds_bucket[5m])))
+
+  - name: woobe_worker_recording
+    rules:
+      - record: woobe:notification_job_duration_seconds:p95_rate5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(woobe_notification_job_duration_seconds_bucket[5m])))

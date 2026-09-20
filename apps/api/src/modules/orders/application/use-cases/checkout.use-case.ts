@@ -1,4 +1,5 @@
 import type { CheckoutAddressInput } from "@woobe/validation";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import { ConflictError, UnprocessableEntityError, ValidationError } from "../../../../shared/errors";
 import { allocateCouponDiscount } from "../../domain/allocate-coupon-discount";
 import type { OrderEntity } from "../../domain/entities/order.entity";
@@ -75,6 +76,7 @@ export class CheckoutUseCase {
     private readonly transaction: TransactionPort,
     private readonly couponRedeemer: CouponRedeemerPort,
     private readonly addressSaver: AddressSaverPort,
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async execute(input: PlaceOrderInput): Promise<OrderEntity> {
@@ -217,6 +219,11 @@ export class CheckoutUseCase {
       await this.cartWriter.markConverted(cartId, tx);
       return order;
     });
+
+    // Recorded only here, after the transaction above has committed — an
+    // order that rolled back (insufficient stock, a stale cart, a coupon
+    // race) must never be counted as "created".
+    this.observability.recordOrderCreated({ paymentMethod: order.paymentMethod === "RAZORPAY" ? "online" : "cod" });
 
     // Persistent-address feature: for a logged-in customer only (a guest has
     // no account to save an address under — input.userId is undefined for

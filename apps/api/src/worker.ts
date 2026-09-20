@@ -1,8 +1,16 @@
 import { prisma } from "@woobe/database";
-import { Worker, UnrecoverableError, type Job } from "bullmq";
+import { Queue, Worker, UnrecoverableError, type Job } from "bullmq";
+import { env } from "./config/env";
 import { NotificationDeliveryError } from "./modules/notifications/domain/errors/notification-delivery.error";
 import { markNotificationFailedUseCase, processNotificationJobUseCase } from "./modules/notifications/notifications.module";
+import { classifyFailedAttempt } from "./modules/notifications/infrastructure/queues/classify-failed-attempt";
 import { NOTIFICATIONS_QUEUE_NAME, notificationQueueConnection } from "./modules/notifications/infrastructure/queues/notification.queue";
+import { startMetricsServer } from "./shared/infrastructure/observability/prometheus/metrics-server";
+import {
+  createNotificationWorkerMetrics,
+  createWorkerRegistry,
+  NotificationWorkerInstrumentation,
+} from "./shared/infrastructure/observability/prometheus/notification-worker-metrics";
 
 /**
  * Separate process from server.ts (week2 (1).md §20's own architecture
@@ -33,9 +41,21 @@ import { NOTIFICATIONS_QUEUE_NAME, notificationQueueConnection } from "./modules
  * side) runs its course; only once a job's own last attempt fails does
  * this worker record that as this notification's terminal FAILED state.
  */
+
+// Observability (docs/observability.md): this process has its OWN Registry —
+// it cannot share the API's in-memory one — scraped by Prometheus from a
+// loopback-only server below. A read-only Queue handle is used solely for
+// scrape-time job counts; it never adds or removes jobs.
+const metricsRegistry = createWorkerRegistry();
+const countsQueue = new Queue(NOTIFICATIONS_QUEUE_NAME, { connection: notificationQueueConnection });
+const workerMetrics = createNotificationWorkerMetrics(metricsRegistry, () =>
+  countsQueue.getJobCounts("waiting", "active", "delayed", "failed"),
+);
+const instrumentation = new NotificationWorkerInstrumentation<Job<{ notificationId: string }>, Error>(workerMetrics, classifyFailedAttempt);
+
 const worker = new Worker(
   NOTIFICATIONS_QUEUE_NAME,
-  async (job: Job<{ notificationId: string }>) => {
+  instrumentation.wrapProcessor(async (job: Job<{ notificationId: string }>) => {
     try {
       await processNotificationJobUseCase.execute(job.data.notificationId);
     } catch (error) {
@@ -44,7 +64,7 @@ const worker = new Worker(
       }
       throw error;
     }
-  },
+  }),
   {
     connection: notificationQueueConnection,
     // Forensic-review fix (2026-09-13): was previously unset, defaulting to
@@ -63,14 +83,29 @@ const worker = new Worker(
   },
 );
 
+instrumentation.attach(worker);
+
 worker.on("failed", (job, error) => {
   if (!job) return;
-  const attemptsExhausted = job.attemptsMade >= (job.opts.attempts ?? 1);
-  const isUnrecoverable = error.name === "UnrecoverableError";
-  if (attemptsExhausted || isUnrecoverable) {
+  // Same condition as before (attempts exhausted OR UnrecoverableError) — now
+  // shared with the metrics so "terminal failure" means one thing in both.
+  if (classifyFailedAttempt(job, error) !== "retry") {
     void markNotificationFailedUseCase.execute(job.data.notificationId, error.message);
   }
 });
+
+// A metrics-port problem (e.g. EADDRINUSE) must never stop notifications from
+// being sent: log it and carry on without a scrape target.
+const metricsServerPromise = startMetricsServer({ registry: metricsRegistry, host: env.WORKER_METRICS_HOST, port: env.WORKER_METRICS_PORT })
+  .then((server) => {
+    // eslint-disable-next-line no-console
+    console.log(`[notifications-worker] metrics on http://${env.WORKER_METRICS_HOST}:${env.WORKER_METRICS_PORT}/metrics`);
+    return server;
+  })
+  .catch((error: unknown) => {
+    console.error("[notifications-worker] metrics server failed to start; continuing without it:", error instanceof Error ? error.message : error);
+    return undefined;
+  });
 
 // eslint-disable-next-line no-console
 console.log(`[notifications-worker] listening on queue "${NOTIFICATIONS_QUEUE_NAME}"`);
@@ -79,6 +114,9 @@ async function shutdown(signal: string): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`[notifications-worker] received ${signal}, shutting down gracefully...`);
   await worker.close();
+  const metricsServer = await metricsServerPromise;
+  await new Promise<void>((resolve) => (metricsServer ? metricsServer.close(() => resolve()) : resolve()));
+  await countsQueue.close();
   await prisma.$disconnect();
   notificationQueueConnection.disconnect();
   process.exit(0);

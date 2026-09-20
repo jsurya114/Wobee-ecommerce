@@ -1,0 +1,2 @@
+# Local development: the API runs on the host (pnpm dev, port 4000 by default).
+- targets: ["host.docker.internal:4000"]

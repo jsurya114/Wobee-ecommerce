@@ -1,0 +1,17 @@
+# Provisioned, never hand-configured. The uid is fixed so dashboard JSON can
+# reference it. Prometheus is reachable at 127.0.0.1:9090 in production (both
+# containers are host-networked) and at prometheus:9090 locally — the local
+# compose file overrides this one line via the PROMETHEUS_URL environment
+# variable, which Grafana expands inside provisioning files.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: woobe-prometheus
+    type: prometheus
+    access: proxy
+    url: ${PROMETHEUS_URL}
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s

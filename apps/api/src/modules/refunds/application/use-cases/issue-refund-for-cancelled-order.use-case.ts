@@ -1,3 +1,4 @@
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import type { RefundEntity } from "../../domain/entities/refund.entity";
 import type { PaymentReaderPort } from "../ports/payment-reader.port";
 import type { PaymentRefundWriterPort } from "../ports/payment-refund-writer.port";
@@ -36,6 +37,7 @@ export class IssueRefundForCancelledOrderUseCase {
     private readonly paymentRefundWriter: PaymentRefundWriterPort,
     private readonly gateway: RazorpayRefundGatewayPort,
     private readonly refundRepository: RefundRepositoryPort,
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async execute(orderId: string): Promise<IssueRefundResult> {
@@ -72,6 +74,7 @@ export class IssueRefundForCancelledOrderUseCase {
         status: "FAILED",
         amountPaise: payment.amountPaise,
       });
+      this.observability.recordRefundIssued({ result: "failure" });
       return { refundIssued: false, reason: "gateway-error" };
     }
 
@@ -89,6 +92,7 @@ export class IssueRefundForCancelledOrderUseCase {
       // left stale (not marked REFUNDED), which is an acceptable, narrower
       // gap versus a duplicate FAILED Refund row shadowing this COMPLETED one.
     }
+    this.observability.recordRefundIssued({ result: "success" });
     return { refundIssued: true, refundId: created.id };
   }
 }

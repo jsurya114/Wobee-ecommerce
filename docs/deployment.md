@@ -260,6 +260,92 @@ The config is applied at **first boot** from `user_data`, and Terraform replaces
 | Wrong client IPs in logs | Cloudflare ranges changed; update `cloudflare_ipv4_cidrs` (it feeds both the security group and nginx). |
 | nginx restarts in a loop | `docker logs woobe-nginx` shows the `nginx -t` error. |
 
+## Valkey persistence and reliability (current: Phase 1, self-hosted)
+
+**Role.** Valkey is infra-only: rate-limit counters, the guest-order-claim attempt counter, and the BullMQ notification queue's own job state. RDS PostgreSQL remains the sole source of truth for orders, payments, inventory, refunds, returns, users and products — Valkey holding job state is a convenience, not a second database of record.
+
+**CURRENT PHASE 1 — self-hosted on the same EC2, hardened for persistence:**
+
+| Setting | Value | Why |
+|---|---|---|
+| Persistence | AOF, `appendfsync everysec` | Primary recovery mechanism. At most ~1 s of the most recent writes can be lost on a hard crash; everything before that replays on restart. `everysec` is both Valkey's own compiled default and the production-appropriate middle ground between `always` (fsync per write, far too slow for a shared 2 GiB host) and `no` (OS-timed, unbounded loss window). |
+| RDB snapshots | `save 900 1 300 10 60 10000` | Secondary, compact fallback alongside AOF — a faster cold-start path and a second recovery format if the AOF file is ever suspect. Set explicitly rather than left to Valkey's implicit compiled-in default, so the exact behavior is documented here, not inferred. |
+| AOF format | `aof-use-rdb-preamble` (Valkey 8's own default, left untouched) | The AOF file itself starts with a compact RDB-format preamble followed by incremental AOF commands — already the modern default, no extra config needed. |
+| Image | `valkey_image` Terraform variable, pinned by **multi-arch index digest** (`valkey/valkey:8-alpine` = Valkey 8.1.10 at resolution on 2026-09-20; the index includes `linux/arm64`) | A floating tag can change under a running host on its next pull or recreate. Same strategy as nginx and the observability images. A digest pin means base-image security fixes do **not** arrive by themselves: bump it deliberately and re-run `run-valkey-tests.sh`. |
+| Host directory | `/opt/woobe/valkey-data`, bind-mounted to the container's `/data`, `chmod 700` | A real directory on the EBS root volume, not an ephemeral anonymous Docker volume — survives `docker compose up`/container recreation. Ownership is fixed automatically on every container start by the official image's own entrypoint (runs as root, `chown`s its working directory — this bind mount — to the image's built-in `valkey` user, UID 999, then steps down via `setpriv`; verified directly from `valkey-container`'s `docker-entrypoint.sh`, `mainline/8.0/alpine` — the source behind the `valkey/valkey:8-alpine` tag). No manual `chown` needed or attempted. |
+| Eviction policy | `noeviction` (was `allkeys-lru`) | BullMQ queue keys must never be silently dropped under memory pressure. `noeviction` is also Valkey's own compiled-in default — this reverts an earlier explicit override, it does not introduce new engine behavior. **Consequence:** once `maxmemory` is reached, write commands fail with an OOM-style error instead of evicting a key; read commands keep working. `notification.queue.ts`'s `queue.add()` call has no try/catch today, so an OOM error there would surface as an unhandled rejection up the call stack rather than a silent drop — worse-looking in logs, but strictly safer than a queue job vanishing with no trace. This is a known consequence, not a bug introduced here; watch the new memory-pressure alarm below before it happens in practice. |
+| `maxmemory` | 256 MB (`valkey_maxmemory_mb`, unchanged default) | Derived from the `t4g.small`'s 2048 MiB total, not chosen blindly: ~350 MiB reserved for AL2023 OS/kernel/Docker daemon/SSM Agent/`dnf-automatic`, ~20–30 MiB for nginx, ~400 MiB budgeted each for the API and Worker Node processes (no `--max-old-space-size` is set on either, so this is a working estimate, not a hard ceiling on them) — leaving roughly 850–900 MiB of headroom. 256 MB is deliberately far below that ceiling: Woobe's actual Redis usage (rate limits, claim counters, a queue with `removeOnComplete: true` and `removeOnFail: 1000`) is narrow and bounded, not cache-sized. |
+| Docker `mem_limit` | `valkey_maxmemory_mb * 1.5` = 384 MB (derived, not a separate variable) | A hard cgroup ceiling above the logical `maxmemory` cap, giving headroom for AOF-rewrite/RDB-save fork() copy-on-write overhead and Valkey's own non-dataset memory (connection/output buffers, internal structures) without letting a worst case consume unbounded host RAM. Always stays proportional if `valkey_maxmemory_mb` is changed later, since it's computed from it rather than set independently. |
+| Restart policy | `restart: unless-stopped` (unchanged) | Docker restarts the container automatically whenever its process exits, for any reason — crash, OOM-kill, `docker kill`. **This is a Docker restart policy acting on container exit, not a healthcheck-triggered restart** — a container that stays running but reports `unhealthy` is not restarted by this or by anything else in this stack (see Healthcheck, next). |
+| Healthcheck | `valkey-cli ping`, 10s interval, 3s timeout, 3 retries, 10s start period | Verifies Valkey actually answers PING with the right auth, not merely that the process exists. Reports container health status (visible via `docker ps`/`docker inspect`) for operator visibility and for future tooling — it does **not** itself restart anything; only `restart: unless-stopped` reacting to a process exit does that. Authentication uses `REDISCLI_AUTH` as a container **environment** variable (which `valkey-cli` reads automatically), not a `-a <password>` command-line flag — keeps the password out of `ps aux`-style process listings. (The password is still visible via `docker inspect` on this container, same as the existing `--requirepass` flag already was — no new exposure, same trust boundary as before: anyone who can inspect this container already has host/docker-group access, equivalent to reading the 600-permissioned compose file directly.) |
+| Public exposure | `127.0.0.1:6379:6379` only, no security-group rule for 6379 (unchanged) | Not weakened by any of the above — persistence and eviction changes are entirely internal to the container and the bind mount. |
+| Monitoring | Two CloudWatch custom metrics (`ValkeyUp`, `ValkeyUsedMemoryBytes`) pushed once a minute by a systemd timer running `/opt/woobe/valkey/push-metrics.sh`, under the `woobe-production` namespace the EC2 role already has `cloudwatch:PutMetricData` for | Deliberately **not** the full CloudWatch Agent: a config file, a new systemd unit and a broader IAM surface for two numbers isn't worth it at Phase 1 scale. Both metrics stay inside CloudWatch's always-free 10-custom-metric allotment (2 used) — **$0.00 added cost**. Two new alarms (`woobe-production-valkey-down`, evaluates `ValkeyUp`; `woobe-production-valkey-memory-pressure`, evaluates `ValkeyUsedMemoryBytes` against 80% of `maxmemory`) — still within CloudWatch's 10-free-alarm allotment alongside the existing 6, so **$0.00 added cost** there too. Detects sustained outages/crash-loops and memory pressure; does **not** guarantee catching a restart faster than the 60 s check interval — a deliberate Phase 1 simplicity trade-off, not an oversight. |
+
+**What AOF persistence protects against:** a Valkey process crash, a container restart, and an EC2 reboot — the queue/rate-limit/claim-counter state on disk at `/opt/woobe/valkey-data` survives all three.
+
+**What it does NOT protect against — be precise about this:** the loss of this specific EC2 instance/EBS volume pair (instance replacement without preserving the volume, EBS volume loss, or the AZ/instance being terminated and rebuilt from Terraform). Valkey is not backed up off this one volume, and RDS remains the only durable, off-instance store. If the EC2 instance is ever replaced, the Valkey dataset (queued notification jobs, rate-limit windows, claim counters) starts empty — this is an accepted, documented limitation for Phase 1, not a hidden risk. Nothing here turns Valkey into a second database of record.
+
+**Manual recovery / verification commands (on the instance, via SSM Session Manager):**
+```
+# Confirm the container is up and healthy
+docker ps --filter name=woobe-valkey
+
+# Confirm auth + persistence config as actually running
+docker exec -e REDISCLI_AUTH="$(grep VALKEY_PASSWORD /opt/woobe/valkey/valkey.env | cut -d= -f2)" woobe-valkey valkey-cli ping
+docker exec -e REDISCLI_AUTH="$(grep VALKEY_PASSWORD /opt/woobe/valkey/valkey.env | cut -d= -f2)" woobe-valkey valkey-cli CONFIG GET appendonly
+docker exec -e REDISCLI_AUTH="$(grep VALKEY_PASSWORD /opt/woobe/valkey/valkey.env | cut -d= -f2)" woobe-valkey valkey-cli CONFIG GET maxmemory-policy
+
+# Confirm the AOF directory is actually on the host bind mount, not an anonymous volume
+ls -la /opt/woobe/valkey-data/appendonlydir
+
+# Manually trigger the metrics push once (for troubleshooting, outside its usual 60s timer cadence)
+sudo /opt/woobe/valkey/push-metrics.sh
+
+# Check the metrics timer itself
+systemctl status woobe-valkey-metrics.timer
+```
+
+**Tests (real Docker, no AWS — `infra/terraform/modules/ec2/tests/run-valkey-tests.sh`; last run: 93 passed, 0 failed).** It executes the actual `valkey` block of the rendered `user_data` with the **production values read from Terraform** (256 MB `maxmemory`, 384 MB ceiling, the digest-pinned image) and a stubbed `aws` for the SSM password fetch, then verifies the **effective** configuration of the running server (`CONFIG GET`, not a grep of the compose file): `maxmemory` 268435456, `noeviction`, `appendonly yes`, `appendfsync everysec`, `dir /data`, RDB save points, `requirepass` set, an unauthenticated client refused, the exact `/opt/woobe/valkey-data:/data` bind, restart policy, and that the **only** published port is `127.0.0.1:6379`. It then seeds a real BullMQ queue with one job in **each** of the five states (completed, failed, active, waiting, delayed) and proves that every job and payload survives, and that the configuration above is unchanged, after **four kinds of restart**: a real process crash (the container's main process `kill -9`'d from the host PID namespace, with `RestartCount` and `StartedAt` proving the restart policy did it), a graceful `docker restart`, `compose up --force-recreate` (new container ID), and `docker rm -f` + `compose up` (only the host bind mount holds the data). It also confirms the real API and worker reconnect and process a new job, that a separate network namespace cannot reach 6379, runs the *actual* rendered `push-metrics.sh` against the container (up and down), and proves `noeviction` on a small-`maxmemory` instance (a write fails with an OOM-style error; a protected key is not evicted). **Two things the suite taught us:** (1) `docker kill` is treated by Docker as a *manual stop* and deliberately bypasses `restart: unless-stopped` (verified: exited, `RestartCount 0`), so a crash must be simulated by killing the process itself; (2) with `appendfsync everysec` a hard crash can lose up to ~1 s of writes — the suite waits past that window before crashing, and this is the documented durability limit, not something the test hides. **Not exercised:** `systemctl enable --now` itself (no systemd inside a plain Docker container — meaningful only on the real AL2023 host) and a real EC2 reboot. **Port 6379:** the suite uses the real production port, so it refuses to run (clear pre-flight message) if anything already holds it; on a developer machine that may be an unrelated service (it does not stop other people's containers).
+
+**Known hardening item (not changed):** the Valkey password is written into `/opt/woobe/valkey/docker-compose.yml` (mode 600, root) and therefore appears in `docker inspect woobe-valkey` (`--requirepass` argument and `REDISCLI_AUTH` environment) to anyone who can run Docker on the host. Moving it to a mode-400 file / Docker secret would remove that; it is a design change to the existing bootstrap, so it is recorded here rather than done silently.
+
+**FUTURE PHASE 2 — managed Valkey (ElastiCache):** see "§15. Future: ALB + multiple EC2 instances" — moving off self-hosted Valkey to ElastiCache is a `REDIS_URL` repoint, nothing else in the app changes. The trigger for that migration is a second EC2 instance needing to share cache/queue state (self-hosted Valkey on one box stops being valid once there's more than one app instance), not a persistence concern — the hardening above is sufficient for Phase 1's single-instance reality on its own.
+
+## Observability (Prometheus, Grafana, Node Exporter)
+
+Full reference: [`observability.md`](observability.md); alert-by-alert procedures: [`observability-runbook.md`](observability-runbook.md).
+In short: the API exposes `/metrics` (RED + Node.js + business events), the worker exposes its own on `127.0.0.1:9102`, Prometheus
+(7 days / 2 GB), Grafana and Node Exporter run as containers on the same EC2 — **every listener on loopback, no security-group rule, no public monitoring route.**
+
+- **How it gets onto the box:** Terraform `modules/observability` → an SSM document + State Manager association (**not** `user_data`, so changing a dashboard never
+  replaces the instance, and **not** the application deploy, so a deploy never touches it). It installs itself when the instance registers with SSM (the first run waits for
+  Docker) and converges again on every change and every 12 hours. It needs **outbound access to Docker Hub** to pull three images.
+- **What you must do by hand:** nothing new beyond `API_BIND_HOST=127.0.0.1` in `api.env`. The Grafana admin password is generated on the instance at first sync
+  (SSM SecureString `/woobe-production/grafana/admin-password`, not in Terraform state). Open Grafana over an SSM port-forward (`observability.md` §7).
+- **`/metrics` is never public:** nginx returns 403 for every spelling of it (`/Metrics`, `/metrics/`, …) and the API itself refuses it to any proxied request.
+- **Alerts are visible, not delivered** — there is no Alertmanager.
+- **Application deploys** (`deploy.sh`) remove only `woobe-api` and `woobe-worker`; the observability containers and their data (`/opt/woobe/prometheus-data`,
+  `/opt/woobe/grafana-data`, `/opt/woobe/observability`) are outside its boundary (`/opt/woobe/app`). Its `docker image prune` cannot remove an image an existing container uses.
+
+## Terraform state backend
+
+**Terraform state is remote and locked.** `infra/terraform/environments/production/backend.tf` is the ACTIVE backend (there is no local-state fallback and no local state file):
+
+| Setting | Value |
+|---|---|
+| Backend | `s3` |
+| Bucket | `woobe-terraform-state-185658217213` (`ap-south-2`, versioned, SSE-S3, all four Block Public Access settings on, bucket policy denies non-TLS) |
+| Key | `production/terraform.tfstate` |
+| Locking | native S3 locking, `use_lockfile = true` (a `<key>.tflock` object created with an S3 conditional write; no DynamoDB table) |
+| Credentials | never in the file: the profile is a *name* (`WoobeTerraformAdmin-185658217213`); credentials come from the AWS SSO session / environment |
+
+- **Bootstrap (why there is no circular dependency).** The bucket was created **once, by hand, with the AWS CLI** — not by this Terraform configuration, because the configuration that stores its state in a bucket cannot be what creates that bucket. The exact commands are preserved in `backend.tf`; the TLS-only bucket policy is `bootstrap-state-bucket-policy.json.example`. Terraform never creates, changes or destroys this bucket.
+- **Using it:** `aws sso login --profile WoobeTerraformAdmin-185658217213`, then `terraform init -reconfigure`. Confirm you are on the remote backend: `cat .terraform/terraform.tfstate` must show `"type": "s3"`, the bucket and key above and `"use_lockfile": true`; `ls terraform.tfstate*` must find nothing.
+- **Another operator, or CI, without that profile name:** override only the credential source, never the bucket/key: `terraform init -reconfigure -backend-config="profile=<your-profile>"` (or use environment credentials/OIDC and `-backend-config="profile="`).
+- **A plan takes the lock** (and releases it). A second concurrent `plan`/`apply` fails with `Error acquiring the state lock`; a lock left by a killed process is cleared with `terraform force-unlock <lock-id>` only after confirming nobody is running Terraform. Use `-lock=false` only for a read-only plan you know cannot collide.
+- **Never commit state or saved plans.** `.gitignore` covers `*.tfstate*`, `tfplan*`, `*.tfplan*`, `terraform-plan*`. A saved plan is an appliable artifact; write it outside the repository (or to the ignored `/.tfplan-scratch/`).
+- Before the very first `apply` the bucket holds no objects: the first apply creates `production/terraform.tfstate`.
+
 ## 7. Environment and secrets model
 
 The image contains **no** env file and no secrets. On the instance everything is in `/opt/woobe/app/api.env` (`root:root`, mode `600`, created once by hand over Session Manager; Docker `--env-file` format: `KEY=value`, **no quotes**, unlike `.env.example`).
@@ -269,11 +355,13 @@ Non-secret hardening lines the production `api.env` should contain (alongside th
 # /opt/woobe/app/api.env — docker --env-file format: NAME=value, no quotes
 API_BIND_HOST=127.0.0.1      # API reachable only over loopback (nginx on the same host)
 # TRUST_PROXY_HOPS           # leave unset: defaults to 1 in production (one proxy hop: nginx)
+# WORKER_METRICS_PORT        # leave unset: 9102 (loopback). If you change it, change Terraform's worker_metrics_port too
+# WORKER_METRICS_HOST        # leave unset: 127.0.0.1. Never set this to a public interface
 ```
 
 | Class | Variables |
 |---|---|
-| Public / non-secret config | `API_BIND_HOST` (set `127.0.0.1` in production — see "Why the API binds to loopback"), `TRUST_PROXY_HOPS` (leave unset: 1 in production behind nginx), `MEDIA_STORAGE_DRIVER` (must be `s3`), `AWS_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_PUBLIC_BASE_URL` (see §7), `API_PORT`, `WEB_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_DOMAIN`, `API_PUBLIC_URL`, `MEDIA_UPLOAD_DIR`, `JWT_ACCESS_TOKEN_TTL`, `JWT_REFRESH_TOKEN_TTL`, `BCRYPT_SALT_ROUNDS`, `SMTP_HOST/PORT/SECURE/FROM`, `SUPPORT_EMAIL`, `STAFF_INVITATION_TTL_HOURS`, `GOOGLE_CLIENT_ID` (required in production), `RAZORPAY_KEY_ID`; `NODE_ENV=production` is set in the image |
+| Public / non-secret config | `API_BIND_HOST` (set `127.0.0.1` in production — see "Why the API binds to loopback"), `TRUST_PROXY_HOPS` (leave unset: 1 in production behind nginx), `WORKER_METRICS_HOST/PORT` (leave unset: loopback:9102 — the worker's Prometheus endpoint), `MEDIA_STORAGE_DRIVER` (must be `s3`), `AWS_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_PUBLIC_BASE_URL` (see §7), `API_PORT`, `WEB_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_DOMAIN`, `API_PUBLIC_URL`, `MEDIA_UPLOAD_DIR`, `JWT_ACCESS_TOKEN_TTL`, `JWT_REFRESH_TOKEN_TTL`, `BCRYPT_SALT_ROUNDS`, `SMTP_HOST/PORT/SECURE/FROM`, `SUPPORT_EMAIL`, `STAFF_INVITATION_TTL_HOURS`, `GOOGLE_CLIENT_ID` (required in production), `RAZORPAY_KEY_ID`; `NODE_ENV=production` is set in the image |
 | Runtime secrets | `DATABASE_URL`, `REDIS_URL` (contains the Valkey password), `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `SMTP_USER`, `SMTP_PASS` |
 | AWS-provided identity | Credentials — including the S3 access the media adapter uses — come from the EC2 instance role via the metadata service (IMDSv2, hop limit 2 so containers can reach it). Nothing to configure, and no access keys exist anywhere. |
 | Deploy-time config | Workflow `env`: role ARN, ECR repo, SSM document, instance name tag, log group (identifiers, not secrets). Repo variable `DEPLOY_ENABLED`. GitHub Environment `production`. **No GitHub secrets are used.** |
@@ -364,9 +452,10 @@ Where to look: the workflow log (deploy output, stdout + stderr groups), CloudWa
 ```bash
 # 1. Review the plan (nothing is applied without your explicit go-ahead)
 cd infra/terraform/environments/production
-terraform init && terraform plan -var aws_profile=woobe
+aws sso login --profile WoobeTerraformAdmin-185658217213     # the profile backend.tf names (see "Terraform state backend")
+terraform init -reconfigure && terraform plan
 
-# 2a. Everything (69 resources; EC2, RDS, Elastic IP start billing; the CloudFront distribution takes several minutes) …
+# 2a. Everything (74 resources; EC2, RDS, Elastic IP start billing; the CloudFront distribution takes several minutes) …
 terraform apply -var aws_profile=woobe
 # 2b. … OR only the OIDC/ECR/SSM foundation first (no EC2/RDS billing)
 terraform apply -var aws_profile=woobe -target=module.github_oidc -target=module.ssm_deploy
@@ -378,6 +467,11 @@ aws ssm start-session --profile woobe --region ap-south-2 --target "$(terraform 
 # 3b. HTTPS: create the Origin CA certificate ON the instance (commands in "HTTPS edge" above),
 #     then, in Cloudflare, create the proxied A record and set SSL/TLS to Full (strict).
 #     terraform output cloudflare_dns_record   # the values to enter
+
+# 3c. Monitoring: within a few minutes of the instance registering with SSM, the observability sync installs Prometheus/Grafana/Node Exporter.
+#     Check it, then open Grafana over a port-forward (docs/observability.md §7):
+aws ssm list-association-executions --profile woobe --region ap-south-2 \
+  --association-id "$(aws ssm list-associations --profile woobe --region ap-south-2 --association-filter-list key=AssociationName,value=woobe-production-observability-sync --query 'Associations[0].AssociationId' --output text)" --max-results 3
 
 # 4. GitHub: Settings → Environments → New "production" → deployment branches: main only
 #    (optionally required reviewers). Then turn the pipeline on:
@@ -405,7 +499,7 @@ The pipeline is already built on immutable images, digests, and external orchest
 - **Image size (measured):** the API image is 856 MB unpacked / 181 MiB compressed in ECR (was 1.74 GB / 366 MiB — 50.7% smaller). The old size was ~735 MB of pnpm store/caches left in the layer plus devDependencies; the multi-stage build now keeps caches on BuildKit cache mounts and installs production dependencies only. What remains is required: the Node base (~247 MB) and Prisma (client + CLI + engines, ~208 MB). `node dist/server.js` still cannot run: all four workspace packages export raw TypeScript (`main: ./src/index.ts`, no build script), which Node loads as ESM and rejects (`ERR_UNSUPPORTED_DIR_IMPORT` on `../generated/client`); the Next apps consume those packages as source, so pre-compiling them is a repo-wide change. `tsx` and the `prisma` CLI are therefore runtime dependencies (moved from devDependencies in `apps/api` and `packages/database`; same versions).
 - Cross-builds arm64 under QEMU (slow); a native `ubuntu-24.04-arm` runner is faster if your plan allows.
 - GitHub Actions are pinned to major-version tags, not commit SHAs. The base image is pinned by digest and needs deliberate bumps for security patches.
-- Terraform state is local (inherited from Phase 1); use a remote backend before a second operator applies.
+- Terraform state is REMOTE (S3, native locking) — see "Terraform state backend". The state bucket itself is created by hand, outside Terraform (bootstrap record in `backend.tf`), so it is not itself managed by this configuration.
 - **HTTPS edge tests (real Docker, no AWS, no Cloudflare, no real certificate):** `infra/terraform/modules/ec2/tests/run-nginx-tests.sh` renders the nginx config with `terraform console` (offline), **executes the nginx block of the rendered `user_data`** (real Compose, the pinned nginx image) and drives it with a header/body-echo stub and then the real API, a real worker and a real Valkey (with a password): waits for the certificate then starts on its own; HTTP→HTTPS redirect; unknown hosts / SNI / bare IP refused; path, query, method, body (byte-for-byte), `Content-Type` and `X-Razorpay-*` preserved; client-sent `X-Forwarded-For`/`X-Real-IP` overwritten; `CF-Connecting-IP` believed only from Cloudflare ranges; 5 MB upload passes, 7 MB gets 413; slow upstream gets 504; `/health` and `/ready` through nginx; a correctly signed Razorpay webhook accepted by the real handler and the same signature over a changed body rejected (401); rate-limit buckets keyed by the real client IP; certificate renewal by file replacement + `nginx -s reload`. 57 assertions, mutation-checked (trusting any IP, appending `X-Forwarded-For`, dropping the upload limit, altering `Host`, and switching off `TRUST_PROXY_HOPS` are each caught by the intended assertions). **Not tested:** a real Cloudflare Origin CA certificate, real Cloudflare in front, the security group on real AWS, or Docker Compose v2.29.7 on Amazon Linux (the tests ran Compose v5 locally).
 - **Tested locally (real Docker, no AWS):** `infra/terraform/modules/ssm-deploy/tests/run-tests.sh` runs `deploy.sh` end to end against a local registry, Postgres 16, Redis and the real image, with stub images that fail in specific ways and a `docker` shim that injects failures: first deploy, redeploy, graceful and forced shutdown, API-startup / health / readiness / crash-window failures (old release untouched), worker-startup failure and post-swap crash loop and `docker run` failure (rollback), migration failure, pull failure, malformed `api.env`, Docker rejecting the env file, failed first-ever deploys (no false success, nothing left behind, no rollback claimed), a leftover container never used as a rollback target, and no secrets or shell tracing in any output. `.github/scripts/test-deploy-status.sh` covers the workflow's skipped/success/failure reporting (also run in CI). Run it with Docker running; it refuses to start if `woobe-api`, `woobe-worker` or `woobe-api-candidate` containers exist. Also tested: the optimized image (API, worker, Prisma migrate + client queries), Amazon Linux 2023 package resolution for `user_data`, RDS 16.15 orderability on `db.t4g.micro` in ap-south-2, and Cloudflare CIDRs vs the live list. **Not tested against real AWS:** SSM tag-targeting, ECR pull via the instance role, the real RDS TLS handshake, CloudFront OAC reads, a real upload, CloudWatch output config. Expect to verify the first deploy by hand.
 
@@ -414,7 +508,7 @@ The pipeline is already built on immutable images, digests, and external orchest
 Important, not blocking the first deployment:
 - **Fixed in the deploy-safety pass (2026-09-19):** the swap now stops containers gracefully (SIGTERM, 30 s bound, SIGKILL only as a fallback), verifies the new API on a candidate port before the running release is touched, checks every `docker run` explicitly (a Docker-level failure now reaches rollback instead of aborting mid-swap), rejects lines Docker cannot parse in pre-flight, and rolls back only to a verified-good image. `DEPLOY_ENABLED` unset or a non-`main` dispatch is no longer a silent green run (§5). Covered by `infra/terraform/modules/ssm-deploy/tests/run-tests.sh` (see below).
 - **Remaining deploy-safety concerns:** (1) a worker-only failure is found after the swap (brief downtime, then rollback); (2) the candidate runs the new code against the real database and Redis (no traffic, but it is not a sandbox); (3) problems that only appear on the real port are also found after the swap; (4) if containers exist with no verified-good record, a post-swap failure cannot be rolled back; (5) two manual runs dispatched within the same second can race past the gate (see Concurrency, Limits); (6) a rollback restarts old code against an already-migrated schema (§8). The earlier concern that a newer push could replace a pending rollback is fixed (see Concurrency).
-- **Valkey.** Started with `--appendonly no`, no volume, and `--maxmemory-policy allkeys-lru`. BullMQ expects `noeviction` (it warns otherwise): under memory pressure `allkeys-lru` can evict queue keys, and any Valkey restart loses queued notification jobs (their Postgres rows stay `PENDING`). `volatile-lru` would evict only TTL'd cache keys and never the queue.
+- **Valkey — fixed (2026-09-20):** now started with `--appendonly yes` (AOF, `everysec`) plus RDB save points, a host-backed `/opt/woobe/valkey-data` bind mount (survives container recreation and an EC2 reboot), and `--maxmemory-policy noeviction` instead of `allkeys-lru`, so BullMQ queue keys are never silently evicted. See "Valkey persistence and reliability" above for the full design, what it does and does not protect against (an EC2/EBS loss still loses the local dataset), and the real Docker-based restart/persistence test.
 - **Media orphans.** Removing a product image deletes only the `ProductImage` row (its `url` is a plain string with no link to `Media`); the S3 object and `Media` row remain unless `DELETE /media/:id` is called separately.
 - The API binds to loopback only when `API_BIND_HOST=127.0.0.1` is set in `api.env` (recommended for production; §"Why the API binds to loopback"). It is a manual line: `deploy.sh` does not require it, so forgetting it leaves the API on every interface with only the security group in front. A `deploy.sh` pre-flight requirement is a possible follow-up. Nginx config changes need a host replacement or a manual edit + reload (see "Changing the nginx configuration").
 - `api.env` is a hand-made file (temporary mechanism): fine for `terraform apply` and for a first, operator-run deploy; not reproducible for a replaced instance or fully unattended provisioning.

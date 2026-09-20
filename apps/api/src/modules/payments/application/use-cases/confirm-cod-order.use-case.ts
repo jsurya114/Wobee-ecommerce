@@ -1,3 +1,4 @@
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import type { InventoryFinalizationPort } from "../ports/inventory-finalization.port";
 import type { OrderPort } from "../ports/order-port";
@@ -28,6 +29,7 @@ export class ConfirmCodOrderUseCase {
     private readonly paymentRepository: PaymentRepositoryPort,
     private readonly inventoryFinalization: InventoryFinalizationPort,
     private readonly transaction: TransactionPort,
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async execute(orderId: string, requesterUserId: string | undefined): Promise<{ alreadyConfirmed: boolean }> {
@@ -63,6 +65,10 @@ export class ConfirmCodOrderUseCase {
       return { alreadyConfirmed: false };
     });
     if (!result.alreadyConfirmed) {
+      // Recorded once the transaction has committed the transition, and before
+      // the notification: a throwing notify must not erase a durable confirmation
+      // from the metric (a client retry would see alreadyConfirmed and never re-record it).
+      this.observability.recordOrderEvent({ event: "confirmed" });
       await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
     }
     return result;

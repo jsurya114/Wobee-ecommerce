@@ -150,14 +150,31 @@ module "ec2" {
   tags                      = local.common_tags
 }
 
+# Prometheus + Grafana + Node Exporter, delivered to the instance through SSM (NOT user_data, so a
+# dashboard change never replaces the instance) — see modules/observability/main.tf.
+# Loopback-only: no security-group rule and no network resource is added by this module.
+module "observability" {
+  source = "../../modules/observability"
+
+  name_prefix         = local.name_prefix
+  aws_region          = var.aws_region
+  instance_id         = module.ec2.instance_id
+  ec2_role_name       = module.iam.role_name
+  config_dir          = "${path.module}/../../../observability"
+  api_port            = var.api_port
+  worker_metrics_port = var.worker_metrics_port
+  tags                = local.common_tags
+}
+
 module "monitoring" {
   source = "../../modules/monitoring"
 
-  name_prefix     = local.name_prefix
-  ec2_instance_id = module.ec2.instance_id
-  rds_instance_id = module.rds.identifier
-  alert_email     = var.alert_email
-  tags            = local.common_tags
+  name_prefix         = local.name_prefix
+  ec2_instance_id     = module.ec2.instance_id
+  rds_instance_id     = module.rds.identifier
+  valkey_maxmemory_mb = var.valkey_maxmemory_mb
+  alert_email         = var.alert_email
+  tags                = local.common_tags
 }
 
 # S3 Gateway VPC Endpoint — keeps EC2 <-> S3 traffic on the AWS backbone

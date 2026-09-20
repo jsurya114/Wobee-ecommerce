@@ -1,3 +1,4 @@
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import { ConflictError, UnauthorizedError, ValidationError } from "../../../../shared/errors";
 import { WebhookEventAlreadyExistsError } from "../../domain/errors/webhook-event-already-exists.error";
 import type { InventoryFinalizationPort } from "../ports/inventory-finalization.port";
@@ -61,6 +62,7 @@ export class HandleRazorpayWebhookUseCase {
     private readonly orderPort: OrderPort,
     private readonly inventoryFinalization: InventoryFinalizationPort,
     private readonly transaction: TransactionPort,
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async execute(params: {
@@ -69,6 +71,18 @@ export class HandleRazorpayWebhookUseCase {
     eventId: string | undefined;
     payload: RazorpayWebhookPayload;
   }): Promise<WebhookOutcome> {
+    // Signature verification is deliberately NOT timed/recorded as a
+    // "webhook" outcome below: a missing/invalid signature never reaches
+    // this app's own event vocabulary and would make eventType effectively
+    // unbounded (whatever a forged request happened to send) — it throws
+    // straight into the ordinary error-handler/HTTP-metrics path instead,
+    // which already records it as an HTTP 4xx.
+    const startedAt = process.hrtime.bigint();
+    const elapsedSeconds = (): number => Number(process.hrtime.bigint() - startedAt) / 1e9;
+    const record = (result: WebhookOutcome["result"]): void => {
+      this.observability.recordPaymentWebhook({ eventType: params.payload.event, result, durationSeconds: elapsedSeconds() });
+    };
+
     if (!params.rawBody || !params.signature || !params.eventId) {
       throw new ValidationError("Missing webhook signature or event id");
     }
@@ -78,6 +92,7 @@ export class HandleRazorpayWebhookUseCase {
 
     let webhookEvent = await this.webhookEventRepository.findByProviderAndEventId("razorpay", params.eventId);
     if (webhookEvent?.processedAt) {
+      record("deduped");
       return { result: "deduped" }; // already fully processed — the mandatory duplicate-delivery case
     }
     if (!webhookEvent) {
@@ -86,7 +101,10 @@ export class HandleRazorpayWebhookUseCase {
       } catch (error) {
         if (error instanceof WebhookEventAlreadyExistsError) {
           const raced = await this.webhookEventRepository.findByProviderAndEventId("razorpay", params.eventId);
-          if (raced?.processedAt) return { result: "deduped" }; // the concurrent winner already finished
+          if (raced?.processedAt) {
+            record("deduped");
+            return { result: "deduped" }; // the concurrent winner already finished
+          }
           webhookEvent = raced;
         } else {
           throw error;
@@ -97,6 +115,7 @@ export class HandleRazorpayWebhookUseCase {
     const paymentEntity = params.payload.payload?.payment?.entity;
     if (!paymentEntity?.order_id) {
       if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+      record("ignored");
       return { result: "ignored" }; // an event type/shape we don't act on (e.g. a non-payment event) — still ack it
     }
 
@@ -104,6 +123,7 @@ export class HandleRazorpayWebhookUseCase {
     const order = payment ? await this.orderPort.getOrder(payment.orderId) : null;
     if (!payment || !order) {
       if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+      record("ignored");
       return { result: "ignored" }; // no local record of this Razorpay order — nothing to reconcile
     }
 
@@ -113,6 +133,7 @@ export class HandleRazorpayWebhookUseCase {
         // what we charged for. Ack the webhook regardless (retrying won't
         // fix a data mismatch); this needs a human, not a retry storm.
         if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+        record("amount-mismatch");
         return { result: "amount-mismatch" };
       }
 
@@ -129,11 +150,19 @@ export class HandleRazorpayWebhookUseCase {
       } catch (error) {
         if (error instanceof ConflictError) {
           if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+          record("stale");
           return { result: "stale" }; // e.g. already PAYMENT_FAILED or CANCELLED — a late/out-of-order event, ack and stop
         }
         throw error;
       }
       if (changed) {
+        // Recorded only here, after the transaction above committed the
+        // CONFIRMED transition — never before, and never on a `changed:
+        // false` idempotent replay of an already-confirmed order. Recorded
+        // BEFORE the notification on purpose: the transition is already
+        // durable, and if notifying throws, Razorpay's retry sees `changed:
+        // false` — so recording after would lose this confirmation forever.
+        this.observability.recordOrderEvent({ event: "confirmed" });
         await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
       }
     } else if (params.payload.event === "payment.failed") {
@@ -150,11 +179,13 @@ export class HandleRazorpayWebhookUseCase {
       } catch (error) {
         if (error instanceof ConflictError) {
           if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+          record("stale");
           return { result: "stale" }; // e.g. already CONFIRMED — a late/out-of-order event, ack and stop
         }
         throw error;
       }
       if (changed) {
+        this.observability.recordOrderEvent({ event: "payment_failed" }); // before notify — same reason as "confirmed" above
         await this.orderPort.notifyOrderEvent(order.id, "PAYMENT_FAILED");
       }
     }
@@ -162,6 +193,7 @@ export class HandleRazorpayWebhookUseCase {
     // scope this week; still acknowledged below so Razorpay doesn't retry it forever.
 
     if (webhookEvent) await this.webhookEventRepository.markProcessed(webhookEvent.id);
+    record("processed");
     return { result: "processed" };
   }
 }

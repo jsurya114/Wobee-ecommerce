@@ -1,4 +1,5 @@
 import type { Role } from "@woobe/types";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
 import type { InventoryRestockPort } from "../ports/inventory-restock.port";
@@ -38,6 +39,7 @@ export class MarkOrderReturnedToOriginUseCase {
     private readonly inventoryRestock: InventoryRestockPort,
     private readonly auditLogger: AuditLoggerPort,
     private readonly transaction: TransactionPort,
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async execute(orderId: string, actor: { id: string; role: Role }): Promise<TransitionOrderStatusResult> {
@@ -52,11 +54,11 @@ export class MarkOrderReturnedToOriginUseCase {
       throw new ConflictError(`Cannot mark an order in status ${existing.status} as returned to origin`);
     }
 
-    return this.transaction.run(async (tx) => {
-      const result = await this.orderRepository.transitionStatus(orderId, "SHIPPED", "RETURNED_TO_ORIGIN", tx);
-      if (result.changed) {
+    const result = await this.transaction.run(async (tx) => {
+      const transitioned = await this.orderRepository.transitionStatus(orderId, "SHIPPED", "RETURNED_TO_ORIGIN", tx);
+      if (transitioned.changed) {
         await this.inventoryRestock.restock(
-          result.order.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
+          transitioned.order.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
           tx,
         );
         await this.auditLogger.log(
@@ -64,7 +66,11 @@ export class MarkOrderReturnedToOriginUseCase {
           tx,
         );
       }
-      return result;
+      return transitioned;
     });
+    if (result.changed) {
+      this.observability.recordOrderEvent({ event: "returned_to_origin" });
+    }
+    return result;
   }
 }

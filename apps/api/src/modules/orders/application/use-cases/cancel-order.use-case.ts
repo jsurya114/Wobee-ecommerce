@@ -1,4 +1,5 @@
 import type { Role } from "@woobe/types";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import type { InventoryRestockPort } from "../ports/inventory-restock.port";
 import type { OrderRepositoryPort, TransitionOrderStatusResult } from "../ports/order-repository.port";
@@ -38,6 +39,7 @@ export class CancelOrderUseCase {
     private readonly orderRepository: OrderRepositoryPort,
     private readonly inventoryRestock: InventoryRestockPort,
     private readonly transaction: TransactionPort,
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async execute(orderId: string, _actor: { id: string; role: Role }, reason?: string): Promise<TransitionOrderStatusResult> {
@@ -53,18 +55,22 @@ export class CancelOrderUseCase {
     }
     const fromStatus = existing.status;
 
-    return this.transaction.run(async (tx) => {
-      const result = await this.orderRepository.transitionStatus(orderId, fromStatus, "CANCELLED", tx, {
+    const result = await this.transaction.run(async (tx) => {
+      const transitioned = await this.orderRepository.transitionStatus(orderId, fromStatus, "CANCELLED", tx, {
         cancelledAt: new Date(),
         cancellationReason: reason ?? null,
       });
-      if (result.changed) {
+      if (transitioned.changed) {
         await this.inventoryRestock.restock(
-          result.order.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
+          transitioned.order.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
           tx,
         );
       }
-      return result;
+      return transitioned;
     });
+    if (result.changed) {
+      this.observability.recordOrderEvent({ event: "cancelled" });
+    }
+    return result;
   }
 }

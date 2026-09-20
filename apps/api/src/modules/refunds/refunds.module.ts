@@ -13,6 +13,7 @@
 // boundary exception.
 import { Router } from "express";
 import { getPaymentForOrderUseCase, markPaymentRefundedUseCase } from "../payments/payments.module";
+import { observability } from "../../shared/infrastructure/observability/prometheus/prometheus-observability";
 import type { PaymentReaderPort } from "./application/ports/payment-reader.port";
 import type { PaymentRefundWriterPort } from "./application/ports/payment-refund-writer.port";
 import { IssueRefundForCancelledOrderUseCase } from "./application/use-cases/issue-refund-for-cancelled-order.use-case";
@@ -38,6 +39,7 @@ export const issueRefundForCancelledOrderUseCase = new IssueRefundForCancelledOr
   paymentRefundWriter,
   razorpayRefundService,
   refundRepository,
+  observability,
 );
 
 /** Exported for `returns`' own RefundIssuerPort adapter (Week 2 Day 6, week2 (1).md §12). */
@@ -46,6 +48,7 @@ export const issueRefundForReturnUseCase = new IssueRefundForReturnUseCase(
   paymentRefundWriter,
   razorpayRefundService,
   refundRepository,
+  observability,
 );
 
 export const router = Router();

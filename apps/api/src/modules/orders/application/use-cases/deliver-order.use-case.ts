@@ -1,4 +1,5 @@
 import type { Role } from "@woobe/types";
+import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
 import type { OrderRepositoryPort, TransitionOrderStatusResult } from "../ports/order-repository.port";
@@ -12,6 +13,7 @@ export class DeliverOrderUseCase {
     private readonly auditLogger: AuditLoggerPort,
     private readonly transaction: TransactionPort,
     private readonly notifyOrderEvent: { execute(orderId: string, type: OrderNotificationEventType): Promise<void> },
+    private readonly observability: ObservabilityPort,
   ) {}
 
   async execute(orderId: string, actor: { id: string; role: Role }): Promise<TransitionOrderStatusResult> {
@@ -37,6 +39,7 @@ export class DeliverOrderUseCase {
       return transitioned;
     });
     if (result.changed) {
+      this.observability.recordOrderEvent({ event: "delivered" }); // before notify: the transition is already durable
       await this.notifyOrderEvent.execute(orderId, "ORDER_DELIVERED");
     }
     return result;

@@ -66,6 +66,12 @@ variable "nginx_image" {
   default     = "nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236"
 }
 
+variable "valkey_image" {
+  description = "Valkey image, pinned by multi-arch index digest (valkey/valkey:8-alpine = Valkey 8.1.10, index includes linux/arm64, resolved and checked 2026-09-20). Same strategy as nginx_image: a floating tag can change under a running host on its next pull/recreate. Bump deliberately (and re-run modules/ec2/tests/run-valkey-tests.sh); base-image security fixes do not arrive with a digest pin."
+  type        = string
+  default     = "valkey/valkey@sha256:d2e18f3410b6f616de1417f570fa55261af2898b9c5b2cfb6781ce2373ea43d1"
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

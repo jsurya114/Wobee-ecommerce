@@ -1,0 +1,90 @@
+# Alert rules — deliberately few, each one actionable. They describe SYMPTOMS,
+# not root causes. They are evaluated by Prometheus and visible in its UI; there
+# is NO Alertmanager, so nothing here pages or emails anyone (docs/observability.md).
+#
+# Thresholds are starting points for a single small store on one t4g.small, not
+# tuned against production traffic (none exists yet) — expect to revisit them
+# after the first weeks of real data. Traffic guards keep a quiet night from
+# firing a 5xx or latency alert on a handful of requests.
+groups:
+  - name: woobe_availability
+    rules:
+      - alert: WoobeApiDown
+        expr: up{job="woobe-api"} == 0 or absent(up{job="woobe-api"})
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Woobe API metrics target is down"
+          description: "Prometheus has not been able to scrape the API's /metrics for 2 minutes (or the target is missing). The API process may be down, restarting, or bound to a different port."
+          runbook: "docs/observability-runbook.md#api-target-down"
+
+      - alert: WoobeWorkerDown
+        expr: up{job="woobe-worker"} == 0 or absent(up{job="woobe-worker"})
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Woobe notification worker metrics target is down"
+          description: "Prometheus cannot scrape the worker's metrics server for 2 minutes. Notification emails are probably not being sent. (The worker keeps running without a metrics server if its port was taken, so check the container too.)"
+          runbook: "docs/observability-runbook.md#worker-target-down"
+
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0 or absent(up{job="node"})
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Node Exporter target is down"
+          description: "Host CPU/memory/disk metrics are not being collected. The infrastructure dashboard and the host alerts below are blind until this recovers."
+          runbook: "docs/observability-runbook.md#node-exporter-down"
+
+  - name: woobe_api_health
+    rules:
+      - alert: WoobeApiHigh5xxRate
+        expr: woobe:http_request_error_ratio:rate5m > 0.05 and woobe:http_requests:rate5m > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "More than 5% of API requests are failing with 5xx"
+          description: "5xx ratio is {{ $value | humanizePercentage }} over the last 5 minutes with meaningful traffic (> 0.05 req/s, i.e. at least ~15 requests per window)."
+          runbook: "docs/observability-runbook.md#high-5xx-rate"
+
+      - alert: WoobeApiHighP95Latency
+        expr: woobe:http_request_duration_seconds:p95_rate5m > 1 and woobe:http_requests:rate5m > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "API p95 latency is above 1 second"
+          description: "p95 request latency has been {{ $value | humanizeDuration }} for 10 minutes with meaningful traffic."
+          runbook: "docs/observability-runbook.md#high-p95-latency"
+
+  - name: woobe_worker_health
+    rules:
+      - alert: WoobeNotificationQueueBacklog
+        expr: woobe_notification_queue_jobs{state="waiting"} > 50
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 50 notification jobs have been waiting for 10 minutes"
+          description: "{{ $value }} jobs are waiting in the notification queue. The worker may be stuck, down, or slower than the arrival rate (SMTP/provider trouble)."
+          runbook: "docs/observability-runbook.md#queue-backlog"
+
+  - name: woobe_host_health
+    rules:
+      - alert: HostFilesystemPressure
+        expr: |
+          node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|overlay|squashfs"} < 0.15
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Root filesystem has less than 15% free"
+          description: "{{ $value | humanizePercentage }} of the root volume is free on {{ $labels.instance }}. Prometheus/Grafana/Valkey data and Docker images all live here."
+          runbook: "docs/observability-runbook.md#filesystem-pressure"
+
+      - alert: HostMemoryPressure
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Less than 10% of host memory is available"
+          description: "{{ $value | humanizePercentage }} of memory is available on {{ $labels.instance }} (t4g.small has 2 GiB and no swap). The kernel OOM killer may start terminating containers."
+          runbook: "docs/observability-runbook.md#memory-pressure"

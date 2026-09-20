@@ -80,3 +80,13 @@ output "cloudflare_dns_record" {
     ssl_tls = "Full (strict), with a Cloudflare Origin CA certificate for ${var.api_domain}"
   }
 }
+
+output "observability_ssm_document" {
+  description = "SSM document that installs/converges Prometheus, Grafana and Node Exporter on the instance."
+  value       = module.observability.document_name
+}
+
+output "grafana_admin_password_parameter" {
+  description = "Name (not value) of the SSM SecureString holding the Grafana admin password; created on the instance at first sync."
+  value       = module.observability.grafana_password_parameter
+}

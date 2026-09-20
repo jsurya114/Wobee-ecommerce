@@ -21,6 +21,7 @@ infra/terraform/
     s3/              Private media bucket
     iam/             Least-privilege EC2 instance role (incl. ECR pull)
     monitoring/      CloudWatch alarms + SNS topic
+    observability/   Prometheus + Grafana + Node Exporter on the EC2, delivered via an SSM document + association (not user_data) — see docs/observability.md
     ecr/             Private, immutable-tag ECR repo for the API image
     github-oidc/     GitHub OIDC provider + role pinned to repo:jsurya114/Wobee-ecommerce:ref:refs/heads/main
     ssm-deploy/      SSM Run Command document (deploy.sh) that GitHub Actions triggers
@@ -42,7 +43,7 @@ infra/terraform/
 ```bash
 cd infra/terraform/environments/production
 cp terraform.tfvars.example terraform.tfvars   # adjust as needed; never commit this file
-terraform init
+terraform init -reconfigure   # remote S3 backend; see docs/deployment.md "Terraform state backend"
 terraform fmt -recursive ..
 terraform validate
 terraform plan -out=tfplan

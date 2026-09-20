@@ -1,0 +1,2 @@
+# Local development: the worker's own metrics server (WORKER_METRICS_PORT, default 9102).
+- targets: ["host.docker.internal:9102"]

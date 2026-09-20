@@ -10,6 +10,8 @@ import { errorHandler } from "./middleware/error-handler";
 import { notFoundHandler } from "./middleware/not-found";
 import { requestId } from "./middleware/request-id";
 import { moduleRouters } from "./modules";
+import { httpMetricsMiddleware } from "./shared/infrastructure/observability/prometheus/http-metrics.middleware";
+import { metricsHandler } from "./shared/infrastructure/observability/prometheus/metrics-route";
 
 export interface ReadinessResult {
   ready: boolean;
@@ -35,6 +37,14 @@ export function createApp(options: CreateAppOptions = {}): Application {
   // (rate limits key on req.ip). See config/trust-proxy.ts.
   app.set("trust proxy", resolveTrustProxyHops(env.NODE_ENV, env.TRUST_PROXY_HOPS));
 
+  // FIRST in the chain, deliberately — before helmet, CORS and the body
+  // parser — so requests rejected by those (malformed JSON -> 400, oversized
+  // body -> 413, CORS) are counted and timed too, and the duration covers the
+  // body read. It excludes /metrics, /health and /ready itself (see the
+  // middleware's own comment). A request that never reaches a route is
+  // labelled route="NOT_FOUND" (404) or "UNMATCHED" (anything else).
+  app.use(httpMetricsMiddleware);
+
   app.use(helmet());
   app.use(
     cors({
@@ -48,6 +58,14 @@ export function createApp(options: CreateAppOptions = {}): Application {
   app.use(express.json({ verify: captureRawBody }));
   app.use(cookieParser(env.COOKIE_SECRET));
   app.use(requestId);
+  // Prometheus scrapes this directly on loopback (127.0.0.1:API_PORT),
+  // never through nginx — see metrics-route.ts and
+  // modules/ec2/tests/run-nginx-tests.sh (asserts nginx returns 403 for
+  // /metrics) for the two independent layers that keep it off the public
+  // internet.
+  app.get("/metrics", (req, res, next) => {
+    metricsHandler(req, res).catch(next);
+  });
 
   // Liveness only — deliberately does no I/O, so it can never itself become
   // the reason a healthy-but-overloaded process gets killed.

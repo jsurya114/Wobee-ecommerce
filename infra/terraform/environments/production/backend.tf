@@ -1,11 +1,12 @@
 # ============================================================================
-# REMOTE STATE BACKEND — PREPARED, NOT YET ACTIVE
+# REMOTE STATE BACKEND — ACTIVE (activated 2026-09-20)
 # ============================================================================
-# Named `backend.tf.example`, not `backend.tf`, on purpose: Terraform only
-# auto-loads `*.tf` / `*.tf.json` files, so this has zero effect until you
-# deliberately rename it. Local state (the Terraform-CLI default) stays
-# authoritative until then — this file changes nothing about how `terraform
-# plan`/`apply` behave today.
+# The state bucket (woobe-terraform-state-185658217213, ap-south-2) was
+# bootstrapped by hand per the commands preserved below, then this file was
+# renamed from backend.tf.example to backend.tf and `terraform init` was
+# run. No local state file ever existed to migrate (no apply had run
+# against this account before this point) — Terraform created a fresh,
+# empty state directly in S3.
 #
 # Why remote state at all: production Terraform state currently lives only
 # on whichever developer's laptop last ran a command. That's a single point
@@ -44,17 +45,34 @@
 # credentials — never a hardcoded key here.
 #
 # ----------------------------------------------------------------------------
-# STEP 1 — bootstrap the state bucket (run ONCE, by hand, outside Terraform)
+# Profile override (credential SOURCE only)
 # ----------------------------------------------------------------------------
-# This has to happen outside this Terraform config: the config that will
-# store its state in this bucket can't be the thing that creates the
-# bucket (chicken-and-egg). Run these with the same AWS profile Terraform
-# itself uses (see terraform.tfvars: aws_profile).
+# `profile` below is a NAME, not a credential. An operator or CI job that does
+# not have a profile called WoobeTerraformAdmin-185658217213 overrides just that
+# on the command line, leaving bucket/key/lock untouched:
+#   terraform init -reconfigure -backend-config="profile=<your-profile>"
+#
+# ----------------------------------------------------------------------------
+# Bootstrap record — the state bucket was created with these calls
+# (run once, by hand, outside Terraform: the config that stores its state
+# in this bucket can't be the thing that created the bucket)
+# ----------------------------------------------------------------------------
 #
 #   aws s3api create-bucket \
 #     --bucket woobe-terraform-state-185658217213 \
 #     --region ap-south-2 \
 #     --create-bucket-configuration LocationConstraint=ap-south-2 \
+#     --profile WoobeTerraformAdmin-185658217213
+#
+#   aws s3api put-bucket-ownership-controls \
+#     --bucket woobe-terraform-state-185658217213 \
+#     --ownership-controls '{"Rules":[{"ObjectOwnership":"BucketOwnerEnforced"}]}' \
+#     --profile WoobeTerraformAdmin-185658217213
+#
+#   aws s3api put-public-access-block \
+#     --bucket woobe-terraform-state-185658217213 \
+#     --public-access-block-configuration \
+#       BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true \
 #     --profile WoobeTerraformAdmin-185658217213
 #
 #   aws s3api put-bucket-versioning \
@@ -68,34 +86,16 @@
 #       '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}' \
 #     --profile WoobeTerraformAdmin-185658217213
 #
-#   aws s3api put-public-access-block \
-#     --bucket woobe-terraform-state-185658217213 \
-#     --public-access-block-configuration \
-#       BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true \
-#     --profile WoobeTerraformAdmin-185658217213
-#
 #   aws s3api put-bucket-policy \
 #     --bucket woobe-terraform-state-185658217213 \
 #     --policy file://bootstrap-state-bucket-policy.json.example \
 #     --profile WoobeTerraformAdmin-185658217213
-#     # (rename the .example file first; it denies any non-TLS request)
+#     # (denies any request that doesn't use TLS)
 #
-# ----------------------------------------------------------------------------
-# STEP 2 — activate this backend
-# ----------------------------------------------------------------------------
-#
-#   mv backend.tf.example backend.tf
-#   terraform init
-#     # No `-migrate-state` flag, and no local-state migration prompt to
-#     # answer: this repository has no real local state file today (no
-#     # `terraform apply` has ever been run against this account — verified
-#     # by searching the repo for any *.tfstate file, and by `git log` for
-#     # one ever being committed; there is none). Terraform will simply
-#     # create a fresh, empty state directly in S3. If a local state file
-#     # ever does exist by the time you run this, `terraform init` detects
-#     # it automatically and asks whether to copy it into the new backend —
-#     # answer yes, and the local file is left on disk afterward, not
-#     # deleted, so nothing is lost even then.
+#   aws s3api put-bucket-tagging \
+#     --bucket woobe-terraform-state-185658217213 \
+#     --tagging '{"TagSet":[{"Key":"Project","Value":"Woobe"},{"Key":"Purpose","Value":"terraform-state"},{"Key":"ManagedBy","Value":"manual-bootstrap"}]}' \
+#     --profile WoobeTerraformAdmin-185658217213
 #
 # ----------------------------------------------------------------------------
 # Locking mechanics (native S3 locking, use_lockfile = true)
@@ -117,6 +117,7 @@ terraform {
     bucket       = "woobe-terraform-state-185658217213"
     key          = "production/terraform.tfstate"
     region       = "ap-south-2"
+    profile      = "WoobeTerraformAdmin-185658217213" # same profile terraform.tfvars uses for the provider — not a credential, just a named local reference
     encrypt      = true
     use_lockfile = true
   }

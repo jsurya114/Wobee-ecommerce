@@ -1,0 +1,50 @@
+# Woobe Prometheus configuration — IDENTICAL for local development and
+# production. Only the target files differ (they are file_sd, reloaded by
+# Prometheus automatically, no restart):
+#
+#   production  /etc/prometheus/targets/*.yml   rendered by Terraform
+#               (modules/observability) with the real ports; every target is a
+#               loopback address on the EC2 host (Prometheus runs host-networked).
+#   local       prometheus/targets.local/*.yml  host.docker.internal targets,
+#               because a containerised Prometheus cannot reach an API/worker
+#               running directly on the developer's machine via 127.0.0.1.
+#
+# Prometheus NEVER scrapes through Cloudflare or nginx: nginx returns 403 for
+# /metrics on purpose, and these targets are internal-only.
+#
+# No `alerting:` block — there is no Alertmanager (see docs/observability.md).
+# Alert rules below are evaluated and visible in the Prometheus UI (Alerts tab)
+# and via the `ALERTS` series; nothing sends an email/Slack message.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: woobe-api
+    metrics_path: /metrics
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/api.yml]
+        refresh_interval: 1m
+
+  - job_name: woobe-worker
+    metrics_path: /metrics
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/worker.yml]
+        refresh_interval: 1m
+
+  - job_name: node
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/node.yml]
+        refresh_interval: 1m
+
+  # Prometheus's own health (TSDB size, head series, scrape durations): the
+  # infrastructure dashboard shows it, and it is the honest signal for
+  # "is monitoring itself healthy". In both topologies it reaches itself here.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]

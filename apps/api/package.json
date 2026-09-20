@@ -19,6 +19,7 @@
     "@woobe/types": "workspace:*",
     "@woobe/utils": "workspace:*",
     "@woobe/validation": "workspace:*",
+    "@prometheus-io/client": "^0.16.1",
     "bcryptjs": "^2.4.3",
     "bullmq": "^6.3.1",
     "cookie-parser": "^1.4.7",
