@@ -15,4 +15,11 @@ paths = [
   # Same file: fall back to a path-level exclusion in case the finding spans a
   # different substring than the regex above anticipates.
   '''infra/terraform/modules/observability/tests/run-sync-tests\.sh''',
+  # .env.example is a template file whose every value is an intentional
+  # placeholder ("stub_replace_...", "dev-only-change-me-...") — never a real
+  # secret, past or present. gitleaks scans full commit history (git log -p),
+  # so an old commit's stub value (e.g. RAZORPAY_WEBHOOK_SECRET, changed since
+  # but always a stub) still surfaces as a finding; excluded by path rather
+  # than by pattern since new placeholder text is expected to keep changing.
+  '''\.env\.example''',
 ]
