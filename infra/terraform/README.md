@@ -21,6 +21,7 @@ infra/terraform/
     s3/              Private media bucket
     iam/             Least-privilege EC2 instance role (incl. ECR pull)
     monitoring/      CloudWatch alarms + SNS topic
+    observability/   Prometheus + Grafana + Node Exporter on the EC2, delivered via an SSM document + association (not user_data) — see docs/observability.md
     ecr/             Private, immutable-tag ECR repo for the API image
     github-oidc/     GitHub OIDC provider + role pinned to repo:jsurya114/Wobee-ecommerce:ref:refs/heads/main
     ssm-deploy/      SSM Run Command document (deploy.sh) that GitHub Actions triggers

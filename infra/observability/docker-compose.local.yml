@@ -1,0 +1,115 @@
+# Local development observability stack. Start with scripts/observability-local.sh
+# (it creates the Grafana password file first) — `docker compose up -d` in the repo
+# root is UNCHANGED and still starts only Postgres + Redis.
+#
+# Topology difference from production: here the API and worker run directly on your
+# machine (pnpm dev), so a containerised Prometheus reaches them through
+# host.docker.internal, not 127.0.0.1. Everything is published on 127.0.0.1 only.
+#
+#   http://localhost:9090  Prometheus     http://localhost:3000  Grafana (admin / see below)
+#
+# The Grafana password is generated into .local-secrets/ (gitignored) on first run.
+name: woobe-observability-local
+
+x-common: &common
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  node-exporter:
+    <<: *common
+    image: prom/node-exporter@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    container_name: woobe-local-node-exporter
+    pid: host   # same reason as production: see docker-compose.prod.yml
+    # Docker Desktop: these are metrics of the Docker VM, not of your Mac. Good enough to
+    # exercise the dashboards; real host metrics are only meaningful on the EC2 instance.
+    command:
+      - --path.rootfs=/host
+    volumes:
+      # No `rslave` here (production has it): Docker Desktop's VM root is not a shared mount.
+      - /:/host:ro
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9100/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    <<: *common
+    image: prom/prometheus@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7
+    container_name: woobe-local-prometheus
+    user: "65534:65534"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2d
+      - --storage.tsdb.retention.size=1GB
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      # Separate mounts (a nested mount under a read-only directory mount cannot create its
+      # mountpoint). After editing prometheus.yml on the host, `docker compose restart prometheus`
+      # — rules/ and targets/ are directories, so edits there are picked up by a reload.
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - ./prometheus/targets.local:/etc/prometheus/targets:ro
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    <<: *common
+    image: grafana/grafana@sha256:3ea272e5cab64a4a62240c682e2c62433b25614d956d44c299a10cb6994f6f2e
+    container_name: woobe-local-grafana
+    user: "472:0"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_LOG_MODE: console
+      PROMETHEUS_URL: http://prometheus:9090
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+secrets:
+  grafana_admin_password:
+    file: ./.local-secrets/grafana-admin-password
+
+volumes:
+  prometheus_data:
+  grafana_data:

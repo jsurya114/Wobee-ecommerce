@@ -58,3 +58,11 @@ infra/terraform/environments/*/terraform.tfvars
 !infra/terraform/environments/*/terraform.tfvars.example
 *.auto.tfvars
 *.auto.tfvars.json
+
+# Local observability stack: generated Grafana admin password (never commit)
+infra/observability/.local-secrets/
+
+# Saved Terraform plans are appliable artifacts and can embed values: never commit them
+# (the existing patterns missed names like tfplan-final and terraform-plan-final-readable.txt)
+tfplan-*
+terraform-plan-*.txt

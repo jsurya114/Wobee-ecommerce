@@ -40,6 +40,13 @@ const envSchema = z.object({
   // address fails startup instead of silently meaning "everything" (see docs/deployment.md).
   API_BIND_HOST: z.string().ip().optional(),
 
+  // The notification worker (worker.ts, a separate process) serves its own Prometheus metrics on this
+  // address — the API's /metrics lives on API_PORT, but the worker has no HTTP server otherwise. Host
+  // networking means the bind address IS the exposure: the default is loopback, and the security group
+  // has no rule for this port. Blank counts as unset (a blank line in api.env must not become port 0).
+  WORKER_METRICS_PORT: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(1).max(65535).default(9102)),
+  WORKER_METRICS_HOST: z.preprocess((v) => (v === "" ? undefined : v), z.string().ip().default("127.0.0.1")),
+
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
 

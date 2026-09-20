@@ -308,6 +308,22 @@ systemctl status woobe-valkey-metrics.timer
 
 **FUTURE PHASE 2 — managed Valkey (ElastiCache):** see "§15. Future: ALB + multiple EC2 instances" — moving off self-hosted Valkey to ElastiCache is a `REDIS_URL` repoint, nothing else in the app changes. The trigger for that migration is a second EC2 instance needing to share cache/queue state (self-hosted Valkey on one box stops being valid once there's more than one app instance), not a persistence concern — the hardening above is sufficient for Phase 1's single-instance reality on its own.
 
+## Observability (Prometheus, Grafana, Node Exporter)
+
+Full reference: [`observability.md`](observability.md); alert-by-alert procedures: [`observability-runbook.md`](observability-runbook.md).
+In short: the API exposes `/metrics` (RED + Node.js + business events), the worker exposes its own on `127.0.0.1:9102`, Prometheus
+(7 days / 2 GB), Grafana and Node Exporter run as containers on the same EC2 — **every listener on loopback, no security-group rule, no public monitoring route.**
+
+- **How it gets onto the box:** Terraform `modules/observability` → an SSM document + State Manager association (**not** `user_data`, so changing a dashboard never
+  replaces the instance, and **not** the application deploy, so a deploy never touches it). It installs itself when the instance registers with SSM (the first run waits for
+  Docker) and converges again on every change and every 12 hours. It needs **outbound access to Docker Hub** to pull three images.
+- **What you must do by hand:** nothing new beyond `API_BIND_HOST=127.0.0.1` in `api.env`. The Grafana admin password is generated on the instance at first sync
+  (SSM SecureString `/woobe-production/grafana/admin-password`, not in Terraform state). Open Grafana over an SSM port-forward (`observability.md` §7).
+- **`/metrics` is never public:** nginx returns 403 for every spelling of it (`/Metrics`, `/metrics/`, …) and the API itself refuses it to any proxied request.
+- **Alerts are visible, not delivered** — there is no Alertmanager.
+- **Application deploys** (`deploy.sh`) remove only `woobe-api` and `woobe-worker`; the observability containers and their data (`/opt/woobe/prometheus-data`,
+  `/opt/woobe/grafana-data`, `/opt/woobe/observability`) are outside its boundary (`/opt/woobe/app`). Its `docker image prune` cannot remove an image an existing container uses.
+
 ## 7. Environment and secrets model
 
 The image contains **no** env file and no secrets. On the instance everything is in `/opt/woobe/app/api.env` (`root:root`, mode `600`, created once by hand over Session Manager; Docker `--env-file` format: `KEY=value`, **no quotes**, unlike `.env.example`).
@@ -317,11 +333,13 @@ Non-secret hardening lines the production `api.env` should contain (alongside th
 # /opt/woobe/app/api.env — docker --env-file format: NAME=value, no quotes
 API_BIND_HOST=127.0.0.1      # API reachable only over loopback (nginx on the same host)
 # TRUST_PROXY_HOPS           # leave unset: defaults to 1 in production (one proxy hop: nginx)
+# WORKER_METRICS_PORT        # leave unset: 9102 (loopback). If you change it, change Terraform's worker_metrics_port too
+# WORKER_METRICS_HOST        # leave unset: 127.0.0.1. Never set this to a public interface
 ```
 
 | Class | Variables |
 |---|---|
-| Public / non-secret config | `API_BIND_HOST` (set `127.0.0.1` in production — see "Why the API binds to loopback"), `TRUST_PROXY_HOPS` (leave unset: 1 in production behind nginx), `MEDIA_STORAGE_DRIVER` (must be `s3`), `AWS_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_PUBLIC_BASE_URL` (see §7), `API_PORT`, `WEB_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_DOMAIN`, `API_PUBLIC_URL`, `MEDIA_UPLOAD_DIR`, `JWT_ACCESS_TOKEN_TTL`, `JWT_REFRESH_TOKEN_TTL`, `BCRYPT_SALT_ROUNDS`, `SMTP_HOST/PORT/SECURE/FROM`, `SUPPORT_EMAIL`, `STAFF_INVITATION_TTL_HOURS`, `GOOGLE_CLIENT_ID` (required in production), `RAZORPAY_KEY_ID`; `NODE_ENV=production` is set in the image |
+| Public / non-secret config | `API_BIND_HOST` (set `127.0.0.1` in production — see "Why the API binds to loopback"), `TRUST_PROXY_HOPS` (leave unset: 1 in production behind nginx), `WORKER_METRICS_HOST/PORT` (leave unset: loopback:9102 — the worker's Prometheus endpoint), `MEDIA_STORAGE_DRIVER` (must be `s3`), `AWS_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_PUBLIC_BASE_URL` (see §7), `API_PORT`, `WEB_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_DOMAIN`, `API_PUBLIC_URL`, `MEDIA_UPLOAD_DIR`, `JWT_ACCESS_TOKEN_TTL`, `JWT_REFRESH_TOKEN_TTL`, `BCRYPT_SALT_ROUNDS`, `SMTP_HOST/PORT/SECURE/FROM`, `SUPPORT_EMAIL`, `STAFF_INVITATION_TTL_HOURS`, `GOOGLE_CLIENT_ID` (required in production), `RAZORPAY_KEY_ID`; `NODE_ENV=production` is set in the image |
 | Runtime secrets | `DATABASE_URL`, `REDIS_URL` (contains the Valkey password), `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `SMTP_USER`, `SMTP_PASS` |
 | AWS-provided identity | Credentials — including the S3 access the media adapter uses — come from the EC2 instance role via the metadata service (IMDSv2, hop limit 2 so containers can reach it). Nothing to configure, and no access keys exist anywhere. |
 | Deploy-time config | Workflow `env`: role ARN, ECR repo, SSM document, instance name tag, log group (identifiers, not secrets). Repo variable `DEPLOY_ENABLED`. GitHub Environment `production`. **No GitHub secrets are used.** |
@@ -414,7 +432,7 @@ Where to look: the workflow log (deploy output, stdout + stderr groups), CloudWa
 cd infra/terraform/environments/production
 terraform init && terraform plan -var aws_profile=woobe
 
-# 2a. Everything (69 resources; EC2, RDS, Elastic IP start billing; the CloudFront distribution takes several minutes) …
+# 2a. Everything (74 resources; EC2, RDS, Elastic IP start billing; the CloudFront distribution takes several minutes) …
 terraform apply -var aws_profile=woobe
 # 2b. … OR only the OIDC/ECR/SSM foundation first (no EC2/RDS billing)
 terraform apply -var aws_profile=woobe -target=module.github_oidc -target=module.ssm_deploy
@@ -426,6 +444,11 @@ aws ssm start-session --profile woobe --region ap-south-2 --target "$(terraform 
 # 3b. HTTPS: create the Origin CA certificate ON the instance (commands in "HTTPS edge" above),
 #     then, in Cloudflare, create the proxied A record and set SSL/TLS to Full (strict).
 #     terraform output cloudflare_dns_record   # the values to enter
+
+# 3c. Monitoring: within a few minutes of the instance registering with SSM, the observability sync installs Prometheus/Grafana/Node Exporter.
+#     Check it, then open Grafana over a port-forward (docs/observability.md §7):
+aws ssm list-association-executions --profile woobe --region ap-south-2 \
+  --association-id "$(aws ssm list-associations --profile woobe --region ap-south-2 --association-filter-list key=AssociationName,value=woobe-production-observability-sync --query 'Associations[0].AssociationId' --output text)" --max-results 3
 
 # 4. GitHub: Settings → Environments → New "production" → deployment branches: main only
 #    (optionally required reviewers). Then turn the pipeline on:

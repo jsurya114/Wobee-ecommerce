@@ -115,15 +115,21 @@ server {
         proxy_pass http://woobe_api;
     }
 
-    # /metrics is Prometheus's scrape endpoint (host-internal Prometheus,
-    # via modules/ec2's observability bootstrap — see docs/deployment.md,
-    # "Observability"). Without this block, the catch-all `location /`
-    # below would proxy it to the public internet exactly like any other
-    # API route; Prometheus never goes through nginx at all — it scrapes
-    # http://127.0.0.1:${api_port}/metrics directly on the same host. This
-    # must stay ABOVE the catch-all: nginx uses the first matching
-    # `location`, so an entry below `location /` would never be reached.
-    location = /metrics {
+    # /metrics is Prometheus's scrape endpoint. Prometheus runs on THIS host and scrapes
+    # http://127.0.0.1:${api_port}/metrics directly — it never goes through nginx — so nothing
+    # arriving here may ever reach it. Without this block the catch-all `location /` below
+    # would proxy it to the public internet like any other API route.
+    #
+    # A REGEX location, on purpose, not `location = /metrics`: Express routes are
+    # case-insensitive and tolerate a trailing slash, so `/Metrics`, `/METRICS` and `/metrics/`
+    # all reach the API's handler, and an exact-match location would let every one of them
+    # through (verified against real nginx + the real API). nginx also normalises `//metrics`
+    # and percent-encoded paths (`/%6Detrics`) before matching. A regex location is tried
+    # before the plain-prefix `location /`, so it wins regardless of where it sits; it is kept
+    # above `location /` for readability. The API additionally refuses to serve /metrics to
+    # any request that carries X-Forwarded-* headers (see metrics-route.ts), which nginx always
+    # adds — a second layer that does not depend on this path matching being perfect.
+    location ~* ^/metrics(/|$) {
         return 403;
     }
 

@@ -39,8 +39,8 @@ export class DeliverOrderUseCase {
       return transitioned;
     });
     if (result.changed) {
+      this.observability.recordOrderEvent({ event: "delivered" }); // before notify: the transition is already durable
       await this.notifyOrderEvent.execute(orderId, "ORDER_DELIVERED");
-      this.observability.recordOrderEvent({ event: "delivered" });
     }
     return result;
   }

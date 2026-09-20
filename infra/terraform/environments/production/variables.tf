@@ -159,3 +159,9 @@ variable "api_port" {
   type        = number
   default     = 4000
 }
+
+variable "worker_metrics_port" {
+  description = "Loopback port of the notification worker's Prometheus metrics server. Must match WORKER_METRICS_PORT in /opt/woobe/app/api.env (default 9102). Deliberately has no security-group rule."
+  type        = number
+  default     = 9102
+}

@@ -107,7 +107,7 @@ STUB
 chmod +x "$WORK/bin/aws"
 : >"$WORK/cw-calls.log"
 
-hc() { docker run --rm --network host -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/bin:/bin" -e VALKEY_TEST_PASSWORD="$TEST_PASSWORD" -e CW_LOG="$WORK/cw-calls.log" "$HARNESS_IMG" "$@"; }
+hc() { docker run --rm --network host -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/local/bin:/usr/bin:/bin" -e VALKEY_TEST_PASSWORD="$TEST_PASSWORD" -e CW_LOG="$WORK/cw-calls.log" "$HARNESS_IMG" "$@"; }
 
 # render_valkey <maxmemory_mb>: the "valkey" block of the rendered user_data,
 # with /opt/woobe remapped into $OPT (the only change made to it), and its
@@ -134,9 +134,20 @@ EOF
 }
 
 # ==============================================================================================
+# ---- pre-flight: this harness uses the REAL production port (127.0.0.1:6379) on purpose, because it tests the
+# exact compose the instance would run. If anything already publishes it, every scenario below would fail for a
+# reason that has nothing to do with Valkey — say so once, clearly, and stop.
+if hc sh -c 'nc -z 127.0.0.1 6379' >/dev/null 2>&1; then
+  echo "PRE-FLIGHT FAILED: something on this Docker host already listens on 127.0.0.1:6379:" >&2
+  docker ps --format '  container {{.Names}}  {{.Ports}}' | grep -E '6379->' >&2 || true
+  echo "This suite cannot run until that port is free (it does not stop other people's containers). Stop it, or run the suite on a Docker host where 6379 is unused." >&2
+  exit 2
+fi
+
 log "P1 Valkey starts from the real user_data block (persistence + noeviction + healthcheck configured)"
 render_valkey 64 || exit 2
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/bin:/bin" -e VALKEY_TEST_PASSWORD="$TEST_PASSWORD" "$HARNESS_IMG" bash "$WORK/valkey.sh" >"$WORK/valkey.out" 2>&1
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/local/bin:/usr/bin:/bin" -e VALKEY_TEST_PASSWORD="$TEST_PASSWORD" "$HARNESS_IMG" bash "$WORK/valkey.sh" >"$WORK/valkey.out" 2>&1
+[ -s "$OPT/valkey/docker-compose.yml" ] || { echo "  --- output of the executed valkey block:"; sed 's/^/  | /' "$WORK/valkey.out"; }
 expect "user_data valkey block ran and 'docker compose up -d' succeeded" '[ -s "$OPT/valkey/docker-compose.yml" ] || (cat "$WORK/valkey.out" && false)'
 expect "compose file mounts a HOST-BACKED directory at /data (not an anonymous volume)" 'grep -qE "^\s*- /.*valkey-data:/data" "$OPT/valkey/docker-compose.yml"'
 expect "the host data directory was actually created, restrictively permissioned (700)" '[ -d "$OPT/valkey-data" ] && [ "$(stat -f %Lp "$OPT/valkey-data" 2>/dev/null || stat -c %a "$OPT/valkey-data")" = 700 ]'
@@ -239,11 +250,11 @@ expect "control: 6379 IS reachable on 127.0.0.1 (what the API/worker use)" 'dock
 # ==============================================================================================
 log "P7 push-metrics.sh (the ACTUAL rendered script, not retyped) reports correctly, up and down"
 : >"$WORK/cw-calls.log"
-docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/bin:/bin" -e CW_LOG="$WORK/cw-calls.log" "$HARNESS_IMG" bash "$WORK/push-metrics.sh" >"$WORK/metrics1.out" 2>&1
+docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/local/bin:/usr/bin:/bin" -e CW_LOG="$WORK/cw-calls.log" "$HARNESS_IMG" bash "$WORK/push-metrics.sh" >"$WORK/metrics1.out" 2>&1
 expect "while Valkey is up: pushed ValkeyUp=1 with a plausible (nonzero) used_memory"  'grep -q "ValkeyUp,Value=1" "$WORK/cw-calls.log" && grep -qE "ValkeyUsedMemoryBytes,Value=[1-9][0-9]*" "$WORK/cw-calls.log"'
 docker stop woobe-valkey >/dev/null
 : >"$WORK/cw-calls.log"
-docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/bin:/bin" -e CW_LOG="$WORK/cw-calls.log" "$HARNESS_IMG" bash "$WORK/push-metrics.sh" >"$WORK/metrics2.out" 2>&1
+docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$WORK:$WORK" -e PATH="$WORK/bin:/usr/local/bin:/usr/bin:/bin" -e CW_LOG="$WORK/cw-calls.log" "$HARNESS_IMG" bash "$WORK/push-metrics.sh" >"$WORK/metrics2.out" 2>&1
 expect "while Valkey is down: pushed ValkeyUp=0 (not silently skipped, not a false positive)" 'grep -q "ValkeyUp,Value=0" "$WORK/cw-calls.log" && grep -q "ValkeyUsedMemoryBytes,Value=0" "$WORK/cw-calls.log"'
 docker start woobe-valkey >/dev/null 2>&1 || true
 

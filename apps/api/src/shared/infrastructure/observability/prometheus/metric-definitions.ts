@@ -35,8 +35,37 @@ export interface Metrics {
   paymentWebhookDurationSeconds: Histogram<"result">;
 }
 
+/** The closed label vocabularies (mirrors observability.port.ts) — used ONLY to pre-create series at 0, never to accept input. */
+const PAYMENT_METHODS = ["online", "cod"] as const;
+const ORDER_EVENTS = ["confirmed", "cancelled", "delivered", "returned_to_origin", "payment_failed"] as const;
+const RESULTS = ["success", "failure"] as const;
+const WEBHOOK_RESULTS = ["processed", "deduped", "ignored", "amount-mismatch", "stale"] as const;
+/** The only Razorpay events the app acts on. Other event types still appear, lazily, on first delivery. */
+const ACTED_ON_WEBHOOK_EVENTS = ["payment.captured", "payment.failed"] as const;
+
+/**
+ * Pre-create every bounded series at 0. Prometheus's rate()/increase() need a
+ * previous sample to compute a delta: a labelled counter that only comes into
+ * existence at its first increment appears already at 1, so the FIRST order,
+ * refund, or failure after a process start would be invisible to increase().
+ * Only sets that are closed by construction are initialised; HTTP route labels
+ * are dynamic and are not.
+ */
+function initializeSeries(m: Metrics): void {
+  for (const payment_method of PAYMENT_METHODS) m.ordersCreatedTotal.inc({ payment_method }, 0);
+  for (const event of ORDER_EVENTS) m.ordersEventTotal.inc({ event }, 0);
+  for (const result of RESULTS) {
+    m.refundsTotal.inc({ result }, 0);
+    m.inventoryReservationsTotal.inc({ result }, 0);
+  }
+  for (const result of WEBHOOK_RESULTS) {
+    for (const event_type of ACTED_ON_WEBHOOK_EVENTS) m.paymentWebhooksTotal.inc({ event_type, result }, 0);
+    m.paymentWebhookDurationSeconds.zero({ result });
+  }
+}
+
 export function createMetrics(register: Registry): Metrics {
-  return {
+  const metrics: Metrics = {
     // ---- HTTP RED (Rate / Errors / Duration) -------------------------------
     httpRequestsTotal: new Counter({
       name: "woobe_http_requests_total",
@@ -97,4 +126,6 @@ export function createMetrics(register: Registry): Metrics {
       registers: [register],
     }),
   };
+  initializeSeries(metrics);
+  return metrics;
 }

@@ -1,0 +1,2 @@
+# Local development: node-exporter runs as a compose service on the same network.
+- targets: ["node-exporter:9100"]

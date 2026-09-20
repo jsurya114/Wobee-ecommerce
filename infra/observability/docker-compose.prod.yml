@@ -1,0 +1,144 @@
+# Woobe production observability stack — Prometheus + Grafana + Node Exporter on
+# the single EC2 host. Installed and kept converged by the Terraform-managed SSM
+# document in infra/terraform/modules/observability (NOT by user_data, and NOT by
+# the application deploy), so:
+#   - editing a dashboard/rule never replaces the instance, and
+#   - a normal API/worker deploy (deploy.sh) never touches these containers or
+#     their data. (deploy.sh only ever removes the containers named woobe-api and
+#     woobe-worker; its `docker image prune` keeps any image a container still uses.)
+#
+# EVERY listener is loopback-only and no security-group rule exists for any of
+# these ports. Host networking is required for one reason: Prometheus must scrape
+# the API/worker, which listen on 127.0.0.1 of the host. Grafana is reached over an
+# SSM port-forward (docs/observability.md), never over the Internet.
+#
+#   127.0.0.1:9090  Prometheus     127.0.0.1:9100  Node Exporter
+#   127.0.0.1:3000  Grafana        (API 4000 / worker 9102 / Valkey 6379 already loopback)
+#
+# Images are pinned by the multi-arch INDEX digest (linux/arm64 for the t4g.small,
+# linux/amd64 for everything else). Bump deliberately, together with the version
+# comment. Base-image security fixes do NOT arrive on their own with a digest pin.
+name: woobe-observability
+
+x-hardening: &hardening
+  restart: unless-stopped
+  network_mode: host
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  node-exporter:
+    <<: *hardening
+    # prom/node-exporter v1.12.1
+    image: prom/node-exporter@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    container_name: woobe-node-exporter
+    # Runs as `nobody` (image default), read-only rootfs, ALL capabilities dropped,
+    # no Docker socket. The official node_exporter container guidance for
+    # `--path.rootfs` is host network + host PID namespace + a read-only, rslave
+    # bind of `/`: without `pid: host` the collector reads /proc/1/mountinfo of the
+    # container's own private mount namespace and never sees the host's real
+    # mounts (verified empirically: the root filesystem series were missing).
+    # `pid: host` lets it read host /proc entries; as `nobody` with no capabilities
+    # it cannot signal, ptrace or write to anything.
+    pid: host
+    command:
+      - --web.listen-address=127.0.0.1:9100
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9100/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  prometheus:
+    <<: *hardening
+    # prom/prometheus v3.13.3
+    image: prom/prometheus@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7
+    container_name: woobe-prometheus
+    user: "65534:65534"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 7 days of history, hard-capped at 2 GB so a cardinality mistake cannot fill the
+      # 30 GB root volume that also holds Docker images, the Valkey AOF and Grafana.
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=2GB
+      - --web.listen-address=127.0.0.1:9090
+    environment:
+      # Make the Go GC work harder BEFORE the cgroup limit is hit (soft limit < mem_limit).
+      GOMEMLIMIT: 200MiB
+    volumes:
+      - /opt/woobe/prometheus-data:/prometheus
+      # A DIRECTORY mount, not single files: the sync rewrites files atomically
+      # (new inode), and a single-file bind mount would keep serving the old one.
+      - /opt/woobe/observability/prometheus:/etc/prometheus:ro
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  grafana:
+    <<: *hardening
+    # grafana/grafana v12.4.11
+    image: grafana/grafana@sha256:3ea272e5cab64a4a62240c682e2c62433b25614d956d44c299a10cb6994f6f2e
+    container_name: woobe-grafana
+    user: "472:0"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_SECURITY_ADMIN_USER: admin
+      # Read from the secret file; the value is never in Git, compose, Terraform or logs.
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      # Grafana is only reachable over plain HTTP on loopback (SSM port-forward to
+      # http://localhost:3000); a Secure-flagged cookie would not be sent by every
+      # browser there. If Grafana is ever put behind HTTPS, set this to "true".
+      GF_SECURITY_COOKIE_SECURE: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_LOG_MODE: console
+      PROMETHEUS_URL: http://127.0.0.1:9090
+      GOMEMLIMIT: 200MiB
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - /opt/woobe/grafana-data:/var/lib/grafana
+      - /opt/woobe/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /opt/woobe/observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+secrets:
+  grafana_admin_password:
+    file: /opt/woobe/observability/secrets/grafana-admin-password

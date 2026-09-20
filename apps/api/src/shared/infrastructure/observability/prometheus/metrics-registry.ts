@@ -6,7 +6,7 @@ import { collectDefaultMetrics, Registry } from "@prometheus-io/client";
  * this testable: metric-definitions.test.ts constructs its own Registry per
  * test instead of accumulating state across the whole test run on a shared
  * global). The worker process is a SEPARATE Node.js process (worker.ts) and
- * gets its own separate Registry — see worker-metrics-registry.ts — metrics
+ * gets its own separate Registry (createWorkerRegistry in notification-worker-metrics.ts) — metrics
  * cannot cross a process boundary in-memory, so there is no way to "share"
  * this one with it.
  *

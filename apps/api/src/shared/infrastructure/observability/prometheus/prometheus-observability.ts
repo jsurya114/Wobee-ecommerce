@@ -1,41 +1,57 @@
 import { logError } from "../../../logger";
-import type { ObservabilityPort } from "../../../application/ports/observability.port";
-import { metrics } from "./metrics";
+import type {
+  ObservabilityPort,
+  OrderLifecycleEvent,
+  OrderPaymentMethod,
+  OutcomeResult,
+  WebhookResult,
+} from "../../../application/ports/observability.port";
+import { metrics as defaultMetrics, type Metrics } from "./metrics";
 
 /**
  * The concrete `@prometheus-io/client` implementation of ObservabilityPort.
  * Only composition roots (`*.module.ts` files) import this — use-cases
  * depend on the `ObservabilityPort` interface only (see that file).
  *
- * Every method is wrapped in try/catch and never rethrows: constraint #13/
- * #14 from the brief ("metrics must never be able to break a successful
- * business operation" / "collection is best-effort") — a metrics-library
+ * Every method is wrapped in try/catch and never rethrows: a metrics-library
  * bug or an unexpected label value must degrade to "this one data point is
- * missing," never to a failed checkout, webhook, or refund. `prom-client`'s
+ * missing," never to a failed checkout, webhook, or refund. The client's
  * label validation throws synchronously on a bad call, which is exactly the
  * class of error this guards against.
  */
+
+/** Razorpay's event names look like `payment.captured` / `refund.processed` / `payment.dispute.won`. Anything else — including a value that would make the label unbounded — collapses to a single bucket. */
+const RAZORPAY_EVENT_SHAPE = /^[a-z_]+(\.[a-z_]+){1,2}$/;
+const MAX_EVENT_TYPE_LENGTH = 48;
+export const UNKNOWN_EVENT_TYPE = "other";
+
+export function sanitizeEventType(raw: unknown): string {
+  return typeof raw === "string" && raw.length <= MAX_EVENT_TYPE_LENGTH && RAZORPAY_EVENT_SHAPE.test(raw) ? raw : UNKNOWN_EVENT_TYPE;
+}
+
 export class PrometheusObservability implements ObservabilityPort {
-  recordOrderCreated(input: { paymentMethod: "online" | "cod" }): void {
-    this.safely(() => metrics.ordersCreatedTotal.inc({ payment_method: input.paymentMethod }));
+  constructor(private readonly m: Metrics = defaultMetrics) {}
+
+  recordOrderCreated(input: { paymentMethod: OrderPaymentMethod }): void {
+    this.safely(() => this.m.ordersCreatedTotal.inc({ payment_method: input.paymentMethod }));
   }
 
-  recordOrderEvent(input: { event: "confirmed" | "cancelled" | "delivered" | "returned_to_origin" | "payment_failed" }): void {
-    this.safely(() => metrics.ordersEventTotal.inc({ event: input.event }));
+  recordOrderEvent(input: { event: OrderLifecycleEvent }): void {
+    this.safely(() => this.m.ordersEventTotal.inc({ event: input.event }));
   }
 
-  recordRefundIssued(input: { result: "success" | "failure" }): void {
-    this.safely(() => metrics.refundsTotal.inc({ result: input.result }));
+  recordRefundIssued(input: { result: OutcomeResult }): void {
+    this.safely(() => this.m.refundsTotal.inc({ result: input.result }));
   }
 
-  recordInventoryReservation(input: { result: "success" | "failure" }): void {
-    this.safely(() => metrics.inventoryReservationsTotal.inc({ result: input.result }));
+  recordInventoryReservation(input: { result: OutcomeResult }): void {
+    this.safely(() => this.m.inventoryReservationsTotal.inc({ result: input.result }));
   }
 
-  recordPaymentWebhook(input: { eventType: string; result: string; durationSeconds: number }): void {
+  recordPaymentWebhook(input: { eventType: string; result: WebhookResult; durationSeconds: number }): void {
     this.safely(() => {
-      metrics.paymentWebhooksTotal.inc({ event_type: input.eventType, result: input.result });
-      metrics.paymentWebhookDurationSeconds.observe({ result: input.result }, input.durationSeconds);
+      this.m.paymentWebhooksTotal.inc({ event_type: sanitizeEventType(input.eventType), result: input.result });
+      this.m.paymentWebhookDurationSeconds.observe({ result: input.result }, input.durationSeconds);
     });
   }
 

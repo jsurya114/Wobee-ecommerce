@@ -156,11 +156,14 @@ export class HandleRazorpayWebhookUseCase {
         throw error;
       }
       if (changed) {
-        await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
         // Recorded only here, after the transaction above committed the
         // CONFIRMED transition — never before, and never on a `changed:
-        // false` idempotent replay of an already-confirmed order.
+        // false` idempotent replay of an already-confirmed order. Recorded
+        // BEFORE the notification on purpose: the transition is already
+        // durable, and if notifying throws, Razorpay's retry sees `changed:
+        // false` — so recording after would lose this confirmation forever.
         this.observability.recordOrderEvent({ event: "confirmed" });
+        await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
       }
     } else if (params.payload.event === "payment.failed") {
       let changed = false;
@@ -182,8 +185,8 @@ export class HandleRazorpayWebhookUseCase {
         throw error;
       }
       if (changed) {
+        this.observability.recordOrderEvent({ event: "payment_failed" }); // before notify — same reason as "confirmed" above
         await this.orderPort.notifyOrderEvent(order.id, "PAYMENT_FAILED");
-        this.observability.recordOrderEvent({ event: "payment_failed" });
       }
     }
     // Any other event type (refund.*, order.paid, ...) — deliberately out of

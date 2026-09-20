@@ -75,7 +75,7 @@ render_edge() {
   python3 - "$EC2" "$1" "$NGINX_IMAGE" "$DOMAIN" "$API_PORT" >"$WORK/tfc/expr.txt" <<'EOF'
 import sys
 ec2,cidrs,img,dom,port=sys.argv[1:6]
-print(f'templatefile("{ec2}/templates/user_data.sh.tpl", {{valkey_param_name="/x", valkey_maxmemory_mb=64, compose_version="v0", aws_region="r", api_port={port}, nginx_image="{img}", '
+print(f'templatefile("{ec2}/templates/user_data.sh.tpl", {{name_prefix="woobe-nginxtest", valkey_param_name="/x", valkey_maxmemory_mb=64, valkey_mem_limit_mb=96, compose_version="v0", aws_region="r", api_port={port}, nginx_image="{img}", '
       f'nginx_conf=templatefile("{ec2}/templates/nginx/api.conf.tpl", {{api_domain="{dom}", api_port={port}, cloudflare_ipv4_cidrs={cidrs}}})}})')
 EOF
   (cd "$WORK/tfc" && terraform console <expr.txt >ud.raw 2>ud.err) || { cat "$WORK/tfc/ud.err"; return 1; }
@@ -186,6 +186,30 @@ req "https://$DOMAIN/spoof" -H "X-Forwarded-For: 6.6.6.6" -H "X-Real-IP: 7.7.7.7
 expect "a client-supplied X-Forwarded-For / X-Real-IP is overwritten, not appended" '[ "$(jf headers.x-forwarded-for)" = 127.0.0.1 ] && [ "$(jf headers.x-real-ip)" = 127.0.0.1 ]'
 req "https://$DOMAIN/spoof" -H "CF-Connecting-IP: 203.0.113.9"
 expect "CF-Connecting-IP from a NON-Cloudflare peer is NOT believed"   '[ "$(jf headers.x-real-ip)" = 127.0.0.1 ] && [ "$(jf headers.x-forwarded-for)" = 127.0.0.1 ]'
+
+# ---- /metrics must NEVER be reachable through nginx ------------------------------------------------
+# Prometheus scrapes the API on loopback and never goes through nginx. The stub upstream answers 200
+# (with a JSON echo) to ANY path, so anything other than 403 here means the request was proxied through.
+# Express serves /metrics case-insensitively and with a trailing slash, so every spelling is tested —
+# an exact-match `location = /metrics` (the first version of this rule) let /Metrics and /metrics/ through.
+for mpath in /metrics /metrics/ /Metrics /METRICS/ '/metrics?x=1' '/metrics?' //metrics '/%6Detrics' /metrics/anything /METRICS/a/b; do
+  req --path-as-is "https://$DOMAIN$mpath"
+  expect "GET $mpath is denied by nginx (403) and never reaches the upstream" '[ "$CODE" = 403 ] && ! grep -q "\"headers\"" "$WORK/body"'
+done
+req -X POST "https://$DOMAIN/metrics" -H "Content-Type: application/json" --data '{}'
+expect "POST /metrics is denied (403), not just GET"                   '[ "$CODE" = 403 ]'
+req "https://$DOMAIN/metrics" -H "X-Forwarded-For: 127.0.0.1" -H "X-Real-IP: 127.0.0.1" -H "Authorization: Bearer anything"
+expect "client-supplied X-Forwarded-For / X-Real-IP / Authorization cannot unlock /metrics" '[ "$CODE" = 403 ]'
+req "https://$DOMAIN/metricsfoo"
+expect "an unrelated path that merely starts with 'metrics' is still proxied (the rule is not over-broad)" '[ "$CODE" = 200 ] && [ "$(jf url)" = "/metricsfoo" ]'
+req "https://$DOMAIN/api/v1/metrics-export"
+expect "an API path containing 'metrics' deeper in the path is still proxied" '[ "$CODE" = 200 ]'
+req "https://$DOMAIN/health"
+expect "/health still reaches the upstream"                            '[ "$CODE" = 200 ] && [ "$(jf url)" = "/health" ]'
+req "https://$DOMAIN/ready"
+expect "/ready still reaches the upstream"                             '[ "$CODE" = 200 ] && [ "$(jf url)" = "/ready" ]'
+expect "the rendered config denies /metrics before the catch-all in the running nginx" 'nginx_in nginx -T 2>/dev/null | grep -n "location ~\* \^/metrics" | grep -q .'
+expect "nginx never proxies Prometheus (9090), Node Exporter (9100) or Grafana (3000): no proxy_pass to them" '! nginx_in nginx -T 2>/dev/null | grep -E "proxy_pass.*:(9090|9100|3000|9102)"'
 
 # Razorpay-shaped POST: exact bytes (odd spacing, key order, non-ASCII), content type, custom headers.
 printf '{ "event":"payment.captured",  "z":1, "a" : "caf\xc3\xa9 \xe2\x82\xb9", "payload":{"n":[3,2,1]} }\n' >"$WORK/hook.json"

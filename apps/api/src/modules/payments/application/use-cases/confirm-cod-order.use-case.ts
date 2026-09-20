@@ -65,8 +65,11 @@ export class ConfirmCodOrderUseCase {
       return { alreadyConfirmed: false };
     });
     if (!result.alreadyConfirmed) {
-      await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
+      // Recorded once the transaction has committed the transition, and before
+      // the notification: a throwing notify must not erase a durable confirmation
+      // from the metric (a client retry would see alreadyConfirmed and never re-record it).
       this.observability.recordOrderEvent({ event: "confirmed" });
+      await this.orderPort.notifyOrderEvent(order.id, "ORDER_CONFIRMED");
     }
     return result;
   }

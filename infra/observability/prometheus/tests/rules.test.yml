@@ -1,0 +1,213 @@
+# promtool unit tests for the recording + alert rules (`promtool test rules`).
+# Alerts are asserted through the ALERTS series so the tests survive wording
+# changes in annotations; what matters here is WHEN they fire and, as
+# importantly, when they must NOT (idle site, tiny sample, brief blip).
+rule_files:
+  - ../rules/woobe-recording.rules.yml
+  - ../rules/woobe-alerts.rules.yml
+
+evaluation_interval: 15s
+
+tests:
+  # ---- availability -----------------------------------------------------------
+  - name: api down for 2m+ fires, a 1-minute blip does not
+    interval: 15s
+    input_series:
+      - series: 'up{job="woobe-api", instance="127.0.0.1:4000"}'
+        values: '1x8 0x12 1x20'     # up 2m, DOWN 3m, up again
+      - series: 'up{job="woobe-worker", instance="127.0.0.1:9102"}'
+        values: '1x8 0x4 1x28'      # down only 1m
+      - series: 'up{job="node", instance="127.0.0.1:9100"}'
+        values: '1x40'
+    promql_expr_test:
+      - expr: ALERTS{alertname="WoobeApiDown", alertstate="firing"}
+        eval_time: 4m30s          # down for 2m30s by now: firing
+        exp_samples:
+          - labels: 'ALERTS{alertname="WoobeApiDown", alertstate="firing", severity="critical", job="woobe-api", instance="127.0.0.1:4000"}'
+            value: 1
+      - expr: ALERTS{alertname="WoobeApiDown", alertstate="firing"}
+        eval_time: 8m             # recovered
+        exp_samples: []
+      - expr: ALERTS{alertname="WoobeWorkerDown", alertstate="firing"}
+        eval_time: 4m             # a 1-minute blip must never fire (for: 2m)
+        exp_samples: []
+
+  - name: a target that is absent entirely (no series at all) still fires
+    interval: 15s
+    input_series:
+      - series: 'up{job="woobe-worker", instance="127.0.0.1:9102"}'
+        values: '1x40'
+    promql_expr_test:
+      - expr: ALERTS{alertname="WoobeApiDown", alertstate="firing"}
+        eval_time: 5m
+        exp_samples:
+          - labels: 'ALERTS{alertname="WoobeApiDown", alertstate="firing", severity="critical", job="woobe-api"}'
+            value: 1
+
+  # ---- 5xx rate -----------------------------------------------------------------
+  - name: sustained 5xx above 5% with real traffic fires; error ratio is recorded correctly
+    interval: 15s
+    input_series:
+      - series: 'woobe_http_requests_total{method="GET", route="/api/v1/products", status_code="200"}'
+        values: '0+15x120'        # 1.0 req/s
+      - series: 'woobe_http_requests_total{method="POST", route="/api/v1/orders/checkout", status_code="500"}'
+        values: '0+3x120'         # 0.2 req/s  -> 16.7% errors
+    promql_expr_test:
+      - expr: woobe:http_request_error_ratio:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'woobe:http_request_error_ratio:rate5m'
+            value: 0.16666666666666666
+      - expr: ALERTS{alertname="WoobeApiHigh5xxRate", alertstate="firing"}
+        eval_time: 12m
+        exp_samples:
+          - labels: 'ALERTS{alertname="WoobeApiHigh5xxRate", alertstate="firing", severity="critical"}'
+            value: 1
+
+  - name: 100% errors on a trickle of traffic (under 0.05 req/s) must NOT fire
+    interval: 15s
+    input_series:
+      - series: 'woobe_http_requests_total{method="GET", route="/x", status_code="500"}'
+        values: '0+0.5x120'       # ~0.033 req/s, all failing
+    promql_expr_test:
+      - expr: woobe:http_request_error_ratio:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'woobe:http_request_error_ratio:rate5m'
+            value: 1
+      - expr: ALERTS{alertname="WoobeApiHigh5xxRate"}
+        eval_time: 12m
+        exp_samples: []
+
+  - name: an idle API produces no error ratio at all (no division by zero, no NaN)
+    interval: 15s
+    input_series:
+      - series: 'woobe_http_requests_total{method="GET", route="/x", status_code="200"}'
+        values: '5x120'           # counter never moves
+    promql_expr_test:
+      - expr: woobe:http_request_error_ratio:rate5m
+        eval_time: 10m
+        exp_samples: []
+      - expr: ALERTS{alertname="WoobeApiHigh5xxRate"}
+        eval_time: 12m
+        exp_samples: []
+
+  - name: healthy traffic (2xx only) never alerts and records a zero error ratio
+    interval: 15s
+    input_series:
+      - series: 'woobe_http_requests_total{method="GET", route="/x", status_code="200"}'
+        values: '0+15x120'
+    promql_expr_test:
+      - expr: woobe:http_request_error_ratio:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'woobe:http_request_error_ratio:rate5m'
+            value: 0
+      - expr: ALERTS{alertname="WoobeApiHigh5xxRate"}
+        eval_time: 12m
+        exp_samples: []
+
+  # ---- latency ---------------------------------------------------------------------
+  - name: p95 above 1s for 10m with traffic fires; the quantile comes from the histogram buckets
+    interval: 15s
+    input_series:
+      - series: 'woobe_http_requests_total{method="GET", route="/slow", status_code="200"}'
+        values: '0+15x200'
+      - series: 'woobe_http_request_duration_seconds_bucket{method="GET", route="/slow", status_code="200", le="0.5"}'
+        values: '0x200'
+      - series: 'woobe_http_request_duration_seconds_bucket{method="GET", route="/slow", status_code="200", le="1"}'
+        values: '0x200'
+      - series: 'woobe_http_request_duration_seconds_bucket{method="GET", route="/slow", status_code="200", le="2.5"}'
+        values: '0+15x200'
+      - series: 'woobe_http_request_duration_seconds_bucket{method="GET", route="/slow", status_code="200", le="+Inf"}'
+        values: '0+15x200'
+    promql_expr_test:
+      - expr: woobe:http_request_duration_seconds:p95_rate5m > 1
+        eval_time: 6m
+        exp_samples:
+          - labels: 'woobe:http_request_duration_seconds:p95_rate5m'
+            value: 2.425
+      - expr: ALERTS{alertname="WoobeApiHighP95Latency", alertstate="firing"}
+        eval_time: 5m             # only ~4m of breach so far: still pending
+        exp_samples: []
+      - expr: ALERTS{alertname="WoobeApiHighP95Latency", alertstate="firing"}
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="WoobeApiHighP95Latency", alertstate="firing", severity="warning"}'
+            value: 1
+
+  - name: fast requests never trip the latency alert
+    interval: 15s
+    input_series:
+      - series: 'woobe_http_requests_total{method="GET", route="/fast", status_code="200"}'
+        values: '0+15x200'
+      - series: 'woobe_http_request_duration_seconds_bucket{method="GET", route="/fast", status_code="200", le="0.05"}'
+        values: '0+15x200'
+      - series: 'woobe_http_request_duration_seconds_bucket{method="GET", route="/fast", status_code="200", le="+Inf"}'
+        values: '0+15x200'
+    promql_expr_test:
+      - expr: ALERTS{alertname="WoobeApiHighP95Latency"}
+        eval_time: 20m
+        exp_samples: []
+
+  # ---- queue -------------------------------------------------------------------------
+  - name: notification backlog above 50 for 10m fires; a short spike does not
+    interval: 15s
+    input_series:
+      - series: 'woobe_notification_queue_jobs{state="waiting", job="woobe-worker", instance="127.0.0.1:9102"}'
+        values: '0x4 80x60'       # 80 waiting from minute 1, never drains
+      - series: 'woobe_notification_queue_jobs{state="waiting", job="spike", instance="x"}'
+        values: '0x4 80x20 0x40'  # 5 minutes only
+    promql_expr_test:
+      - expr: ALERTS{alertname="WoobeNotificationQueueBacklog", alertstate="firing", job="woobe-worker"}
+        eval_time: 14m
+        exp_samples:
+          - labels: 'ALERTS{alertname="WoobeNotificationQueueBacklog", alertstate="firing", severity="warning", state="waiting", job="woobe-worker", instance="127.0.0.1:9102"}'
+            value: 1
+      - expr: ALERTS{alertname="WoobeNotificationQueueBacklog", job="spike"}
+        eval_time: 14m
+        exp_samples: []
+
+  # ---- host --------------------------------------------------------------------------
+  - name: low root filesystem space fires; plenty of space does not
+    interval: 15s
+    input_series:
+      - series: 'node_filesystem_size_bytes{mountpoint="/", fstype="xfs", instance="a"}'
+        values: '30000000000x80'
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", fstype="xfs", instance="a"}'
+        values: '3000000000x80'   # 10% free
+      - series: 'node_filesystem_size_bytes{mountpoint="/", fstype="xfs", instance="b"}'
+        values: '30000000000x80'
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", fstype="xfs", instance="b"}'
+        values: '20000000000x80'  # 67% free
+      - series: 'node_filesystem_size_bytes{mountpoint="/", fstype="tmpfs", instance="c"}'
+        values: '1000000x80'
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", fstype="tmpfs", instance="c"}'
+        values: '1x80'            # a full tmpfs must be ignored
+    promql_expr_test:
+      - expr: ALERTS{alertname="HostFilesystemPressure", alertstate="firing"}
+        eval_time: 15m
+        exp_samples:
+          - labels: 'ALERTS{alertname="HostFilesystemPressure", alertstate="firing", severity="warning", instance="a", mountpoint="/", fstype="xfs"}'
+            value: 1
+
+  - name: low available memory fires only after 10m
+    interval: 15s
+    input_series:
+      - series: 'node_memory_MemTotal_bytes{instance="a"}'
+        values: '2000000000x80'
+      - series: 'node_memory_MemAvailable_bytes{instance="a"}'
+        values: '150000000x80'    # 7.5% available
+      - series: 'node_memory_MemTotal_bytes{instance="b"}'
+        values: '2000000000x80'
+      - series: 'node_memory_MemAvailable_bytes{instance="b"}'
+        values: '900000000x80'    # 45% available
+    promql_expr_test:
+      - expr: ALERTS{alertname="HostMemoryPressure", alertstate="firing"}
+        eval_time: 5m
+        exp_samples: []
+      - expr: ALERTS{alertname="HostMemoryPressure", alertstate="firing"}
+        eval_time: 15m
+        exp_samples:
+          - labels: 'ALERTS{alertname="HostMemoryPressure", alertstate="firing", severity="warning", instance="a"}'
+            value: 1
