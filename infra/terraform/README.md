@@ -43,7 +43,7 @@ infra/terraform/
 ```bash
 cd infra/terraform/environments/production
 cp terraform.tfvars.example terraform.tfvars   # adjust as needed; never commit this file
-terraform init
+terraform init -reconfigure   # remote S3 backend; see docs/deployment.md "Terraform state backend"
 terraform fmt -recursive ..
 terraform validate
 terraform plan -out=tfplan

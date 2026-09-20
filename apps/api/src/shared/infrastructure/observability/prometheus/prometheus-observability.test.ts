@@ -1,7 +1,8 @@
 import { Registry } from "@prometheus-io/client";
 import { describe, expect, it } from "vitest";
 import { createMetrics } from "./metric-definitions";
-import { PrometheusObservability, sanitizeEventType, UNKNOWN_EVENT_TYPE } from "./prometheus-observability";
+import { KNOWN_WEBHOOK_EVENT_TYPES, OTHER_WEBHOOK_EVENT_TYPE } from "../../../application/ports/observability.port";
+import { PrometheusObservability, webhookEventTypeLabel } from "./prometheus-observability";
 
 function build() {
   const registry = new Registry();
@@ -30,24 +31,48 @@ describe("PrometheusObservability", () => {
     expect(text).toContain('woobe_payment_webhook_duration_seconds_count{result="processed"} 1');
   });
 
-  it("collapses a non-Razorpay-shaped event type into a single bounded bucket", async () => {
-    const { registry, observability } = build();
-    for (const forged of ["<script>", "payment.captured; DROP TABLE", "a".repeat(200), "", "UPPER.case", "pay ment.x"]) {
-      observability.recordPaymentWebhook({ eventType: forged, result: "ignored", durationSeconds: 0.01 });
-    }
-    const text = await registry.metrics();
-    expect(text).toContain(`woobe_payment_webhooks_total{event_type="${UNKNOWN_EVENT_TYPE}",result="ignored"} 6`);
-    expect(text).not.toContain("script");
-    expect(text).not.toContain("DROP");
+  it("maps EVERY allowlisted Razorpay event to itself", () => {
+    expect(KNOWN_WEBHOOK_EVENT_TYPES).toContain("payment.captured");
+    expect(KNOWN_WEBHOOK_EVENT_TYPES).toContain("payment.failed");
+    for (const known of KNOWN_WEBHOOK_EVENT_TYPES) expect(webhookEventTypeLabel(known)).toBe(known);
   });
 
-  it("sanitizeEventType keeps real Razorpay event names and rejects everything else", () => {
-    for (const ok of ["payment.captured", "payment.failed", "refund.processed", "payment.dispute.won", "order.paid"]) {
-      expect(sanitizeEventType(ok)).toBe(ok);
+  it("maps an unknown event to exactly `other` — even one that LOOKS like a Razorpay event", () => {
+    for (const unknown of ["payment.dispute.won", "subscription.charged", "payment.captured2", "payment.capturedX", "some.new_event"]) {
+      expect(webhookEventTypeLabel(unknown), unknown).toBe(OTHER_WEBHOOK_EVENT_TYPE);
     }
-    for (const bad of [undefined, null, 42, {}, "nodots", "a.b.c.d", "x".repeat(60) + ".y"]) {
-      expect(sanitizeEventType(bad)).toBe(UNKNOWN_EVENT_TYPE);
+  });
+
+  it("maps empty, malformed, oversized, wrongly-cased and non-string values to `other`", () => {
+    const junk: unknown[] = [
+      "", " ", " payment.captured", "payment.captured ", "PAYMENT.CAPTURED", "Payment.Captured", "payment.captured\n", "payment.captured\u0000",
+      "<script>alert(1)</script>", "payment.captured; DROP TABLE orders", "a".repeat(10_000), "nodots", "😀.😀",
+      "__proto__", "constructor", "toString", "hasOwnProperty", undefined, null, 42, true, {}, [], ["payment.captured"], { toString: () => "payment.captured" },
+    ];
+    for (const value of junk) expect(webhookEventTypeLabel(value), JSON.stringify(value)).toBe(OTHER_WEBHOOK_EVENT_TYPE);
+  });
+
+  it("keeps event_type cardinality bounded no matter how many distinct strings arrive", async () => {
+    const { registry, observability } = build();
+    const results = ["processed", "deduped", "ignored", "amount-mismatch", "stale"] as const;
+    for (let i = 0; i < 5_000; i++) {
+      observability.recordPaymentWebhook({ eventType: `evt.${i}.${Math.random().toString(36).slice(2)}`, result: results[i % results.length]!, durationSeconds: 0.01 });
     }
+    const series = (await registry.getMetricsAsJSON()).find((m) => m.name === "woobe_payment_webhooks_total")!.values as { labels: Record<string, string> }[];
+    const eventTypes = new Set(series.map((v) => v.labels.event_type as string));
+    expect(eventTypes.size).toBeLessThanOrEqual(KNOWN_WEBHOOK_EVENT_TYPES.length + 1);
+    expect(series.length).toBeLessThanOrEqual((KNOWN_WEBHOOK_EVENT_TYPES.length + 1) * results.length);
+    expect([...eventTypes].every((t) => t === OTHER_WEBHOOK_EVENT_TYPE || (KNOWN_WEBHOOK_EVENT_TYPES as readonly string[]).includes(t))).toBe(true);
+    expect((await registry.metrics()).match(/evt\./g)).toBeNull(); // no raw payload string ever reached the exposition
+  });
+
+  it("records a known event under its own name and an unknown one under `other`", async () => {
+    const { registry, observability } = build();
+    observability.recordPaymentWebhook({ eventType: "payment.captured", result: "processed", durationSeconds: 0.1 });
+    observability.recordPaymentWebhook({ eventType: "totally.unknown", result: "ignored", durationSeconds: 0.1 });
+    const text = await registry.metrics();
+    expect(text).toContain('woobe_payment_webhooks_total{event_type="payment.captured",result="processed"} 1');
+    expect(text).toContain('woobe_payment_webhooks_total{event_type="other",result="ignored"} 1');
   });
 
   it("NEVER throws into the caller if the metrics library throws — a business operation must survive a metrics failure", () => {

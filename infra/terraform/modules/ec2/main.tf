@@ -46,6 +46,7 @@ resource "aws_instance" "backend" {
     aws_region          = var.aws_region
     api_port            = var.api_port
     nginx_image         = var.nginx_image
+    valkey_image        = var.valkey_image
     nginx_conf = templatefile("${path.module}/templates/nginx/api.conf.tpl", {
       api_domain            = var.api_domain
       api_port              = var.api_port

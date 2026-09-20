@@ -89,7 +89,7 @@ chmod 600 /opt/woobe/valkey/valkey.env
 cat > /opt/woobe/valkey/docker-compose.yml <<COMPOSE
 services:
   valkey:
-    image: valkey/valkey:8-alpine
+    image: ${valkey_image}
     container_name: woobe-valkey
     restart: unless-stopped
     mem_limit: ${valkey_mem_limit_mb}m

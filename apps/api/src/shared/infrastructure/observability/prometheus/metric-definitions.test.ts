@@ -1,5 +1,6 @@
 import { Registry } from "@prometheus-io/client";
 import { describe, expect, it } from "vitest";
+import { KNOWN_WEBHOOK_EVENT_TYPES } from "../../../application/ports/observability.port";
 import { createMetrics } from "./metric-definitions";
 
 /**
@@ -104,6 +105,14 @@ describe("createMetrics", () => {
     ]) {
       expect(text, line).toContain(line);
     }
+  });
+
+  it("pre-creates exactly (allowlist + other) x results webhook series: the full label set is finite and known up front", async () => {
+    const registry = new Registry();
+    createMetrics(registry);
+    const values = (await registry.getMetricsAsJSON()).find((m) => m.name === "woobe_payment_webhooks_total")!.values as { labels: Record<string, string> }[];
+    expect(values).toHaveLength((KNOWN_WEBHOOK_EVENT_TYPES.length + 1) * 5);
+    expect(new Set(values.map((v) => v.labels.event_type))).toEqual(new Set([...KNOWN_WEBHOOK_EVENT_TYPES, "other"]));
   });
 
   it("does NOT pre-create the unbounded HTTP series (routes are dynamic)", async () => {

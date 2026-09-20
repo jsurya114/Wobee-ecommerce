@@ -18,7 +18,7 @@ ensure_secret() {
 
 case "${1:-}" in
   up)       ensure_secret; "${COMPOSE[@]}" up -d
-            echo "Prometheus: http://localhost:9090   Grafana: http://localhost:3000 (user: admin; password: scripts/observability-local.sh password)" ;;
+            echo "Prometheus: http://localhost:9090   Grafana: http://localhost:${GRAFANA_PORT:-3030} (user: admin; password: scripts/observability-local.sh password)" ;;
   down)     "${COMPOSE[@]}" down ;;
   reset)    "${COMPOSE[@]}" down -v ;;   # also deletes the local Prometheus/Grafana data volumes
   password) cat "$SECRET" ;;

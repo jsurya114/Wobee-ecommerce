@@ -107,8 +107,17 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       # Read from the secret file; the value is never in Git, compose, Terraform or logs.
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # ---- authentication posture (each value is verified against the RUNNING Grafana by
+      # scripts/verify-grafana-security.sh via /api/admin/settings — a setting Grafana ignores would
+      # otherwise look right in this file and be wrong in production) -------------------------------
+      GF_AUTH_ANONYMOUS_ENABLED: "false"       # no anonymous viewer: unauthenticated requests get 401
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"      # the password login stays available
+      GF_AUTH_BASIC_ENABLED: "true"            # API basic-auth (used by the verification scripts); still needs the password
+      GF_AUTH_PROXY_ENABLED: "false"           # never trust a proxy-supplied identity header
+      GF_USERS_ALLOW_SIGN_UP: "false"          # nobody can register themselves
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"    # public dashboards are anonymous-by-design: off
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"   # no publishing dashboards to an external snapshot server
       GF_SECURITY_DISABLE_GRAVATAR: "true"
       GF_SECURITY_COOKIE_SAMESITE: strict
       # Grafana is only reachable over plain HTTP on loopback (SSM port-forward to

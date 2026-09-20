@@ -50,6 +50,15 @@ function isExcluded(path: string): boolean {
   return EXCLUDED_PATHS.has(path.toLowerCase().replace(/\/+$/, ""));
 }
 
+/**
+ * `req.method` is client-supplied. Node's HTTP parser already rejects methods it does not know, but the
+ * label's bound should not depend on that: only standard methods pass through; anything else is "OTHER".
+ */
+const KNOWN_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"]);
+export function methodLabel(method: string): string {
+  return KNOWN_METHODS.has(method) ? method : "OTHER";
+}
+
 /** A route registered with a RegExp/array path has no single template; a fixed bounded value beats leaking regex source or joined arrays. */
 const UNTEMPLATED_ROUTE = "UNKNOWN_ROUTE";
 /** No route ever matched. 404 = an unknown path; anything else = rejected before routing (malformed JSON 400, oversized body 413, CORS...). Separate values so a parse error never reads as "not found". */
@@ -96,7 +105,7 @@ export function createHttpMetricsMiddleware(metrics: Pick<Metrics, "httpRequests
       try {
         const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
         const route = routeTemplate ?? (res.statusCode === 404 ? NOT_FOUND_ROUTE : UNMATCHED_ROUTE);
-        const labels = { method: req.method, route, status_code: String(res.statusCode) };
+        const labels = { method: methodLabel(req.method), route, status_code: String(res.statusCode) };
         metrics.httpRequestsTotal.inc(labels);
         metrics.httpRequestDurationSeconds.observe(labels, durationSeconds);
       } catch {

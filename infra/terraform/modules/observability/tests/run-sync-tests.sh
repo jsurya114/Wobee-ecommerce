@@ -27,6 +27,13 @@ check() { # description command...   (command run inside the test container via 
   if out="$(dx "$*" 2>&1)"; then ok "$desc"; else bad "$desc" "$(printf '%s' "$out" | head -c 400)"; fi
 }
 dx() { docker exec "$NAME" bash -c "$1"; }
+# One line per container: name, full ID, StartedAt, RestartCount. Comparing these (not just IDs) catches a plain
+# `docker restart`, which keeps the ID but changes StartedAt / RestartCount.
+snap() { dx "docker inspect -f '{{.Name}} {{.Id}} {{.State.StartedAt}} {{.RestartCount}}' woobe-node-exporter woobe-prometheus woobe-grafana"; }
+snap_of() { snap | grep -- "$1"; }
+# A hash of every managed config file (secrets and staging excluded): "did the host's config change at all?"
+tree_hash() { dx "cd /opt/woobe/observability && find . -type f -not -path './secrets/*' -not -path './.stage.*' | sort | xargs sha256sum | sha256sum | cut -c1-16"; }
+stage_dirs() { dx "ls -d /opt/woobe/observability/.stage.* 2>/dev/null | wc -l"; }
 # Some assertions depend on asynchronous work (Prometheus's first scrape, a SIGHUP reload): poll, don't race.
 check_eventually() { # description command... (retries for ~60s)
   desc="$1"; shift
@@ -34,21 +41,60 @@ check_eventually() { # description command... (retries for ~60s)
 }
 
 # ---- render the script exactly as Terraform does (sorted paths, gzip+base64, header lines) -----------
-render() { # outfile [exclude-path] [rule-threshold-override]
-  python3 - "$CFG" "$1" "${2:-}" "${3:-}" <<'PY'
+render() { # outfile [exclude-path] [rule-threshold-override] [mutation]
+  python3 - "$CFG" "$1" "${2:-}" "${3:-}" "${4:-}" <<'PY'
 import sys, os, glob, gzip, base64
 cfg, out, exclude, thr = sys.argv[1:5]
-files = {"docker-compose.yml": f"{cfg}/docker-compose.prod.yml", "prometheus/prometheus.yml": f"{cfg}/prometheus/prometheus.yml"}
-for f in glob.glob(f"{cfg}/prometheus/rules/*.yml"): files["prometheus/rules/" + os.path.basename(f)] = f
-for f in glob.glob(f"{cfg}/grafana/provisioning/**/*.yml", recursive=True): files["grafana/provisioning/" + os.path.relpath(f, f"{cfg}/grafana/provisioning")] = f
-for f in glob.glob(f"{cfg}/grafana/dashboards/*.json"): files["grafana/dashboards/" + os.path.basename(f)] = f
-content = {k: open(v).read() for k, v in files.items()}
-content["prometheus/targets/api.yml"] = '- targets:\n    - 127.0.0.1:4000\n'
-content["prometheus/targets/worker.yml"] = '- targets:\n    - 127.0.0.1:9102\n'
-content["prometheus/targets/node.yml"] = '- targets:\n    - 127.0.0.1:9100\n'
+mutate = sys.argv[5] if len(sys.argv) > 5 else ""
+import json, re
+doc = os.environ.get("SYNC_DOCUMENT_JSON")
+doc_lines = None
+if doc:
+    # The planned Terraform document is the SINGLE rendering authority: every mutated variant is derived from ITS bytes
+    # (Terraform's yamlencode quoting, its exact script text), so a mutation differs from the baseline in exactly the
+    # intended file and nothing else.
+    doc_lines = json.load(open(doc))["mainSteps"][0]["inputs"]["runCommand"]
+    content = {}
+    for l in doc_lines:
+        m = re.match(r"install_b64 '([^']+)' '([^']+)'$", l)
+        if m: content[m.group(1)] = gzip.decompress(base64.b64decode(m.group(2))).decode()
+else:
+    files = {"docker-compose.yml": f"{cfg}/docker-compose.prod.yml", "prometheus/prometheus.yml": f"{cfg}/prometheus/prometheus.yml"}
+    for f in glob.glob(f"{cfg}/prometheus/rules/*.yml"): files["prometheus/rules/" + os.path.basename(f)] = f
+    for f in glob.glob(f"{cfg}/grafana/provisioning/**/*.yml", recursive=True): files["grafana/provisioning/" + os.path.relpath(f, f"{cfg}/grafana/provisioning")] = f
+    for f in glob.glob(f"{cfg}/grafana/dashboards/*.json"): files["grafana/dashboards/" + os.path.basename(f)] = f
+    content = {k: open(v).read() for k, v in files.items()}
+    content["prometheus/targets/api.yml"] = '- targets:\n    - 127.0.0.1:4000\n'
+    content["prometheus/targets/worker.yml"] = '- targets:\n    - 127.0.0.1:9102\n'
+    content["prometheus/targets/node.yml"] = '- targets:\n    - 127.0.0.1:9100\n'
 if thr: content["prometheus/rules/woobe-alerts.rules.yml"] = content["prometheus/rules/woobe-alerts.rules.yml"].replace("> 50", f"> {thr}")
 if exclude: content.pop(exclude)
-calls = "\n".join(f"install_b64 '{p}' '{base64.b64encode(gzip.compress(content[p].encode(), mtime=0)).decode()}'" for p in sorted(content))
+if mutate in ("dashboard-title", "corrupt-payload"):   # a dashboard-only change (corrupt-payload carries one too: it must NOT be applied)
+    content["grafana/dashboards/woobe-api-overview.json"] = content["grafana/dashboards/woobe-api-overview.json"].replace('"title": "Woobe API Overview"', '"title": "Woobe API Overview (edited)"', 1)
+elif mutate == "datasource":      # a datasource change: Grafana must restart to load it
+    content["grafana/provisioning/datasources/prometheus.yml"] = content["grafana/provisioning/datasources/prometheus.yml"].replace("timeInterval: 15s", "timeInterval: 30s", 1)
+elif mutate == "compose-grafana": # a compose change to ONE service: only that container may be recreated
+    content["docker-compose.yml"] = content["docker-compose.yml"].replace("GF_LOG_MODE: console", "GF_LOG_MODE: console\n      GF_LOG_LEVEL: warn", 1)
+elif mutate == "bad-compose":     # YAML that compose will refuse
+    content["docker-compose.yml"] = "services: [this is: not: valid\n"
+elif mutate == "bad-prom-config": # decodable, but Prometheus would refuse it
+    content["prometheus/prometheus.yml"] = "scrape_configs: [\n  - job_name: broken\n"
+elif mutate == "targets-only":    # a scrape-target change (file_sd)
+    content["prometheus/targets/api.yml"] = content["prometheus/targets/api.yml"].replace("127.0.0.1:4000", "127.0.0.1:4001")
+def enc(p): return f"install_b64 '{p}' '{base64.b64encode(gzip.compress(content[p].encode(), mtime=0)).decode()}'"
+def corrupt(line): return line.replace("install_b64 'prometheus/rules/woobe-alerts.rules.yml' '", "install_b64 'prometheus/rules/woobe-alerts.rules.yml' '@@@not-base64@@@", 1)
+if doc_lines is not None:
+    out_lines = []
+    for l in doc_lines:
+        m = re.match(r"install_b64 '([^']+)' '", l)
+        if not m: out_lines.append(l); continue
+        if m.group(1) not in content: continue          # an excluded file
+        e = enc(m.group(1))
+        out_lines.append(corrupt(e) if mutate == "corrupt-payload" else e)
+    open(out, "w").write("\n".join(out_lines) + "\n")
+    sys.exit(0)
+calls = "\n".join(enc(p) for p in sorted(content))
+if mutate == "corrupt-payload": calls = corrupt(calls)
 script = open(f"{cfg}/../terraform/modules/observability/files/sync.sh").read().replace("@@INSTALL_FILES@@", calls)
 open(out, "w").write("AWS_REGION='ap-south-2'\nGRAFANA_PARAM='/woobe-production/grafana/admin-password'\n" + script)
 PY
@@ -155,6 +201,21 @@ check "password is not in any container's environment or args" "! (docker inspec
 check "password is not in any container's logs"            "! (docker logs woobe-grafana 2>&1; docker logs woobe-prometheus 2>&1) | grep -qF '$PW'"
 check "password is not in the compose file on disk"        "! grep -rqF '$PW' /opt/woobe/observability --include=*.yml --include=*.json"
 
+echo "== T7b Grafana authentication + exposure posture (the same verifier the local stack uses) =="
+docker cp "$REPO/infra/observability/scripts/verify-grafana-security.sh" "$NAME:/root/verify-grafana-security.sh"
+if docker exec "$NAME" bash /root/verify-grafana-security.sh runtime --container woobe-grafana --url http://127.0.0.1:3000 \
+     --password-file /opt/woobe/observability/secrets/grafana-admin-password >"$WORK/gsec.out" 2>&1; then
+  ok "verify-grafana-security.sh runtime: $(grep -c PASS "$WORK/gsec.out") checks passed, 0 failed (login, wrong password, anonymous, signup, effective settings, loopback-only bind, file mode 400 owner 472, no secret in inspect/logs)"
+else
+  bad "verify-grafana-security.sh runtime" "$(grep -E 'FAIL|effective value' "$WORK/gsec.out" | head -5)"
+fi
+grep -q "server.http_addr (host network: bind address is the exposure) = 127.0.0.1" "$WORK/gsec.out" && ok "effective server.http_addr is 127.0.0.1 (from the running Grafana, not the compose file)" || bad "effective server.http_addr is 127.0.0.1"
+if GRAFANA_PASSWORD_FOR_SCAN="$PW" bash "$REPO/infra/observability/scripts/verify-grafana-security.sh" repo >"$WORK/gsec-repo.out" 2>&1; then
+  ok "verify-grafana-security.sh repo: Terraform declares no Grafana password resource, and the generated password is in no repository file or recent commit"
+else
+  bad "verify-grafana-security.sh repo" "$(grep -E 'FAIL' -A2 "$WORK/gsec-repo.out" | head -6)"
+fi
+
 echo "== T8 idempotent re-run: nothing recreated, password unchanged =="
 IDS_BEFORE="$(dx 'docker inspect -f "{{.Id}}" woobe-node-exporter woobe-prometheus woobe-grafana')"
 SECRET_BEFORE="$(dx 'sha256sum /opt/woobe/observability/secrets/grafana-admin-password')"
@@ -164,6 +225,35 @@ if run_sync "$WORK/sync1.sh" "$WORK/run2.log"; then ok "second sync exits 0"; el
 ! grep -qE "updated |created the Grafana|removed " "$WORK/run2.log" && ok "second run reports no changes" || bad "second run reports no changes" "$(grep -E 'updated |created |removed ' "$WORK/run2.log" | head -3)"
 [ "$(dx 'grep -c put-parameter /var/log/fake-aws.log')" = 1 ] && ok "the parameter was created exactly once across both runs" || bad "the parameter was created exactly once"
 
+echo "== T8b repeated runs (what the 12-hourly association does) restart NOTHING =="
+SNAP_A="$(snap)"; HASH_A="$(tree_hash)"; SECRET_A="$(dx 'sha256sum /opt/woobe/observability/secrets/grafana-admin-password')"
+for n in 1 2 3; do run_sync "$WORK/sync1.sh" "$WORK/run-rep$n.log" || bad "repeat run $n exits 0" "$(tail -5 "$WORK/run-rep$n.log")"; done
+[ "$(snap)" = "$SNAP_A" ] && ok "three more runs: every container has the same ID, the same StartedAt and the same RestartCount (nothing restarted or recreated)" || bad "no container restarted or recreated" "before: $SNAP_A | after: $(snap)"
+[ "$(tree_hash)" = "$HASH_A" ] && ok "the managed config tree is byte-identical after the repeated runs" || bad "config tree byte-identical"
+[ "$(dx 'sha256sum /opt/woobe/observability/secrets/grafana-admin-password')" = "$SECRET_A" ] && ok "the password file is unchanged (credentials are not rotated)" || bad "password file unchanged"
+! grep -hE "updated |created |removed |restarted|reloaded|corrected|fixed ownership" "$WORK"/run-rep*.log >/dev/null && ok "no repeated run reported ANY change or action" || bad "no repeated run reported any change" "$(grep -hE 'updated |created |removed |restarted|reloaded' "$WORK"/run-rep*.log | head -3)"
+grep -q "converged:" "$WORK/run-rep3.log" && ok "each run ends with the single 'converged' line" || bad "converged line"
+[ "$(stage_dirs)" = 0 ] && ok "no staging directory is left behind" || bad "no staging directory left behind"
+
+echo "== T8c drift is corrected in place, without restarts and without losing data =="
+dx 'echo keep > /opt/woobe/grafana-data/DRIFT_MARKER; echo keep > /opt/woobe/prometheus-data/DRIFT_MARKER'
+SNAP_D="$(snap)"
+dx 'chmod 644 /opt/woobe/observability/secrets/grafana-admin-password'
+run_sync "$WORK/sync1.sh" "$WORK/run-drift1.log"
+grep -q "corrected permissions of the Grafana password file" "$WORK/run-drift1.log" && ok "a world-readable password file (content unchanged) is detected and corrected" || bad "password-file mode drift corrected"
+check "the password file is back to mode 400, owner 472:0, content unchanged" '[ "$(stat -c "%a %u:%g" /opt/woobe/observability/secrets/grafana-admin-password)" = "400 472:0" ]'
+dx 'printf "not-the-password" > /opt/woobe/observability/secrets/grafana-admin-password'
+run_sync "$WORK/sync1.sh" "$WORK/run-drift2.log"
+[ "$(dx 'sha256sum /opt/woobe/observability/secrets/grafana-admin-password')" = "$SECRET_A" ] && ok "a locally EDITED password file is restored from the parameter store (SSM is the single source of truth)" || bad "locally edited password file restored"
+dx 'chmod 600 /opt/woobe/observability/prometheus/prometheus.yml'
+run_sync "$WORK/sync1.sh" "$WORK/run-drift3.log"
+check "an unchanged config file with a drifted mode is re-asserted to 644 (Prometheus, running as nobody, must be able to read it)" '[ "$(stat -c %a /opt/woobe/observability/prometheus/prometheus.yml)" = 644 ]'
+dx 'chown root:root /opt/woobe/grafana-data /opt/woobe/prometheus-data'
+run_sync "$WORK/sync1.sh" "$WORK/run-drift4.log"
+check "volume ownership drift is repaired (grafana-data 472:0, prometheus-data 65534:65534)" '[ "$(stat -c "%u:%g" /opt/woobe/grafana-data)" = "472:0" ] && [ "$(stat -c "%u:%g" /opt/woobe/prometheus-data)" = "65534:65534" ]'
+check "ownership repair only changes ownership: the data is still there" '[ -e /opt/woobe/grafana-data/DRIFT_MARKER ] && [ -e /opt/woobe/prometheus-data/DRIFT_MARKER ] && [ -s /opt/woobe/grafana-data/grafana.db ]'
+[ "$(snap)" = "$SNAP_D" ] && ok "correcting drift restarted nothing" || bad "correcting drift restarted nothing"
+
 echo "== T9 config change: applied in place (Prometheus SIGHUP), no recreate =="
 render "$WORK/sync2.sh" "" 77
 if run_sync "$WORK/sync2.sh" "$WORK/run3.log"; then ok "sync with a changed alert rule exits 0"; else bad "sync with a changed alert rule exits 0" "$(tail -10 "$WORK/run3.log")"; fi
@@ -172,6 +262,43 @@ grep -q "reloaded Prometheus configuration" "$WORK/run3.log" && ok "Prometheus w
 [ "$(dx 'docker inspect -f "{{.Id}}" woobe-prometheus')" = "$(echo "$IDS_BEFORE" | sed -n 2p)" ] && ok "Prometheus container was not recreated" || bad "Prometheus container was not recreated"
 # jq, not grep: Prometheus's Go JSON encoder escapes ">" as \u003e in the raw response.
 check_eventually "Prometheus now serves the new threshold (> 77) after the reload" 'curl -s localhost:9090/api/v1/rules | jq -e "[.data.groups[].rules[] | select(.name==\"WoobeNotificationQueueBacklog\") | .query | contains(\"> 77\")] | any" >/dev/null'
+
+echo "== T9b a DASHBOARD-only change: no restart of anything, and Grafana serves it (30s provisioning poll) =="
+run_sync "$WORK/sync1.sh" "$WORK/run-b0.log"   # return to the baseline first (T9 left a changed threshold)
+SNAP_B="$(snap)"
+render "$WORK/sync-dash.sh" "" "" dashboard-title
+run_sync "$WORK/sync-dash.sh" "$WORK/run-b1.log" && ok "sync with a changed dashboard exits 0" || bad "sync with a changed dashboard exits 0" "$(tail -5 "$WORK/run-b1.log")"
+grep -q "updated grafana/dashboards/woobe-api-overview.json" "$WORK/run-b1.log" && ok "only the dashboard file was updated" || bad "dashboard file updated"
+[ "$(grep -c 'updated ' "$WORK/run-b1.log")" = 1 ] && ok "exactly ONE file changed" || bad "exactly one file changed" "$(grep 'updated ' "$WORK/run-b1.log")"
+! grep -qE "restarted Grafana|reloaded Prometheus" "$WORK/run-b1.log" && ok "neither Grafana was restarted nor Prometheus reloaded" || bad "no restart/reload for a dashboard change"
+[ "$(snap)" = "$SNAP_B" ] && ok "no container restarted or recreated" || bad "no container restarted or recreated"
+check_eventually "Grafana serves the edited dashboard title without a restart" "$(gf '/api/search?type=dash-db') | jq -e '[.[] | select(.title | test(\"edited\"))] | length > 0' >/dev/null"
+
+echo "== T9c a DATASOURCE change restarts Grafana ONLY =="
+run_sync "$WORK/sync1.sh" "$WORK/run-c0.log"; SNAP_C="$(snap)"
+render "$WORK/sync-ds.sh" "" "" datasource
+run_sync "$WORK/sync-ds.sh" "$WORK/run-c1.log" && ok "sync with a changed datasource exits 0" || bad "sync with a changed datasource exits 0" "$(tail -5 "$WORK/run-c1.log")"
+grep -q "restarted Grafana to load the changed datasource" "$WORK/run-c1.log" && ok "Grafana was restarted to load the datasource" || bad "Grafana restarted for a datasource change"
+[ "$(snap_of woobe-node-exporter)" = "$(echo "$SNAP_C" | grep woobe-node-exporter)" ] && [ "$(snap_of woobe-prometheus)" = "$(echo "$SNAP_C" | grep woobe-prometheus)" ] && ok "node-exporter and Prometheus were NOT touched" || bad "node-exporter and Prometheus untouched"
+[ "$(snap_of woobe-grafana | awk '{print $3}')" != "$(echo "$SNAP_C" | grep woobe-grafana | awk '{print $3}')" ] && ok "Grafana's StartedAt changed (it really restarted)" || bad "Grafana restarted"
+check "Grafana is healthy again and the SAME password still logs in" "$(gf /api/datasources) | grep -q woobe-prometheus"
+
+echo "== T9d a COMPOSE change to one service recreates ONLY that service, keeping its data =="
+run_sync "$WORK/sync1.sh" "$WORK/run-d0.log"; dx 'echo keep > /opt/woobe/grafana-data/T9D_MARKER'; SNAP_E="$(snap)"
+render "$WORK/sync-compose.sh" "" "" compose-grafana
+run_sync "$WORK/sync-compose.sh" "$WORK/run-d1.log" && ok "sync with a changed compose service exits 0" || bad "sync with a changed compose service exits 0" "$(tail -5 "$WORK/run-d1.log")"
+[ "$(snap_of woobe-node-exporter)" = "$(echo "$SNAP_E" | grep woobe-node-exporter)" ] && [ "$(snap_of woobe-prometheus)" = "$(echo "$SNAP_E" | grep woobe-prometheus)" ] && ok "node-exporter and Prometheus were neither recreated nor restarted" || bad "node-exporter and Prometheus untouched"
+[ "$(snap_of woobe-grafana | awk '{print $2}')" != "$(echo "$SNAP_E" | grep woobe-grafana | awk '{print $2}')" ] && ok "only Grafana was recreated (new container ID)" || bad "Grafana recreated"
+check "Grafana's data survived the recreation, and the same password still works" "[ -e /opt/woobe/grafana-data/T9D_MARKER ] && [ -s /opt/woobe/grafana-data/grafana.db ] && $(gf /api/datasources) | grep -q woobe-prometheus"
+
+echo "== T9e a scrape-TARGET change reloads Prometheus in place =="
+run_sync "$WORK/sync1.sh" "$WORK/run-e0.log"; SNAP_F="$(snap)"
+render "$WORK/sync-targets.sh" "" "" targets-only
+run_sync "$WORK/sync-targets.sh" "$WORK/run-e1.log" && ok "sync with a changed target exits 0" || bad "sync with a changed target exits 0" "$(tail -5 "$WORK/run-e1.log")"
+grep -q "reloaded Prometheus configuration (SIGHUP, accepted)" "$WORK/run-e1.log" && ok "Prometheus reloaded, and the sync CONFIRMED it accepted the configuration" || bad "Prometheus reload confirmed"
+[ "$(snap)" = "$SNAP_F" ] && ok "no container restarted or recreated" || bad "no container restarted or recreated"
+check_eventually "Prometheus now targets 127.0.0.1:4001" 'curl -s localhost:9090/api/v1/targets | jq -e ".data.activeTargets[] | select(.labels.job==\"woobe-api\" and .scrapeUrl==\"http://127.0.0.1:4001/metrics\")" >/dev/null'
+run_sync "$WORK/sync1.sh" "$WORK/run-e2.log"
 
 echo "== T10 file removed from Git is pruned from the host =="
 render "$WORK/sync3.sh" "grafana/dashboards/woobe-infrastructure.json"
@@ -203,6 +330,32 @@ echo "== T13 failure mode: parameter store unreachable =="
 if docker exec -e FAKE_AWS_FAIL=AccessDeniedException "$NAME" bash -c "WAIT_DOCKER_SECONDS=30 bash /root/sync-under-test.sh" >"$WORK/run7.log" 2>&1; then bad "sync FAILS when the password parameter cannot be read"; else ok "sync FAILS when the password parameter cannot be read"; fi
 grep -q "cannot read /woobe-production/grafana/admin-password" "$WORK/run7.log" && ok "the failure names the parameter (not the value)" || bad "the failure names the parameter"
 check "the existing password file was not modified by the failed run" "[ \"\$(cat /opt/woobe/observability/secrets/grafana-admin-password)\" = '$PW' ]"
+
+echo "== T13b a corrupt or INVALID artifact changes NOTHING on the host and fails with a clear message =="
+run_sync "$WORK/sync1.sh" "$WORK/run-f0.log"
+HASH_C="$(tree_hash)"; SNAP_G="$(snap)"; SECRET_G="$(dx 'sha256sum /opt/woobe/observability/secrets/grafana-admin-password')"
+for variant in corrupt-payload bad-compose bad-prom-config; do
+  case "$variant" in
+    corrupt-payload) want="cannot decode the payload for prometheus/rules/woobe-alerts.rules.yml" ;;
+    bad-compose)     want="the new docker-compose.yml is invalid" ;;
+    bad-prom-config) want="promtool rejected the new Prometheus configuration" ;;
+  esac
+  render "$WORK/sync-$variant.sh" "" "" "$variant"
+  if run_sync "$WORK/sync-$variant.sh" "$WORK/run-bad-$variant.log"; then bad "$variant: the sync FAILS (does not silently succeed)"; else ok "$variant: the sync FAILS (non-zero exit)"; fi
+  grep -qF "$want" "$WORK/run-bad-$variant.log" && ok "$variant: the failure says exactly what is wrong" || bad "$variant: clear failure message" "$(tail -3 "$WORK/run-bad-$variant.log")"
+  grep -q "nothing was changed\|no config file on the host was changed" "$WORK/run-bad-$variant.log" && ok "$variant: it states that nothing was changed" || bad "$variant: states nothing was changed"
+  [ "$(tree_hash)" = "$HASH_C" ] && ok "$variant: the config tree on the host is byte-identical (atomic: no partial application, even though other files in the payload were valid and CHANGED)" || bad "$variant: config tree unchanged"
+  [ "$(snap)" = "$SNAP_G" ] && ok "$variant: the running stack was not restarted, recreated or reloaded" || bad "$variant: running stack untouched"
+  [ "$(stage_dirs)" = 0 ] && ok "$variant: no staging directory is left behind" || bad "$variant: no staging directory left behind"
+  ! grep -qF "$PW" "$WORK/run-bad-$variant.log" && ok "$variant: no secret in the failure output" || bad "$variant: no secret in the failure output"
+done
+[ "$(dx 'sha256sum /opt/woobe/observability/secrets/grafana-admin-password')" = "$SECRET_G" ] && ok "the password file was not touched by any failed run" || bad "password file untouched by failed runs"
+run_sync "$WORK/sync1.sh" "$WORK/run-f1.log" && ok "a valid sync right after the failures converges normally" || bad "a valid sync after failures converges" "$(tail -5 "$WORK/run-f1.log")"
+
+echo "== T14 the authentication posture still holds after all of the above =="
+docker exec "$NAME" bash /root/verify-grafana-security.sh runtime --container woobe-grafana --url http://127.0.0.1:3000 --password-file /opt/woobe/observability/secrets/grafana-admin-password >"$WORK/gsec2.out" 2>&1 \
+  && ok "verify-grafana-security.sh runtime still passes ($(grep -c PASS "$WORK/gsec2.out") checks)" || bad "verify-grafana-security.sh runtime after the scenarios" "$(grep FAIL "$WORK/gsec2.out" | head -3)"
+! grep -lF "$PW" "$WORK"/*.log "$WORK"/*.out 2>/dev/null | grep -q . && ok "the password appears in NO log/output produced by any run in this suite" || bad "the password appears in no log or output"
 
 echo
 echo "== RESULT: $PASS passed, $FAIL failed =="

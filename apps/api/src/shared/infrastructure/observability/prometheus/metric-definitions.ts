@@ -1,4 +1,5 @@
 import { Counter, Gauge, Histogram, type Registry } from "@prometheus-io/client";
+import { KNOWN_WEBHOOK_EVENT_TYPES, OTHER_WEBHOOK_EVENT_TYPE } from "../../../application/ports/observability.port";
 
 /**
  * Every custom (non-default-Node.js) metric the API process exports, in one
@@ -40,8 +41,8 @@ const PAYMENT_METHODS = ["online", "cod"] as const;
 const ORDER_EVENTS = ["confirmed", "cancelled", "delivered", "returned_to_origin", "payment_failed"] as const;
 const RESULTS = ["success", "failure"] as const;
 const WEBHOOK_RESULTS = ["processed", "deduped", "ignored", "amount-mismatch", "stale"] as const;
-/** The only Razorpay events the app acts on. Other event types still appear, lazily, on first delivery. */
-const ACTED_ON_WEBHOOK_EVENTS = ["payment.captured", "payment.failed"] as const;
+/** Every value the adapter can emit for event_type: the allowlist plus the single catch-all bucket. The full label set is therefore finite and known up front. */
+const WEBHOOK_EVENT_TYPE_LABELS = [...KNOWN_WEBHOOK_EVENT_TYPES, OTHER_WEBHOOK_EVENT_TYPE] as const;
 
 /**
  * Pre-create every bounded series at 0. Prometheus's rate()/increase() need a
@@ -59,7 +60,7 @@ function initializeSeries(m: Metrics): void {
     m.inventoryReservationsTotal.inc({ result }, 0);
   }
   for (const result of WEBHOOK_RESULTS) {
-    for (const event_type of ACTED_ON_WEBHOOK_EVENTS) m.paymentWebhooksTotal.inc({ event_type, result }, 0);
+    for (const event_type of WEBHOOK_EVENT_TYPE_LABELS) m.paymentWebhooksTotal.inc({ event_type, result }, 0);
     m.paymentWebhookDurationSeconds.zero({ result });
   }
 }

@@ -1,10 +1,14 @@
 import { logError } from "../../../logger";
-import type {
-  ObservabilityPort,
-  OrderLifecycleEvent,
-  OrderPaymentMethod,
-  OutcomeResult,
-  WebhookResult,
+import {
+  KNOWN_WEBHOOK_EVENT_TYPES,
+  OTHER_WEBHOOK_EVENT_TYPE,
+  type KnownWebhookEventType,
+  type ObservabilityPort,
+  type OrderLifecycleEvent,
+  type OrderPaymentMethod,
+  type OutcomeResult,
+  type WebhookEventTypeLabel,
+  type WebhookResult,
 } from "../../../application/ports/observability.port";
 import { metrics as defaultMetrics, type Metrics } from "./metrics";
 
@@ -20,13 +24,15 @@ import { metrics as defaultMetrics, type Metrics } from "./metrics";
  * class of error this guards against.
  */
 
-/** Razorpay's event names look like `payment.captured` / `refund.processed` / `payment.dispute.won`. Anything else — including a value that would make the label unbounded — collapses to a single bucket. */
-const RAZORPAY_EVENT_SHAPE = /^[a-z_]+(\.[a-z_]+){1,2}$/;
-const MAX_EVENT_TYPE_LENGTH = 48;
-export const UNKNOWN_EVENT_TYPE = "other";
+const KNOWN_EVENTS: ReadonlySet<string> = new Set(KNOWN_WEBHOOK_EVENT_TYPES);
 
-export function sanitizeEventType(raw: unknown): string {
-  return typeof raw === "string" && raw.length <= MAX_EVENT_TYPE_LENGTH && RAZORPAY_EVENT_SHAPE.test(raw) ? raw : UNKNOWN_EVENT_TYPE;
+/**
+ * Raw webhook event string -> bounded label. Exact, case-sensitive membership in the allowlist
+ * (no trimming, no normalising: "Payment.Captured" is not a Razorpay event and becomes "other").
+ * `Set.has` is not affected by prototype keys such as "__proto__" or "constructor".
+ */
+export function webhookEventTypeLabel(raw: unknown): WebhookEventTypeLabel {
+  return typeof raw === "string" && KNOWN_EVENTS.has(raw) ? (raw as KnownWebhookEventType) : OTHER_WEBHOOK_EVENT_TYPE;
 }
 
 export class PrometheusObservability implements ObservabilityPort {
@@ -50,7 +56,7 @@ export class PrometheusObservability implements ObservabilityPort {
 
   recordPaymentWebhook(input: { eventType: string; result: WebhookResult; durationSeconds: number }): void {
     this.safely(() => {
-      this.m.paymentWebhooksTotal.inc({ event_type: sanitizeEventType(input.eventType), result: input.result });
+      this.m.paymentWebhooksTotal.inc({ event_type: webhookEventTypeLabel(input.eventType), result: input.result });
       this.m.paymentWebhookDurationSeconds.observe({ result: input.result }, input.durationSeconds);
     });
   }

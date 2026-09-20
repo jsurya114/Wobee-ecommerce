@@ -45,6 +45,14 @@
 # credentials — never a hardcoded key here.
 #
 # ----------------------------------------------------------------------------
+# Profile override (credential SOURCE only)
+# ----------------------------------------------------------------------------
+# `profile` below is a NAME, not a credential. An operator or CI job that does
+# not have a profile called WoobeTerraformAdmin-185658217213 overrides just that
+# on the command line, leaving bucket/key/lock untouched:
+#   terraform init -reconfigure -backend-config="profile=<your-profile>"
+#
+# ----------------------------------------------------------------------------
 # Bootstrap record — the state bucket was created with these calls
 # (run once, by hand, outside Terraform: the config that stores its state
 # in this bucket can't be the thing that created the bucket)

@@ -59,6 +59,7 @@ registries are isolated and tests can create their own.
   error response `/:id`). A trailing slash is normalised away.
 - A request that never reached a route is `route="NOT_FOUND"` (404) or `route="UNMATCHED"` (anything else, e.g. a
   malformed-JSON 400 or a 413 rejected by the body parser). A route registered with a RegExp path is `UNKNOWN_ROUTE`.
+- `method` is allowlisted too (standard verbs; anything else → `OTHER`) rather than trusting `req.method`; `status_code` is set by the application, never by the client.
 - **Excluded from all three metrics:** `/metrics`, `/health`, `/ready` (matched case-insensitively, trailing slash
   ignored). Uptime probes and scrapes would otherwise swamp real traffic in `rate()`.
 - The middleware is the **first** in the chain (before helmet, CORS and the body parser) so parse errors are counted and
@@ -85,7 +86,7 @@ gauge, so none are queried). The `job` label — not a different name — distin
 | `woobe_orders_event_total` | `event` ∈ {confirmed, cancelled, delivered, returned_to_origin, payment_failed} | Only when the transition actually changed state (`changed: true`) and its transaction committed. An idempotent replay (COD re-confirm, duplicate webhook) adds nothing. Recorded *before* the follow-up notification, so a notification failure cannot erase a durable transition. |
 | `woobe_refunds_total` | `result` ∈ {success, failure} | A refund actually attempted at the gateway. "Not applicable" (COD, nothing captured) and idempotent replays are not refund attempts. |
 | `woobe_inventory_reservations_total` | `result` ∈ {success, failure} | Each reservation attempt (stock contention rate). It is an *attempt*, not a completed order. |
-| `woobe_payment_webhooks_total` | `event_type`, `result` ∈ {processed, deduped, ignored, amount-mismatch, stale} | Once per authenticated delivery. An invalid signature records **nothing** (an unauthenticated caller cannot write metrics). `event_type` is sanitised to Razorpay's event-name shape, anything else → `other`. |
+| `woobe_payment_webhooks_total` | `event_type`, `result` ∈ {processed, deduped, ignored, amount-mismatch, stale} | Once per authenticated delivery. An invalid signature records **nothing** (an unauthenticated caller cannot write metrics). `event_type` is an **explicit allowlist** (`KNOWN_WEBHOOK_EVENT_TYPES` in `observability.port.ts`: `payment.captured`, `payment.failed`, `payment.authorized`, `order.paid`, `refund.created`, `refund.processed`, `refund.failed`): exact, case-sensitive matches map to themselves, **everything else maps to exactly `other`** (a regex is not a cardinality control — any string matching it would mint a new series). At most (7 + 1) × 5 = 40 webhook series exist, all pre-created at 0; a test feeds 5,000 distinct strings and asserts the count never grows. |
 | `woobe_payment_webhook_duration_seconds` | `result` | Same point; seconds from signature verification to outcome. |
 
 Every bounded series is **pre-created at 0**. Prometheus's `increase()` needs a previous sample: a labelled counter that
@@ -171,7 +172,7 @@ Docker socket, 64 MiB limit. Listens on `127.0.0.1:9100` only; **no security-gro
 ## 7. Grafana
 
 - Official image, v12.4.11, pinned by digest, `127.0.0.1:3000` only, 256 MiB limit, data in `/opt/woobe/grafana-data`.
-- Auth on, anonymous off, sign-up off, gravatar/analytics/update-checks off, `SameSite=Strict`. `cookie_secure` is
+- **Authentication is required for everything (explicit, and verified against the running Grafana).** Anonymous access is **off** (`GF_AUTH_ANONYMOUS_ENABLED=false`: an unauthenticated request gets 401, the UI redirects to the login page); the login form and API basic-auth are on and both need the password; self-signup and org creation are off; public dashboards and external snapshots are off; proxy-header authentication is off; gravatar/analytics/update-checks are off; `SameSite=Strict`. `infra/observability/scripts/verify-grafana-security.sh runtime` reads the **effective** values back from `/api/admin/settings` (Grafana silently ignores settings it does not recognise, so the compose file alone proves nothing) and checks: valid login → 200, wrong password → 401, anonymous → 401 (API, dashboards, search), self-signup refused, bind address, no published wildcard port, password file mode 400 / owner 472, no Docker socket, password absent from `docker inspect` and logs. `… repo` checks Terraform declares no Grafana-password resource (so it cannot be in state), the IAM grant is one exact ARN, and the password value is in no repository file or recent commit. It runs against the local stack and, inside the sync suite, against the production-shaped host. `cookie_secure` is
   **false** only because Grafana is reached over plain HTTP on loopback via a port-forward; set it `true` if Grafana
   is ever fronted by HTTPS.
 - **Credentials.** The admin password is generated **on the instance** at first sync (192 random bits), stored as an SSM
@@ -201,8 +202,8 @@ data" until the first event.
      --name /woobe-production/grafana/admin-password --query Parameter.Value --output text | pbcopy
   # 2. tunnel (needs the Session Manager plugin and ssm:StartSession on the instance)
   aws ssm start-session --profile woobe --region ap-south-2 --target <instance-id> \
-     --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'
-  # 3. browse http://localhost:3000  (user: admin). Prometheus is the same with 9090.
+     --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["3000"],"localPortNumber":["3030"]}'
+  # 3. browse http://localhost:3030  (user: admin). Grafana itself listens on 3000 ON THE INSTANCE; 3030 is only the local end of the tunnel, chosen because the storefront/admin dev servers use 3000/3001. Prometheus is the same with 9090.
   ```
   nginx has **no** monitoring route: it never proxies Prometheus, Node Exporter or Grafana (asserted in the nginx
   test suite). Putting Grafana behind Cloudflare later is a separate, deliberate change.
@@ -218,6 +219,8 @@ data" until the first event.
 | Secrets | none in Git/compose/Terraform/state/logs; password file mode 400; instance role scoped to one parameter ARN |
 | PII in metrics | none: closed label sets, no ids, no free text; a forged webhook event name cannot become a label |
 
+**Scope of the forwarded-header rule (and why it cannot break normal traffic).** Behind Cloudflare → nginx, *every* legitimate request carries `X-Forwarded-For/-Host/-Proto`, `X-Real-IP` and (from Cloudflare) `CF-Connecting-IP`. So the rule exists **only inside the `/metrics` handler** (`metrics-route.ts`) — Prometheus scrapes `127.0.0.1` directly and never sends them, therefore anything that has been through a proxy is by definition not Prometheus. It is **not** a global middleware: `/health`, `/ready`, every `/api/v1/*` route and the Razorpay webhook are untouched (`forwarded-headers.integration.test.ts` pins both halves, and was mutation-tested: making the rule global fails five tests). Client-IP handling is separate and unchanged: `trust proxy` = 1 hop in production, so `req.ip` is the address nginx established and a forged `X-Forwarded-For` prefix cannot choose the rate-limit identity; with 0 hops (dev/test) the header is ignored entirely. Nginx overwrites `X-Forwarded-For`/`X-Real-IP` on every request (asserted in the nginx suite).
+
 ## 9. Tests and what they prove
 
 | Layer | Where | Covers |
@@ -228,6 +231,8 @@ data" until the first event.
 | Worker (real BullMQ + Redis) | `notification-worker-bullmq.integration.test.ts`, `notification-worker-metrics.test.ts` | flaky→success = 2 attempt failures + 1 completion; exhausted = 1 terminal, 0 completed; unrecoverable; queue depth at scrape time; Redis down/hung |
 | Rules | `infra/observability/prometheus/tests/rules.test.yml` (`promtool test rules`) | every alert fires/doesn't; recording rules; idle traffic |
 | Nginx | `modules/ec2/tests/run-nginx-tests.sh` | every `/metrics` spelling → 403 through real nginx; `/health`, `/ready` still proxied; no proxy to 9090/9100/3000 |
+| Forwarded headers | `forwarded-headers.integration.test.ts` | the `/metrics` guard is scoped to `/metrics` only (proxied `/health`, `/ready`, API reads/writes and unknown routes all behave normally; mutation-tested), rate-limit identity with 1 vs 0 trusted hops |
+| Grafana security | `scripts/verify-grafana-security.sh` (local stack + inside the sync suite) | login/wrong password/anonymous/signup, EFFECTIVE settings from `/api/admin/settings`, loopback bind, password-file mode, no password in inspect/logs/Terraform/Git |
 | Sync (real Docker-in-Docker at `/opt/woobe`) | `modules/observability/tests/run-sync-tests.sh` | install, ownership/modes, loopback-only listeners, Grafana login + provisioning, idempotency (no container recreated), in-place reload, pruning, **app-deploy isolation**, no secret leakage, failure modes |
 
 ## 10. Resource budget — `t4g.small`, 2 GiB, no swap
@@ -262,9 +267,15 @@ production instance** — wiping `api.env`, the Cloudflare Origin certificate an
 - `modules/observability` publishes an **SSM document** (`woobe-production-observability-sync`, all config embedded
   gzip+base64) and a **State Manager association** targeting the instance ID. It runs when the instance registers, on
   every change to the document, and every 12 hours (drift correction).
-- `files/sync.sh` (on the host, idempotent): waits for Docker → creates directories/ownership → creates the Grafana
-  password once → writes only changed config files → `docker compose up -d` (recreates only what changed) → SIGHUP
-  Prometheus / restart Grafana only if their config changed → waits for all three to be healthy.
+- `files/sync.sh` (on the host) is **idempotent and safe to run repeatedly** — the 12-hourly association restarts nothing when nothing changed:
+  1. waits for Docker; ensures directories and volume ownership (repairs drift, never deletes data);
+  2. creates the Grafana password **once** (create-only), rewrites the mode-400 file only if it differs, and **re-asserts mode/owner on every run** (identical content must not hide a world-readable file);
+  3. **stages and decodes every config file first**; a payload that cannot be decoded changes nothing on the host;
+  4. **validates before applying**: `docker compose config` on the new compose file, and `promtool check config` (Prometheus's own pinned image, no network) when Prometheus is already running — an invalid config is refused while the previous working one is still in place;
+  5. applies only files whose content differs (`cmp`), atomically (rename), re-asserting mode 644 on unchanged ones; prunes files removed from Git, only inside directories it owns;
+  6. `docker compose up -d` recreates only a service whose definition changed; then SIGHUP Prometheus (and **confirms** `prometheus_config_last_reload_successful`) or restarts Grafana only when *their* config changed (a dashboard-only change restarts nothing — Grafana polls every 30 s);
+  7. waits for all three to be healthy; on failure prints the last log lines and exits non-zero. It never prints the password.
+  The sync suite proves each of these (see §9): repeated runs leave every container's ID, `StartedAt` and `RestartCount` unchanged and the config tree byte-identical; dashboard-only / datasource / one-service-compose / target changes each touch exactly what they should; corrupt, invalid-compose and Prometheus-rejected payloads all fail with a clear message and change nothing. A *locally edited* password file is deliberately overwritten from SSM (the parameter store is the single source of truth).
 - Nothing in this module touches `aws_instance`, its user_data, security groups or any network resource. The
   instance role gains one inline policy (Get/Put on the single Grafana parameter).
 - **Application deploys are independent.** `deploy.sh` removes only the containers `woobe-api` and `woobe-worker`;

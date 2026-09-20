@@ -6,7 +6,8 @@
 # machine (pnpm dev), so a containerised Prometheus reaches them through
 # host.docker.internal, not 127.0.0.1. Everything is published on 127.0.0.1 only.
 #
-#   http://localhost:9090  Prometheus     http://localhost:3000  Grafana (admin / see below)
+#   http://localhost:9090  Prometheus     http://localhost:3030  Grafana (admin / see below)
+#   (3030, not 3000: the storefront dev server owns 3000 and admin 3001. Override: GRAFANA_PORT=3040 scripts/observability-local.sh up)
 #
 # The Grafana password is generated into .local-secrets/ (gitignored) on first run.
 name: woobe-observability-local
@@ -78,12 +79,21 @@ services:
       prometheus:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3030}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # ---- authentication posture (each value is verified against the RUNNING Grafana by
+      # scripts/verify-grafana-security.sh via /api/admin/settings — a setting Grafana ignores would
+      # otherwise look right in this file and be wrong in production) -------------------------------
+      GF_AUTH_ANONYMOUS_ENABLED: "false"       # no anonymous viewer: unauthenticated requests get 401
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"      # the password login stays available
+      GF_AUTH_BASIC_ENABLED: "true"            # API basic-auth (used by the verification scripts); still needs the password
+      GF_AUTH_PROXY_ENABLED: "false"           # never trust a proxy-supplied identity header
+      GF_USERS_ALLOW_SIGN_UP: "false"          # nobody can register themselves
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"    # public dashboards are anonymous-by-design: off
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"   # no publishing dashboards to an external snapshot server
       GF_SECURITY_DISABLE_GRAVATAR: "true"
       GF_SECURITY_COOKIE_SAMESITE: strict
       GF_ANALYTICS_REPORTING_ENABLED: "false"

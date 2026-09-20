@@ -4,7 +4,7 @@ import { Registry } from "@prometheus-io/client";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createMetrics } from "./metric-definitions";
-import { createHttpMetricsMiddleware } from "./http-metrics.middleware";
+import { createHttpMetricsMiddleware, methodLabel } from "./http-metrics.middleware";
 
 /**
  * Real Express + real HTTP sockets (no mocked req/res): the behaviors that
@@ -139,6 +139,11 @@ describe("httpMetricsMiddleware", () => {
     await get("/api/v1/orders");
     expect(await requestCount({ method: "GET", route: "/api/v1/orders", status_code: "200" })).toBe(1);
     expect((await series("woobe_http_requests_total")).some((s) => s.labels.route === "/api/v1/orders/")).toBe(false);
+  });
+
+  it("the method label is allowlisted: standard methods pass through, anything else is OTHER", () => {
+    for (const m of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) expect(methodLabel(m)).toBe(m);
+    for (const m of ["", "get", "PURGE", "PROPFIND", "X".repeat(500), "GET /admin"]) expect(methodLabel(m), m).toBe("OTHER");
   });
 
   it("uses a bounded fixed value for a route registered with a RegExp path", async () => {

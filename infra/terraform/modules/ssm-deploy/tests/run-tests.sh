@@ -223,6 +223,8 @@ if should_run S01; then log "S01 (A,N) first deployment succeeds and reports suc
   expect "does not report failure"                  '! out_has "DEPLOY FAILED"'
   expect "API + worker running the deployed digest" '[ "$(cimg woobe-api)" = "$R@$D1" ] && [ "$(cimg woobe-worker)" = "$R@$D1" ] && running woobe-api && running woobe-worker'
   expect "/health and /ready return 200 on the real port" '[ "$(code $API_PORT /health)" = 200 ] && [ "$(code $API_PORT /ready)" = 200 ]'
+  expect "API serves /metrics directly (what Prometheus scrapes; no proxy headers)" '[ "$(code $API_PORT /metrics)" = 200 ]'
+  expect "worker's Prometheus endpoint is up on loopback 9102 after the deploy (metrics startup)" '[ "$(code 9102 /metrics)" = 200 ]'
   expect "candidate container removed"              '! docker inspect woobe-api-candidate'
   expect "verified-good state recorded"             '[ "$(state_api)" = "$R@$D1" ] && [ "$(state_worker)" = "$R@$D1" ] && [ "$(history_count)" = 1 ]'
   expect "migrations ran before the candidate started" 'awk "/Applying pending database migrations/{m=NR} /Verifying the new image on a candidate/{c=NR} END{exit !(m && c && m<c)}" "$WORK/out.txt"'
@@ -232,6 +234,7 @@ if should_run S02; then log "S02 (B,O,N) redeployment succeeds; graceful shutdow
   deploy 2 true
   expect "exit 0 and DEPLOY SUCCESS"                '[ "$RC" -eq 0 ] && out_has "DEPLOY SUCCESS"'
   expect "API now runs the new digest"              '[ "$(cimg woobe-api)" = "$R@$D2" ] && [ "$(cimg woobe-worker)" = "$R@$D2" ]'
+  expect "the NEW worker re-bound its metrics port after the swap (old worker stopped first: no clash)" '[ "$(code 9102 /metrics)" = 200 ]'
   expect "old API was stopped GRACEFULLY (SIGTERM handled, exit 0)"    'out_has "woobe-api: stopped gracefully (SIGTERM handled, exit 0)"'
   expect "old worker was stopped GRACEFULLY (SIGTERM handled, exit 0)" 'out_has "woobe-worker: stopped gracefully (SIGTERM handled, exit 0)"'
   expect "no force-termination was needed"          '! out_has "force-terminated"'

@@ -75,7 +75,7 @@ render_edge() {
   python3 - "$EC2" "$1" "$NGINX_IMAGE" "$DOMAIN" "$API_PORT" >"$WORK/tfc/expr.txt" <<'EOF'
 import sys
 ec2,cidrs,img,dom,port=sys.argv[1:6]
-print(f'templatefile("{ec2}/templates/user_data.sh.tpl", {{name_prefix="woobe-nginxtest", valkey_param_name="/x", valkey_maxmemory_mb=64, valkey_mem_limit_mb=96, compose_version="v0", aws_region="r", api_port={port}, nginx_image="{img}", '
+print(f'templatefile("{ec2}/templates/user_data.sh.tpl", {{name_prefix="woobe-nginxtest", valkey_param_name="/x", valkey_maxmemory_mb=64, valkey_mem_limit_mb=96, valkey_image="valkey/valkey@sha256:0", compose_version="v0", aws_region="r", api_port={port}, nginx_image="{img}", '
       f'nginx_conf=templatefile("{ec2}/templates/nginx/api.conf.tpl", {{api_domain="{dom}", api_port={port}, cloudflare_ipv4_cidrs={cidrs}}})}})')
 EOF
   (cd "$WORK/tfc" && terraform console <expr.txt >ud.raw 2>ud.err) || { cat "$WORK/tfc/ud.err"; return 1; }

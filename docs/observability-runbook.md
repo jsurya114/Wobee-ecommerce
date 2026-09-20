@@ -10,7 +10,7 @@ every deploy and once a day.
 aws ssm start-session --profile woobe --region ap-south-2 --target <instance-id>
 # ...or tunnel Grafana / Prometheus to your laptop:
 aws ssm start-session --profile woobe --region ap-south-2 --target <instance-id> \
-  --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'   # 9090 for Prometheus
+  --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["3000"],"localPortNumber":["3030"]}'   # then http://localhost:3030 (3000/3001 are the storefront/admin dev servers on your laptop). Prometheus: 9090
 ```
 
 Containers on the host: `woobe-api`, `woobe-worker`, `woobe-nginx`, `woobe-valkey`, and the observability trio
@@ -141,7 +141,7 @@ shed load in this order: shorter Prometheus retention → 30 s scrape interval �
 
 - The admin user is `admin`; the password is the SSM SecureString (only reachable with your own IAM permissions):
   `aws ssm get-parameter --profile woobe --region ap-south-2 --with-decryption --name /woobe-production/grafana/admin-password --query Parameter.Value --output text | pbcopy`
-- The tunnel must be up and you browse **`http://localhost:3000`** (plain HTTP over the port-forward; the cookie is not `Secure` for this reason).
+- The tunnel must be up and you browse **`http://localhost:3030`** (the local end of the tunnel; any free port works) (plain HTTP over the port-forward; the cookie is not `Secure` for this reason).
 - "Access denied" from the CLI → your IAM user lacks `ssm:GetParameter` on that parameter (the *instance* role has it; yours may not).
 - **Rotating / resetting the password.** `GF_SECURITY_ADMIN_PASSWORD__FILE` only *seeds* the admin password when Grafana first creates its database — changing the
   parameter or the file later does **not** change the login (verified). To rotate: (1) write a new value into the parameter from your own shell
