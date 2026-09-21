@@ -3,10 +3,13 @@
 import { SectionHeader } from "@woobe/ui";
 import useEmblaCarousel from "embla-carousel-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StarRatingDisplay } from "@/features/testimonials/components/StarRating";
 import { TestimonialCard } from "@/features/testimonials/components/TestimonialCard";
 import type { HomeTestimonial, HomeTestimonialAggregate } from "../api/home.client";
+
+/** Time each testimonial stays put before the carousel advances on its own. */
+const AUTOPLAY_INTERVAL_MS = 5000;
 
 /**
  * "What Our Customers Say" (2026-09-11, replaces the old per-product
@@ -26,6 +29,12 @@ import type { HomeTestimonial, HomeTestimonialAggregate } from "../api/home.clie
  * library + arrow-button chrome as `ProductRail`, ADR-022) showing 1 / 2 / 3
  * cards per view at the same breakpoints the old grid used; "Show all"
  * swaps it for that full grid, "Show less" swaps back. Cards are unchanged.
+ *
+ * Auto-advances every `AUTOPLAY_INTERVAL_MS` (plain `setInterval`, same as
+ * `PromoCarousel` — no plugin), wrapping back to the first card after the
+ * last. Pauses while the visitor hovers, focuses or touches/drags it, and
+ * resumes when they let go; skipped entirely under `prefers-reduced-motion:
+ * reduce`, and when every card already fits (nothing to advance to).
  */
 export function TestimonialsSection({
   testimonials,
@@ -48,6 +57,7 @@ export function TestimonialsSection({
   const [emblaRef, emblaApi] = useEmblaCarousel({ align: "start", containScroll: "trimSnaps" });
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
+  const paused = useRef(false);
 
   const onSelect = useCallback(() => {
     if (!emblaApi) return;
@@ -63,6 +73,33 @@ export function TestimonialsSection({
       emblaApi.off("select", onSelect).off("reInit", onSelect);
     };
   }, [emblaApi, onSelect]);
+
+  // Touch has no hover/leave, so a drag pauses on pointer-down and resumes on release.
+  useEffect(() => {
+    if (!emblaApi) return;
+    const pause = () => {
+      paused.current = true;
+    };
+    const resume = () => {
+      paused.current = false;
+    };
+    emblaApi.on("pointerDown", pause).on("pointerUp", resume);
+    return () => {
+      emblaApi.off("pointerDown", pause).off("pointerUp", resume);
+    };
+  }, [emblaApi]);
+
+  useEffect(() => {
+    if (!emblaApi || showAll) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const id = window.setInterval(() => {
+      if (paused.current || document.hidden) return;
+      if (emblaApi.canScrollNext()) emblaApi.scrollNext();
+      else if (emblaApi.canScrollPrev()) emblaApi.scrollTo(0);
+    }, AUTOPLAY_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [emblaApi, showAll]);
 
   if (items.length === 0) return null;
 
@@ -122,7 +159,22 @@ export function TestimonialsSection({
             ))}
           </div>
         ) : (
-          <div className="overflow-hidden" ref={emblaRef}>
+          <div
+            className="overflow-hidden"
+            ref={emblaRef}
+            onMouseEnter={() => {
+              paused.current = true;
+            }}
+            onMouseLeave={() => {
+              paused.current = false;
+            }}
+            onFocus={() => {
+              paused.current = true;
+            }}
+            onBlur={() => {
+              paused.current = false;
+            }}
+          >
             <div className="-ml-3 flex">
               {items.map((testimonial) => (
                 <div key={testimonial.id} className="flex min-w-0 shrink-0 basis-full pl-3 sm:basis-1/2 lg:basis-1/3">
