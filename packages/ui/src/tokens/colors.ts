@@ -11,6 +11,7 @@ export const colors = {
     base: "#FBF1EC",
     surface: "#FFFFFF",
     subtle: "#F4EDE8",
+    field: "#F3F3F3",
     accent: "#F3DEE2",
   },
   text: {

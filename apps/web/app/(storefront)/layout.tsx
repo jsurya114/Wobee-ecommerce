@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { BottomNav } from "@/features/auth/components/BottomNav";
 import { SiteFooter } from "@/features/auth/components/SiteFooter";
 import { SiteHeader } from "@/features/auth/components/SiteHeader";
@@ -6,6 +6,10 @@ import { FloatingCartWeightIndicator } from "@/features/cart/components/Floating
 import { getActiveOffersForStrip } from "@/features/home/api/home.client";
 import { OfferStrip } from "@/features/home/components/OfferStrip";
 import { WhatsAppButton } from "@/features/support/components/WhatsAppButton";
+import { MOBILE_BOTTOM_NAV_HEIGHT_REM } from "@/lib/layout-constants";
+
+/** Page-bottom clearance for the floating BottomNav: its footprint + the device safe area + a little breathing room. */
+const BOTTOM_NAV_CLEARANCE = `calc(${MOBILE_BOTTOM_NAV_HEIGHT_REM} + env(safe-area-inset-bottom) + 0.5rem)`;
 
 export default async function StorefrontLayout({ children }: { children: ReactNode }) {
   const activeOffers = await getActiveOffersForStrip();
@@ -43,8 +47,12 @@ export default async function StorefrontLayout({ children }: { children: ReactNo
       */}
       <OfferStrip offers={activeOffers} />
       <SiteHeader />
-      {/* flex-1 pushes the footer to the bottom on short pages. pb-20 reserves space for BottomNav's fixed height so it never covers page content (md:pb-0 — desktop has no bottom nav). */}
-      <div id="main-content" className="flex-1 pb-20 md:pb-0">
+      {/* flex-1 pushes the footer to the bottom on short pages. the bottom padding reserves BottomNav's dock + float gap + the device safe-area inset (was a fixed pb-20, which ignored the safe area) so it never covers page content (md:pb-0 — desktop has no bottom nav). */}
+      <div
+        id="main-content"
+        className="flex-1 pb-[var(--bottom-nav-clearance)] md:pb-0"
+        style={{ "--bottom-nav-clearance": BOTTOM_NAV_CLEARANCE } as CSSProperties }
+      >
         {children}
       </div>
       <SiteFooter />

@@ -1,10 +1,10 @@
 /**
  * BottomNav (`BottomNav.tsx`, liquid-glass redesign 2026-09-03) floats as a
- * rounded dock inset from the viewport edge, rather than sitting flush at
+ * rounded glass panel inset from the viewport edge, rather than sitting flush at
  * `bottom: 0` — its own two pieces, exported so BottomNav is the only place
  * that hardcodes either number.
  */
-export const BOTTOM_NAV_DOCK_HEIGHT_REM = "3.5rem"; // capsule content height, measured live (2026-09-03 refinement pass 2 — trimmed from 3.75rem for a smaller footprint)
+export const BOTTOM_NAV_DOCK_HEIGHT_REM = "4.25rem"; // 68px glass-panel height (mobile UI refinement 2026-09-21 — was a 3.5rem capsule; boxier panel with icon + label stacked)
 export const BOTTOM_NAV_FLOAT_GAP_REM = "0.75rem"; // gap between the capsule and the safe-area edge
 
 /**
@@ -58,7 +58,7 @@ export const SCROLL_MARGIN_ABOVE_BOTTOM_NAV_STYLE = {
  * their own weight-progress row isn't rendered (no weight-based items in
  * the cart), rather than a redundant constant per page.
  */
-export const STICKY_ACTION_BAR_HEIGHT_REM = "4.3125rem"; // 69px — the action row alone, measured live
+export const STICKY_ACTION_BAR_HEIGHT_REM = "5.25rem"; // 84px — the action row alone at its tallest (a discounted PDP price stacks price / badge / strike-through; 69px without a discount). Measured live 2026-09-21 — the old 69px let WhatsApp overlap a discounted PDP dock by ~5px
 export const CART_WEIGHT_INDICATOR_HEIGHT_REM = "2.875rem"; // 46px, measured live
 /** Breathing room between a floating element and whatever it's stacked above. */
 export const FLOATING_STACK_GAP_REM = "0.625rem";
@@ -90,4 +90,13 @@ export const PDP_PURCHASE_DOCK_HEIGHT_REM = "7.3125rem"; // measured live — pl
  * PLP's compact Size/Filters/Sort control bar, mobile UI refinement pass
  * 2026-09-01). Same "measured, not guessed" rule as the constants above.
  */
-export const SITE_HEADER_HEIGHT_REM = "3.1875rem"; // 51px, measured live (centered-logo mobile header, liquid-glass redesign 2026-09-03)
+export const SITE_HEADER_HEIGHT_REM = "3.5625rem"; // 57px, measured live at 320/375/390px (centered-logo mobile header). Was 51px (2026-09-03); the header has been 57px since — a sticky element keyed to the stale value sat 6px under the header
+
+/**
+ * `CompactSearchBar`'s sticky footprint below `md` (2026-09-21) — its 52px
+ * field (`h-[3.25rem]`) plus the wrapper's own `pt-3` (12px) + `pb-2` (8px).
+ * The shop page's sticky `PlpControlBar` stacks under header + this, so it
+ * derives its `top` from `SITE_HEADER_HEIGHT_REM + COMPACT_SEARCH_BAR_HEIGHT_REM`
+ * rather than a guessed number.
+ */
+export const COMPACT_SEARCH_BAR_HEIGHT_REM = "4.5rem"; // 72px

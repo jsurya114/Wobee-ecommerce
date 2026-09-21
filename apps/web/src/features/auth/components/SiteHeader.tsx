@@ -59,7 +59,7 @@ export function SiteHeader() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
+    <header className="sticky top-0 z-20 border-b border-border/70 bg-surface/95 backdrop-blur">
       {/* Mobile — guaranteed-centered logo lockup. */}
       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-4 py-2.5 md:hidden">
         <HamburgerTrigger onClick={() => setDrawerOpen(true)} expanded={drawerOpen} className="justify-self-start" />
