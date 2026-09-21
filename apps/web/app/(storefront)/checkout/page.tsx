@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CheckoutStartedTracker } from "@/features/analytics/components/AnalyticsTrackers";
 import { CheckoutForm } from "@/features/checkout/components/CheckoutForm";
 
 /** Week 2 Day 9 — a checkout flow is never a page worth indexing. */
@@ -7,6 +8,7 @@ export const metadata: Metadata = { title: "Checkout", robots: { index: false, f
 export default function CheckoutPage() {
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+      <CheckoutStartedTracker />
       <h1 className="mb-4 font-display text-xl text-text-primary">Checkout</h1>
       <CheckoutForm />
     </main>

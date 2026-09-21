@@ -219,3 +219,19 @@ export const listProductsAdminQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).default(20),
 });
 export type ListProductsAdminQuery = z.infer<typeof listProductsAdminQuerySchema>;
+
+/**
+ * Product cost entry for business analytics (2026-09-21). Kept OFF the
+ * customer-facing product/variant shapes on purpose — cost is confidential.
+ * `costPerKgPaise` applies to a WEIGHT_BASED product, each variant's
+ * `costPricePaise` to a FIXED product; null clears a configured cost. A cost
+ * edit never rewrites past orders (they carry their own immutable snapshot).
+ */
+export const setProductCostsSchema = z.object({
+  costPerKgPaise: z.coerce.number().int().min(0).max(100_000_000).nullable().optional(),
+  variantCosts: z
+    .array(z.object({ variantId: z.string().uuid("Invalid variant id"), costPricePaise: z.coerce.number().int().min(0).max(100_000_000).nullable() }))
+    .max(500)
+    .optional(),
+});
+export type SetProductCostsInput = z.infer<typeof setProductCostsSchema>;

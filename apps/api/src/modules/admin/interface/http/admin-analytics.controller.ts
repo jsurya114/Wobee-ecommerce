@@ -1,18 +1,21 @@
 import type { AdminDashboardQuery } from "@woobe/validation";
 import type { Request, Response } from "express";
-import type { GetAdminDashboardUseCase } from "../../application/use-cases/get-admin-dashboard.use-case";
+import { InvalidDashboardRangeError } from "../../../analytics/domain/dashboard-period";
+import type { GetBusinessDashboardUseCase } from "../../../analytics/application/use-cases/get-business-dashboard.use-case";
+import { ValidationError } from "../../../../shared/errors";
 
-/** Thin permission-gated HTTP gateway (ADR-025) — see GetAdminDashboardUseCase's own doc comment for where the actual composition happens. */
+/** Thin permission-gated HTTP gateway (ADR-025) — the actual composition, definitions and caching live in the analytics module's GetBusinessDashboardUseCase. */
 export class AdminAnalyticsController {
-  constructor(private readonly getAdminDashboardUseCase: GetAdminDashboardUseCase) {}
+  constructor(private readonly getBusinessDashboardUseCase: GetBusinessDashboardUseCase) {}
 
   async getDashboard(req: Request, res: Response): Promise<void> {
-    const { days } = req.query as unknown as AdminDashboardQuery;
-    const to = new Date();
-    const from = new Date(to);
-    from.setUTCDate(from.getUTCDate() - (days - 1));
-
-    const dashboard = await this.getAdminDashboardUseCase.execute({ from, to });
-    res.status(200).json(dashboard);
+    const { range, from, to, compare } = req.query as unknown as AdminDashboardQuery;
+    try {
+      const dashboard = await this.getBusinessDashboardUseCase.execute({ range, from, to, compare });
+      res.status(200).json(dashboard);
+    } catch (error) {
+      if (error instanceof InvalidDashboardRangeError) throw new ValidationError(error.message);
+      throw error;
+    }
   }
 }

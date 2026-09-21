@@ -1,6 +1,6 @@
+import { computeUnitCostSnapshot } from "../../domain/unit-cost-snapshot";
 import { Prisma, prisma, type OrderStatus } from "@woobe/database";
 import type { OrderEntity, OrderAddressSnapshot, OrderSummaryEntity } from "../../domain/entities/order.entity";
-import { bucketDailyRevenue } from "../../domain/bucket-daily-revenue";
 import { OrderNumberCollisionError } from "../../domain/errors/order-number-collision.error";
 import type {
   CreateOrderInput,
@@ -9,8 +9,6 @@ import type {
   ListOrdersFilter,
   ListOrdersResult,
   VariantSaleQuantity,
-  AnalyticsDateRange,
-  OrderAnalyticsSummary,
 } from "../../application/ports/order-repository.port";
 
 /** Same "counts as a real sale" status set hasUserPurchasedProduct already uses below — kept as one named constant so both stay in sync by construction. Not `as const`: Prisma's own `OrderStatus[]` filter type wants a plain mutable array, not a readonly tuple. */
@@ -28,6 +26,14 @@ export class OrderRepository implements OrderRepositoryPort {
   async createWithItems(input: CreateOrderInput, tx: unknown): Promise<OrderEntity> {
     const client = tx as PrismaTx;
 
+    // Business analytics (2026-09-21): freeze each line's unit cost NOW, in the
+    // same transaction as the order, so later cost edits never rewrite history.
+    const costRows = await client.productVariant.findMany({
+      where: { id: { in: input.items.map((item) => item.variantId) } },
+      select: { id: true, costPricePaise: true, product: { select: { costPerKgPaise: true } } },
+    });
+    const costByVariant = new Map(costRows.map((row) => [row.id, row]));
+
     try {
       const order = await client.order.create({
         data: {
@@ -44,6 +50,7 @@ export class OrderRepository implements OrderRepositoryPort {
           totalPaise: input.totalPaise,
           totalWeightGrams: input.totalWeightGrams,
           paymentMethod: input.paymentMethod,
+          analyticsSessionId: input.analyticsSessionId ?? null,
           items: {
             create: input.items.map((item) => ({
               variantId: item.variantId,
@@ -65,6 +72,12 @@ export class OrderRepository implements OrderRepositoryPort {
               offerDiscountType: item.offerDiscountType,
               offerDiscountValue: item.offerDiscountValue,
               offerDiscountPaise: item.offerDiscountPaise,
+              unitCostPaiseSnapshot: computeUnitCostSnapshot({
+                pricingMode: item.pricingMode,
+                costPerKgPaise: costByVariant.get(item.variantId)?.product.costPerKgPaise ?? null,
+                costPricePaise: costByVariant.get(item.variantId)?.costPricePaise ?? null,
+                weightGrams: item.weightGrams,
+              }),
             })),
           },
         },
@@ -228,35 +241,6 @@ export class OrderRepository implements OrderRepositoryPort {
       take: limit,
     });
     return rows.map((row) => ({ variantId: row.variantId, quantitySold: row._sum?.quantity ?? 0 }));
-  }
-
-  async getOrderAnalytics(range: AnalyticsDateRange): Promise<OrderAnalyticsSummary> {
-    const dateFilter = { gte: range.from, lte: range.to };
-
-    const [revenue, statusRows, soldOrders] = await Promise.all([
-      prisma.order.aggregate({
-        where: { status: { in: SOLD_STATUSES }, placedAt: dateFilter },
-        _sum: { totalPaise: true },
-        _count: true,
-      }),
-      // Every status in range, not just SOLD_STATUSES — see OrderStatusCount's own doc comment.
-      prisma.order.groupBy({ by: ["status"], where: { placedAt: dateFilter }, _count: true }),
-      // Daily buckets, computed here rather than via a raw SQL date-trunc:
-      // dashboard-scale row counts (weeks of orders, not millions) make an
-      // in-memory group-by both simpler and safer than a dialect-specific
-      // query. bucketDailyRevenue (domain) owns the actual bucketing/filling logic.
-      prisma.order.findMany({
-        where: { status: { in: SOLD_STATUSES }, placedAt: dateFilter },
-        select: { placedAt: true, totalPaise: true },
-      }),
-    ]);
-
-    return {
-      totalRevenuePaise: revenue._sum.totalPaise ?? 0,
-      orderCount: revenue._count,
-      dailyRevenue: bucketDailyRevenue(range, soldOrders),
-      statusCounts: statusRows.map((row) => ({ status: row.status, count: row._count })),
-    };
   }
 }
 

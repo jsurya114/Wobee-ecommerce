@@ -1,4 +1,5 @@
 export * from "./admin.schema";
+export * from "./analytics.schema";
 export * from "./auth.schema";
 export * from "./banners.schema";
 export * from "./cart.schema";

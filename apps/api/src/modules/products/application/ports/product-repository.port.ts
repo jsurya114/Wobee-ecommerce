@@ -305,3 +305,18 @@ export interface ProductRepositoryPort {
   listImageIds(productId: string): Promise<string[]>;
   reorderImages(productId: string, orderedImageIds: string[]): Promise<void>;
 }
+
+/** Cost-entry read/write model (business analytics, 2026-09-21) — deliberately separate from the customer-facing product entities so cost can never leak into a public response. */
+export interface ProductCostsView {
+  productId: string;
+  name: string;
+  pricingMode: PricingMode;
+  costPerKgPaise: number | null;
+  variants: { variantId: string; sku: string; color: string; size: string; weightGrams: number; costPricePaise: number | null }[];
+}
+
+export interface ProductCostsRepositoryPort {
+  findCosts(productId: string): Promise<ProductCostsView | null>;
+  /** Applies only the fields present; returns false when the product doesn't exist. Variant ids that don't belong to the product are ignored. */
+  setCosts(productId: string, input: { costPerKgPaise?: number | null; variantCosts?: { variantId: string; costPricePaise: number | null }[] }): Promise<boolean>;
+}

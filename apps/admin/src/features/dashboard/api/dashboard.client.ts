@@ -1,53 +1,22 @@
+import type { BusinessDashboard, DashboardCompare, DashboardRange } from "@woobe/types";
 import { apiFetch } from "@/lib/api-client";
 
-export interface DailyRevenuePoint {
-  date: string;
-  revenuePaise: number;
-  orderCount: number;
+export type { BusinessDashboard } from "@woobe/types";
+
+/** What the toolbar controls. `from`/`to` (inclusive IST dates, YYYY-MM-DD) matter only for `custom`. */
+export interface DashboardSelection {
+  range: DashboardRange;
+  compare: DashboardCompare;
+  from?: string;
+  to?: string;
 }
 
-export interface OrderStatusCount {
-  status: string;
-  count: number;
-}
-
-export interface DashboardBestSeller {
-  productId: string;
-  name: string;
-  slug: string;
-  quantitySold: number;
-}
-
-export interface DashboardLowStockRow {
-  variantId: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  color: string;
-  size: string;
-  quantityAvailable: number;
-  quantityReserved: number;
-}
-
-export interface AdminDashboardView {
-  range: { from: string; to: string };
-  revenue: {
-    totalRevenuePaise: number;
-    orderCount: number;
-    averageOrderValuePaise: number;
-    collectedPaise: number;
-    pendingCodPaise: number;
-  };
-  dailyRevenue: DailyRevenuePoint[];
-  statusCounts: OrderStatusCount[];
-  newCustomersCount: number;
-  bestSellers: DashboardBestSeller[];
-  lowStock: DashboardLowStockRow[];
-  lowStockTotal: number;
-  pendingReturnsCount: number;
-}
-
-/** VIEW_ANALYTICS-gated (super_admin only — see apps/api's permissions.ts). */
-export function getDashboard(days: number, accessToken: string): Promise<AdminDashboardView> {
-  return apiFetch<AdminDashboardView>(`/api/v1/admin/analytics/dashboard?days=${days}`, { accessToken });
+/** VIEW_ANALYTICS-gated (super_admin only — see apps/api's permissions.ts). One request drives every panel. */
+export function getDashboard(selection: DashboardSelection, accessToken: string): Promise<BusinessDashboard> {
+  const params = new URLSearchParams({ range: selection.range, compare: selection.compare });
+  if (selection.range === "custom" && selection.from && selection.to) {
+    params.set("from", selection.from);
+    params.set("to", selection.to);
+  }
+  return apiFetch<BusinessDashboard>(`/api/v1/admin/analytics/dashboard?${params.toString()}`, { accessToken });
 }

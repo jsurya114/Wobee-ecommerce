@@ -5,6 +5,7 @@ import type {
   ListProductsAdminQuery,
   ReorderProductImagesInput,
   SetProductActiveInput,
+  SetProductCostsInput,
   SetVariantActiveInput,
   UpdateProductInput,
   UpdateVariantInput,
@@ -14,6 +15,8 @@ import { ValidationError } from "../../../../shared/errors";
 import type { AddProductImageUseCase } from "../../../products/application/use-cases/admin/add-product-image.use-case";
 import type { CreateProductUseCase } from "../../../products/application/use-cases/admin/create-product.use-case";
 import type { CreateProductVariantUseCase } from "../../../products/application/use-cases/admin/create-product-variant.use-case";
+import type { GetProductCostsUseCase } from "../../../products/application/use-cases/admin/get-product-costs.use-case";
+import type { SetProductCostsUseCase } from "../../../products/application/use-cases/admin/set-product-costs.use-case";
 import type { GetProductAdminUseCase } from "../../../products/application/use-cases/admin/get-product-admin.use-case";
 import type { ListProductsAdminUseCase } from "../../../products/application/use-cases/admin/list-products-admin.use-case";
 import type { RemoveProductImageUseCase } from "../../../products/application/use-cases/admin/remove-product-image.use-case";
@@ -37,6 +40,8 @@ export class AdminProductsController {
     private readonly addProductImageUseCase: AddProductImageUseCase,
     private readonly removeProductImageUseCase: RemoveProductImageUseCase,
     private readonly reorderProductImagesUseCase: ReorderProductImagesUseCase,
+    private readonly getProductCostsUseCase: GetProductCostsUseCase,
+    private readonly setProductCostsUseCase: SetProductCostsUseCase,
   ) {}
 
   async list(req: Request, res: Response): Promise<void> {
@@ -48,6 +53,14 @@ export class AdminProductsController {
   async getOne(req: Request, res: Response): Promise<void> {
     const product = await this.getProductAdminUseCase.execute(requireId(req));
     res.status(200).json({ product });
+  }
+
+  async getCosts(req: Request, res: Response): Promise<void> {
+    res.status(200).json({ costs: await this.getProductCostsUseCase.execute(requireId(req)) });
+  }
+
+  async setCosts(req: Request, res: Response): Promise<void> {
+    res.status(200).json({ costs: await this.setProductCostsUseCase.execute(requireId(req), req.body as SetProductCostsInput) });
   }
 
   async create(req: Request, res: Response): Promise<void> {

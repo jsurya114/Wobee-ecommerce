@@ -9,6 +9,7 @@ import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminCategories } from "../hooks/useAdminCategories";
 import { useAdminProduct } from "../hooks/useAdminProduct";
 import { ProductForm } from "./ProductForm";
+import { ProductCostsPanel } from "./ProductCostsPanel";
 import { ProductImages } from "./ProductImages";
 import { VariantsList } from "./VariantsList";
 
@@ -105,6 +106,9 @@ export function ProductDetail({ productId }: { productId: string }) {
           onSetActive={setVariantActive}
         />
       </Card>
+
+      {/* Renders nothing unless the signed-in role has the analytics permission (super_admin) — cost is confidential. Keyed so a variant added above is picked up. */}
+      <ProductCostsPanel key={`costs-${product.variants.length}`} productId={productId} />
     </div>
   );
 }

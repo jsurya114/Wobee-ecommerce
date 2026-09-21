@@ -67,8 +67,6 @@ import {
 import {
   cancelOrderUseCase,
   deliverOrderUseCase,
-  getBestSellingVariantQuantitiesUseCase,
-  getOrderAnalyticsUseCase,
   getOrderForAdminUseCase,
   listMyOrdersUseCase,
   listOrdersUseCase,
@@ -82,17 +80,17 @@ import {
   createProductUseCase,
   createProductVariantUseCase,
   getProductAdminUseCase,
-  getProductsByIdsUseCase,
+  getProductCostsUseCase,
   listProductsAdminUseCase,
   removeProductImageUseCase,
   reorderProductImagesUseCase,
-  resolveProductIdsForVariantsUseCase,
   setProductActiveUseCase,
+  setProductCostsUseCase,
   setProductVariantActiveUseCase,
   updateProductUseCase,
   updateProductVariantUseCase,
 } from "../products/products.module";
-import { getPaymentCollectionSummaryUseCase, getPaymentForOrderUseCase, markCodPaymentCapturedUseCase } from "../payments/payments.module";
+import { getPaymentForOrderUseCase, markCodPaymentCapturedUseCase } from "../payments/payments.module";
 import { getPricingSettingUseCase, updatePricingSettingUseCase } from "../pricing/pricing.module";
 import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
 import {
@@ -116,8 +114,8 @@ import {
 import { GetCustomerDetailUseCase } from "./application/use-cases/get-customer-detail.use-case";
 import { CancelOrderWithRefundUseCase } from "./application/use-cases/cancel-order-with-refund.use-case";
 import { DeliverOrderAndCapturePaymentUseCase } from "./application/use-cases/deliver-order-and-capture-payment.use-case";
-import { GetAdminDashboardUseCase } from "./application/use-cases/get-admin-dashboard.use-case";
 import { GetOrderDetailForAdminUseCase } from "./application/use-cases/get-order-detail-for-admin.use-case";
+import { getBusinessDashboardUseCase } from "../analytics/analytics.module";
 import { AdminAnalyticsController } from "./interface/http/admin-analytics.controller";
 import { createAdminAnalyticsRouter } from "./interface/http/admin-analytics.routes";
 import { AdminAuthController } from "./interface/http/admin-auth.controller";
@@ -162,18 +160,6 @@ const cancelOrderWithRefundUseCase = new CancelOrderWithRefundUseCase(
 // Same "compose in admin" reasoning as cancellation above — see
 // DeliverOrderAndCapturePaymentUseCase's own doc comment.
 const deliverOrderAndCapturePaymentUseCase = new DeliverOrderAndCapturePaymentUseCase(deliverOrderUseCase, markCodPaymentCapturedUseCase);
-// The dashboard rollup — see GetAdminDashboardUseCase's own doc comment for why this composes here too.
-const getAdminDashboardUseCase = new GetAdminDashboardUseCase(
-  getOrderAnalyticsUseCase,
-  getPaymentCollectionSummaryUseCase,
-  listCustomersAdminUseCase,
-  getBestSellingVariantQuantitiesUseCase,
-  resolveProductIdsForVariantsUseCase,
-  getProductsByIdsUseCase,
-  listInventoryAdminUseCase,
-  listReturnsForAdminUseCase,
-);
-
 const adminAuthController = new AdminAuthController(loginUserUseCase, refreshTokenUseCase, logoutUserUseCase, getCurrentUserUseCase);
 const getOrderDetailForAdminUseCase = new GetOrderDetailForAdminUseCase(getOrderForAdminUseCase, getPaymentForOrderUseCase);
 const adminOrdersController = new AdminOrdersController(
@@ -252,6 +238,8 @@ const adminProductsController = new AdminProductsController(
   addProductImageUseCase,
   removeProductImageUseCase,
   reorderProductImagesUseCase,
+  getProductCostsUseCase,
+  setProductCostsUseCase,
 );
 const adminInventoryController = new AdminInventoryController(listInventoryAdminUseCase, adjustInventoryUseCase);
 const adminSettingsController = new AdminSettingsController(getPricingSettingUseCase, updatePricingSettingUseCase);
@@ -266,7 +254,7 @@ const getCustomerDetailUseCase = new GetCustomerDetailUseCase(
   { listForUser: (userId) => listAddressesUseCase.execute(userId) },
 );
 const adminCustomersController = new AdminCustomersController(listCustomersAdminUseCase, getCustomerDetailUseCase, setCustomerActiveUseCase);
-const adminAnalyticsController = new AdminAnalyticsController(getAdminDashboardUseCase);
+const adminAnalyticsController = new AdminAnalyticsController(getBusinessDashboardUseCase);
 const adminStaffController = new AdminStaffController(
   createStaffUseCase,
   listStaffUseCase,
