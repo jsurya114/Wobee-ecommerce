@@ -25,6 +25,8 @@ export interface PlaceOrderInput {
   confirmEmail?: string;
   address: CheckoutAddressInput;
   paymentMethod: OrderEntity["paymentMethod"];
+  /** Anonymous storefront analytics session (validated UUID) — stored on the order so the conversion funnel can count it. Optional; never affects checkout. */
+  analyticsSessionId?: string;
 }
 
 const MAX_ORDER_NUMBER_ATTEMPTS = 3;
@@ -188,6 +190,7 @@ export class CheckoutUseCase {
         totalPaise: subtotalPaise + taxPaise + shipping.shippingFeePaise - discountPaise,
         totalWeightGrams: cart.totalWeightGrams,
         paymentMethod: input.paymentMethod,
+        analyticsSessionId: input.analyticsSessionId ?? null,
         items,
       };
 

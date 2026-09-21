@@ -3,7 +3,6 @@ import type { PaymentEntity } from "../../domain/entities/payment.entity";
 import { PaymentAlreadyExistsForOrderError } from "../../domain/errors/payment-already-exists-for-order.error";
 import type {
   CreatePaymentInput,
-  PaymentCollectionSummary,
   PaymentRepositoryPort,
   UpdatePaymentInput,
 } from "../../application/ports/payment-repository.port";
@@ -74,18 +73,6 @@ export class PaymentRepository implements PaymentRepositoryPort {
   async markRefunded(paymentId: string, tx?: unknown): Promise<void> {
     const client = (tx as PrismaTx | undefined) ?? prisma;
     await client.payment.update({ where: { id: paymentId }, data: { status: "REFUNDED" } });
-  }
-
-  async getCollectionSummary(range: { from: Date; to: Date }): Promise<PaymentCollectionSummary> {
-    const createdAt = { gte: range.from, lte: range.to };
-    const [collected, pendingCod] = await Promise.all([
-      prisma.payment.aggregate({ where: { status: "CAPTURED", createdAt }, _sum: { amountPaise: true } }),
-      prisma.payment.aggregate({ where: { provider: "COD", status: "PENDING", createdAt }, _sum: { amountPaise: true } }),
-    ]);
-    return {
-      collectedPaise: collected._sum.amountPaise ?? 0,
-      pendingCodPaise: pendingCod._sum.amountPaise ?? 0,
-    };
   }
 }
 

@@ -5,6 +5,7 @@ import {
   listProductsAdminQuerySchema,
   reorderProductImagesSchema,
   setProductActiveSchema,
+  setProductCostsSchema,
   setVariantActiveSchema,
   updateProductSchema,
   updateVariantSchema,
@@ -23,6 +24,14 @@ export function createAdminProductsRouter(controller: AdminProductsController): 
 
   router.get("/", validate(listProductsAdminQuerySchema, "query"), asyncHandler((req, res) => controller.list(req, res)));
   router.get("/:id", asyncHandler((req, res) => controller.getOne(req, res)));
+  // Cost data is confidential business data (analytics permission = super_admin only), stricter than the catalog permission this router is otherwise mounted under.
+  router.get("/:id/costs", requirePermission(PERMISSIONS.VIEW_ANALYTICS), asyncHandler((req, res) => controller.getCosts(req, res)));
+  router.put(
+    "/:id/costs",
+    requirePermission(PERMISSIONS.VIEW_ANALYTICS),
+    validate(setProductCostsSchema),
+    asyncHandler((req, res) => controller.setCosts(req, res)),
+  );
   router.post("/", validate(createProductSchema), asyncHandler((req, res) => controller.create(req, res)));
   router.patch("/:id", validate(updateProductSchema), asyncHandler((req, res) => controller.update(req, res)));
   router.post("/:id/active", validate(setProductActiveSchema), asyncHandler((req, res) => controller.setActive(req, res)));

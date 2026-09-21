@@ -1,5 +1,6 @@
 import type { CheckoutInput } from "@woobe/validation";
 import { apiFetch } from "@/lib/api-client";
+import { ANALYTICS_SESSION_HEADER, getAnalyticsSessionId } from "@/lib/analytics";
 
 export interface OrderItemView {
   id: string;
@@ -49,5 +50,13 @@ export interface OrderView {
  * (DEVELOPMENT_RULES.md #1, ADR-015) — nothing computed here is trusted back.
  */
 export function checkout(input: CheckoutInput, accessToken?: string): Promise<OrderView> {
-  return apiFetch<OrderView>("/api/v1/orders/checkout", { method: "POST", body: input, accessToken });
+  // Link the order to its anonymous analytics session (funnel step "orders placed"). Absent
+  // when tracking is off (Do-Not-Track / server render) — checkout never depends on it.
+  const sessionId = getAnalyticsSessionId();
+  return apiFetch<OrderView>("/api/v1/orders/checkout", {
+    method: "POST",
+    body: input,
+    accessToken,
+    headers: sessionId ? { [ANALYTICS_SESSION_HEADER]: sessionId } : undefined,
+  });
 }

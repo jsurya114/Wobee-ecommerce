@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import * as cartApi from "../api/cart.client";
 import type { CartView } from "../api/cart.client";
+import { trackEvent } from "@/lib/analytics";
 
 interface CartContextValue {
   cart: CartView | null;
@@ -96,6 +97,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     async (variantId: string, quantity: number) => {
       const result = await cartApi.addCartItem({ variantId, quantity }, accessToken ?? undefined);
       setCart(result);
+      trackEvent({ type: "CART_ADDED" });
     },
     [accessToken],
   );

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Toaster } from "@woobe/ui";
+import { SessionStartTracker } from "@/features/analytics/components/AnalyticsTrackers";
 import { GuestLoginPrompt } from "@/features/auth/components/GuestLoginPrompt";
 import { AuthProvider } from "@/features/auth/hooks/useAuth";
 import { CartProvider } from "@/features/cart/hooks/useCart";
@@ -14,6 +15,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <CartProvider>
         <WishlistProvider>
           {children}
+          <SessionStartTracker />
           <GuestLoginPrompt />
           <Toaster />
         </WishlistProvider>

@@ -31,6 +31,7 @@ export class OrdersController {
       confirmEmail: input.confirmEmail,
       address: input.address,
       paymentMethod: input.paymentMethod,
+      analyticsSessionId: readAnalyticsSessionId(req),
     });
 
     // The just-converted cart is no longer ACTIVE, so a stale cart_id cookie
@@ -68,4 +69,12 @@ export class OrdersController {
     });
     res.status(200).json(order);
   }
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The storefront's anonymous analytics session id, sent as `X-Woobe-Session`. Anything that isn't a UUID is ignored — analytics must never be able to fail a checkout. */
+function readAnalyticsSessionId(req: Request): string | undefined {
+  const raw = req.headers["x-woobe-session"];
+  return typeof raw === "string" && UUID_PATTERN.test(raw) ? raw.toLowerCase() : undefined;
 }

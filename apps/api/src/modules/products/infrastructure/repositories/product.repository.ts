@@ -23,6 +23,8 @@ import type {
   ProductSummaryProjectionWithStatus,
   UpdateProductInput,
   UpdateVariantInput,
+  ProductCostsRepositoryPort,
+  ProductCostsView,
 } from "../../application/ports/product-repository.port";
 
 const ADMIN_VARIANT_SELECT = {
@@ -171,7 +173,7 @@ function offerLateralJoin(now: Date): Prisma.Sql {
  * ADR-010: the ONLY file in the products module allowed to import
  * @woobe/database (enforced by apps/api/.dependency-cruiser.cjs).
  */
-export class ProductRepository implements ProductRepositoryPort {
+export class ProductRepository implements ProductRepositoryPort, ProductCostsRepositoryPort {
   /**
    * Offer-filtering pass (2026-09-15) rewrote this to raw SQL for exactly
    * two things: the `onOffer` filter, and making `price_asc`/`price_desc`
@@ -705,6 +707,48 @@ export class ProductRepository implements ProductRepositoryPort {
       select: { ...ADMIN_VARIANT_SELECT, productId: true },
     });
     return row;
+  }
+
+  async findCosts(productId: string): Promise<ProductCostsView | null> {
+    const row = await prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        name: true,
+        pricingMode: true,
+        costPerKgPaise: true,
+        variants: {
+          orderBy: [{ color: "asc" }, { size: "asc" }],
+          select: { id: true, sku: true, color: true, size: true, weightGrams: true, costPricePaise: true },
+        },
+      },
+    });
+    if (!row) return null;
+    return {
+      productId: row.id,
+      name: row.name,
+      pricingMode: row.pricingMode,
+      costPerKgPaise: row.costPerKgPaise,
+      variants: row.variants.map((v) => ({ variantId: v.id, sku: v.sku, color: v.color, size: v.size, weightGrams: v.weightGrams, costPricePaise: v.costPricePaise })),
+    };
+  }
+
+  async setCosts(
+    productId: string,
+    input: { costPerKgPaise?: number | null; variantCosts?: { variantId: string; costPricePaise: number | null }[] },
+  ): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      const exists = await tx.product.findUnique({ where: { id: productId }, select: { id: true } });
+      if (!exists) return false;
+      if (input.costPerKgPaise !== undefined) {
+        await tx.product.update({ where: { id: productId }, data: { costPerKgPaise: input.costPerKgPaise } });
+      }
+      for (const variantCost of input.variantCosts ?? []) {
+        // updateMany scoped by productId so a variant id from another product is silently a no-op.
+        await tx.productVariant.updateMany({ where: { id: variantCost.variantId, productId }, data: { costPricePaise: variantCost.costPricePaise } });
+      }
+      return true;
+    });
   }
 
   async findProductPricingMode(productId: string): Promise<PricingMode | null> {

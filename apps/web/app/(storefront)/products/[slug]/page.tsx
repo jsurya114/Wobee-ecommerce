@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 import { getProductBySlug, getRelatedProducts, type ProductDetail } from "@/features/catalog/api/products.client";
+import { ProductViewTracker } from "@/features/analytics/components/AnalyticsTrackers";
 import { ProductDetail as ProductDetailView } from "@/features/catalog/components/ProductDetail";
 import { ApiError } from "@/lib/api-client";
 import { FLOATING_STACK_GAP_REM, MOBILE_BOTTOM_NAV_HEIGHT_REM, PDP_PURCHASE_DOCK_HEIGHT_REM } from "@/lib/layout-constants";
@@ -117,6 +118,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           }}
         />
       ) : null}
+      <ProductViewTracker productId={product.id} />
       <ProductDetailView product={product} relatedProducts={relatedProducts} />
     </main>
   );

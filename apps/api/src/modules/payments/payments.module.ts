@@ -11,7 +11,6 @@ import type { InventoryFinalizationPort } from "./application/ports/inventory-fi
 import type { OrderPort } from "./application/ports/order-port";
 import { ConfirmCodOrderUseCase } from "./application/use-cases/confirm-cod-order.use-case";
 import { CreateRazorpayOrderUseCase } from "./application/use-cases/create-razorpay-order.use-case";
-import { GetPaymentCollectionSummaryUseCase } from "./application/use-cases/get-payment-collection-summary.use-case";
 import { GetPaymentForOrderUseCase } from "./application/use-cases/get-payment-for-order.use-case";
 import { HandleRazorpayWebhookUseCase } from "./application/use-cases/handle-razorpay-webhook.use-case";
 import { MarkCodPaymentCapturedUseCase } from "./application/use-cases/mark-cod-payment-captured.use-case";
@@ -57,7 +56,6 @@ export const markPaymentRefundedUseCase = new MarkPaymentRefundedUseCase(payment
 /** Exported for `admin`'s DeliverOrderAndCapturePaymentUseCase (client-review fix, 2026-09-03) — see that use-case's own doc comment for why this composes in `admin`, not in `orders`. */
 export const markCodPaymentCapturedUseCase = new MarkCodPaymentCapturedUseCase(paymentRepository);
 /** Exported for `admin`'s GetAdminDashboardUseCase (2026-09-03). */
-export const getPaymentCollectionSummaryUseCase = new GetPaymentCollectionSummaryUseCase(paymentRepository);
 
 const paymentsController = new PaymentsController(createRazorpayOrderUseCase, confirmCodOrderUseCase, handleRazorpayWebhookUseCase);
 

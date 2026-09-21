@@ -162,3 +162,25 @@ export function removeImage(productId: string, imageId: string, accessToken: str
 export function reorderImages(productId: string, imageIds: string[], accessToken: string): Promise<void> {
   return apiFetch(`/api/v1/admin/products/${productId}/images/order`, { method: "PUT", body: { imageIds }, accessToken });
 }
+
+/** Confidential cost basis for business analytics (super_admin only) — deliberately a separate resource from the product detail. */
+export interface ProductCosts {
+  productId: string;
+  name: string;
+  pricingMode: "WEIGHT_BASED" | "FIXED";
+  costPerKgPaise: number | null;
+  variants: { variantId: string; sku: string; color: string; size: string; weightGrams: number; costPricePaise: number | null }[];
+}
+
+export interface SetProductCostsPayload {
+  costPerKgPaise?: number | null;
+  variantCosts?: { variantId: string; costPricePaise: number | null }[];
+}
+
+export function getProductCosts(id: string, accessToken: string): Promise<{ costs: ProductCosts }> {
+  return apiFetch(`/api/v1/admin/products/${id}/costs`, { accessToken });
+}
+
+export function setProductCosts(id: string, input: SetProductCostsPayload, accessToken: string): Promise<{ costs: ProductCosts }> {
+  return apiFetch(`/api/v1/admin/products/${id}/costs`, { method: "PUT", body: input, accessToken });
+}

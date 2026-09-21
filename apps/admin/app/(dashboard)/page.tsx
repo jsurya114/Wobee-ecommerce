@@ -1,19 +1,34 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { navEntriesForRole, hasPermission } from "@/features/shell/nav-config";
 import { LoadingState } from "@/features/shell/components/LoadingState";
-import { BestSellersList } from "@/features/dashboard/components/BestSellersList";
-import { KpiCards } from "@/features/dashboard/components/KpiCards";
-import { LowStockAlert } from "@/features/dashboard/components/LowStockAlert";
-import { OrderStatusBreakdown } from "@/features/dashboard/components/OrderStatusBreakdown";
-import { RevenueTrendChart } from "@/features/dashboard/components/RevenueTrendChart";
+import type { DashboardSelection } from "@/features/dashboard/api/dashboard.client";
+import { AbandonedCartsPanel } from "@/features/dashboard/components/AbandonedCartsPanel";
+import { ConversionFunnelPanel } from "@/features/dashboard/components/ConversionFunnelPanel";
+import { CustomersTrafficPanel } from "@/features/dashboard/components/CustomersTrafficPanel";
+import { DashboardSkeleton } from "@/features/dashboard/components/DashboardSkeleton";
+import { DashboardToolbar } from "@/features/dashboard/components/DashboardToolbar";
+import { FulfillmentPanel } from "@/features/dashboard/components/FulfillmentPanel";
+import { InventoryPanel } from "@/features/dashboard/components/InventoryPanel";
+import { LowStockPanel } from "@/features/dashboard/components/LowStockPanel";
+import { MerchandisingPanel } from "@/features/dashboard/components/MerchandisingPanel";
+import { OverviewKpis } from "@/features/dashboard/components/OverviewKpis";
+import { PaymentHealthPanel } from "@/features/dashboard/components/PaymentHealthPanel";
+import { SalesPerformance } from "@/features/dashboard/components/SalesPerformance";
 import { useAdminDashboard } from "@/features/dashboard/hooks/useAdminDashboard";
 
-const RANGE_DAYS = 30;
+const DEFAULT_SELECTION: DashboardSelection = { range: "30d", compare: "previous" };
 
+/**
+ * Business-analytics dashboard (2026-09-21). One date selection feeds one
+ * request, so every panel always describes the same period. Reading order
+ * follows the owner's questions: how much did we sell / make → are customers
+ * converting → are orders and payments healthy → what sells and what stock is
+ * tied up → who is buying → what needs attention.
+ */
 export default function DashboardPage() {
   const router = useRouter();
   const { user } = useAdminAuth();
@@ -30,33 +45,36 @@ export default function DashboardPage() {
     }
   }, [user, canView, router]);
 
-  const { dashboard, loading, error } = useAdminDashboard(RANGE_DAYS, canView);
+  const [selection, setSelection] = useState<DashboardSelection>(DEFAULT_SELECTION);
+  const { dashboard, loading, updating, error } = useAdminDashboard(selection, canView);
 
   if (!canView) {
     return <LoadingState />; // redirect effect above is already firing
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="font-display text-xl text-text-primary">Dashboard</h1>
-        <p className="font-body text-sm text-text-secondary">Last {RANGE_DAYS} days.</p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <DashboardToolbar selection={selection} onChange={setSelection} period={dashboard?.period} updating={updating} />
 
       {loading ? (
-        <LoadingState />
+        <DashboardSkeleton />
       ) : error || !dashboard ? (
         <p className="py-12 text-center font-body text-sm text-error">{error ?? "Couldn't load the dashboard."}</p>
       ) : (
-        <>
-          <KpiCards revenue={dashboard.revenue} newCustomersCount={dashboard.newCustomersCount} pendingReturnsCount={dashboard.pendingReturnsCount} />
-          <RevenueTrendChart points={dashboard.dailyRevenue} />
-          <div className="grid gap-4 lg:grid-cols-3">
-            <OrderStatusBreakdown counts={dashboard.statusCounts} />
-            <BestSellersList bestSellers={dashboard.bestSellers} />
-            <LowStockAlert items={dashboard.lowStock} total={dashboard.lowStockTotal} />
+        <div className={updating ? "flex flex-col gap-5 opacity-70 transition-opacity" : "flex flex-col gap-5 transition-opacity"}>
+          <OverviewKpis d={dashboard} />
+          <SalesPerformance d={dashboard} />
+          <ConversionFunnelPanel d={dashboard} />
+          <FulfillmentPanel d={dashboard} />
+          <PaymentHealthPanel d={dashboard} />
+          <MerchandisingPanel d={dashboard} />
+          <InventoryPanel d={dashboard} />
+          <CustomersTrafficPanel d={dashboard} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <AbandonedCartsPanel d={dashboard} />
+            <LowStockPanel d={dashboard} />
           </div>
-        </>
+        </div>
       )}
     </div>
   );

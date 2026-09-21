@@ -28,6 +28,8 @@ import { RemoveProductImageUseCase } from "./application/use-cases/admin/remove-
 import { ReorderProductImagesUseCase } from "./application/use-cases/admin/reorder-product-images.use-case";
 import { SetProductActiveUseCase } from "./application/use-cases/admin/set-product-active.use-case";
 import { SetProductVariantActiveUseCase } from "./application/use-cases/admin/set-product-variant-active.use-case";
+import { GetProductCostsUseCase } from "./application/use-cases/admin/get-product-costs.use-case";
+import { SetProductCostsUseCase } from "./application/use-cases/admin/set-product-costs.use-case";
 import { UpdateProductUseCase } from "./application/use-cases/admin/update-product.use-case";
 import { UpdateProductVariantUseCase } from "./application/use-cases/admin/update-product-variant.use-case";
 import { CountActiveProductsBySizeUseCase } from "./application/use-cases/count-active-products-by-size.use-case";
@@ -103,6 +105,9 @@ export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepo
 export const getProductAdminUseCase = new GetProductAdminUseCase(productRepository);
 export const createProductUseCase = new CreateProductUseCase(productRepository);
 export const updateProductUseCase = new UpdateProductUseCase(productRepository, pricingReader);
+// Cost data is never part of any cached/customer-facing read, so these use the uncached repository directly.
+export const getProductCostsUseCase = new GetProductCostsUseCase(realProductRepository);
+export const setProductCostsUseCase = new SetProductCostsUseCase(realProductRepository);
 export const setProductActiveUseCase = new SetProductActiveUseCase(productRepository);
 export const createProductVariantUseCase = new CreateProductVariantUseCase(productRepository, pricingReader, inventoryInitializer);
 export const updateProductVariantUseCase = new UpdateProductVariantUseCase(productRepository, pricingReader);
