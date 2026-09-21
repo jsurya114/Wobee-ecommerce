@@ -25,6 +25,9 @@ module.exports = {
         // Redesign: a warm neutral fill for product-image placeholders,
         // sheet handles and subtle zones — replaces ad-hoc `primary-tint/40`.
         "surface-2": "#F4EDE8",
+        // Neutral (non-warm) fill for form-like controls sitting on the white
+        // canvas — the storefront search bar (mobile UI refinement, 2026-09-21).
+        "surface-3": "#F3F3F3",
         // Redesign: scrim behind bottom sheets / dialogs.
         overlay: "rgba(38,34,32,0.45)",
         text: {

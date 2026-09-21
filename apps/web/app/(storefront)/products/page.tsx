@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { listCollections } from "@/features/catalog/api/collections.client";
 import { listCategories } from "@/features/catalog/api/categories.client";
 import { listProducts, PRODUCT_SORT_VALUES, type ProductListParams, type ProductListResult, type ProductSort } from "@/features/catalog/api/products.client";
+import { CompactSearchBar } from "@/features/catalog/components/CompactSearchBar";
 import { CategoryFilter } from "@/features/catalog/components/CategoryFilter";
 import { CollectionFilter } from "@/features/catalog/components/CollectionFilter";
 import { FiltersPanel } from "@/features/catalog/components/FiltersPanel";
@@ -131,25 +132,29 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const resultsKey = JSON.stringify({ ...query, category: currentParams.category, collection: currentParams.collection });
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
-      <h1 className="mb-3 font-display text-xl text-text-primary">Shop</h1>
-      <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
-      <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
-      <PlpControlBar>
-        <OnOfferQuickFilter currentParams={currentParams} />
-        <SizeQuickFilter currentParams={currentParams} />
-        <FiltersPanel currentParams={currentParams} />
-        <SortSelector currentParams={currentParams} />
-      </PlpControlBar>
-      <ProductResults
-        key={resultsKey}
-        initialProducts={result.products}
-        initialTotal={result.total}
-        initialPage={result.page}
-        limit={PAGE_LIMIT}
-        query={query}
-        hasActiveFilters={hasActiveFilters}
-      />
-    </main>
+    <>
+      {/* The same mobile search row Home uses (sticky under the header) — a sibling of <main>, not inside it, so it keeps its own px-4 instead of doubling main's padding. Hidden at md+, where the header's own search covers this route. */}
+      <CompactSearchBar />
+      <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
+        <h1 className="mb-3 font-display text-xl text-text-primary">Shop</h1>
+        <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
+        <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
+        <PlpControlBar>
+          <OnOfferQuickFilter currentParams={currentParams} />
+          <SizeQuickFilter currentParams={currentParams} />
+          <FiltersPanel currentParams={currentParams} />
+          <SortSelector currentParams={currentParams} />
+        </PlpControlBar>
+        <ProductResults
+          key={resultsKey}
+          initialProducts={result.products}
+          initialTotal={result.total}
+          initialPage={result.page}
+          limit={PAGE_LIMIT}
+          query={query}
+          hasActiveFilters={hasActiveFilters}
+        />
+      </main>
+    </>
   );
 }

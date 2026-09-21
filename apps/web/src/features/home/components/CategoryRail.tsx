@@ -1,43 +1,32 @@
-import { SectionHeader } from "@woobe/ui";
+import { SectionHeader, cn } from "@woobe/ui";
 import Link from "next/link";
 import type { HomeCategoryTile } from "../api/home.client";
 
 /**
  * Category navigation strip (redesign spec §B) — sits below the promo
- * carousel (2026-08-31 reorder), with a visible compact "Shop by category"
- * label (was `sr-only`) matching every other section's `SectionHeader`.
- * Round category thumbnails from real product imagery with a label
- * beneath, the group visually centered and spread across the page. A
- * category with no imaged product falls back to a tinted circle with its
- * initial (no invented imagery).
+ * carousel, under a compact "Shop by category" `SectionHeader`. Round
+ * category thumbnails from real product imagery with a centered label
+ * beneath. A category with no imaged product falls back to a tinted circle
+ * with its initial (no invented imagery).
  *
- * Label typography (2026-09-03 refinement pass 2): normal title case, not
- * uppercase-with-tracking — the category names already arrive title-cased
- * from the API ("Ethnic Wear"), so dropping `uppercase` is enough to show
- * them naturally; no data change.
+ * Mobile layout (mobile UI refinement, 2026-09-21): the row is sized from
+ * the available width, not from a fixed circle size, so the first five
+ * categories fill the row edge-to-edge (12px side inset, 6px gaps) instead
+ * of leaving dead space either side of small circles.
+ *  - 5 or fewer categories: every item is `flex-1` — they share the row
+ *    equally, so the row is always full, and no scrolling exists.
+ *  - more than 5: each item is exactly one fifth of the row (minus gaps),
+ *    so five are visible at once and the rest scroll horizontally
+ *    (scroll-snap) — nothing is hidden, "See all" is unchanged.
+ * The circle is `w-full` of its column with `aspect-square`, capped at
+ * 4.9rem (78px) so it stays in the ~68–78px band on 375–430px phones and
+ * shrinks gracefully (not clipped) at 320px. Labels stay on a single line
+ * (wrapping to two lines was itself a reported problem, 2026-09-04) at a
+ * viewport-scaled font size, so "Accessories"/"Ethnic Wear" still fit a
+ * column at 320px.
  *
- * Each item's own column width is intrinsic to its content (the `<Link>`
- * has no fixed width), not pinned to the circle's fixed size — the circle
- * (`h-14 w-14`/`sm:h-16 sm:w-16`) is what's fixed, and `whitespace-nowrap`
- * keeps every label on a single line, so a wide two-word name like "Ethnic
- * Wear" simply gets a wider column (with the circle still centered above
- * it) instead of wrapping to two stacked lines — confirmed live,
- * 2026-09-04, that word-wrapping the label was itself the actual
- * complaint, not just how it wrapped (an earlier attempt on the same
- * report fixed a real char-level-wrap bug but kept the two-line result,
- * which was never what was wanted). No `min-h` trick needed for row
- * alignment now that every label is uniformly one line tall. Circle size
- * bumped back up (final refinement pass, 2026-09-03) — a prior pass
- * over-tightened these into a size too small to read as a real navigation
- * item. No bottom divider (removed, same pass): the transition into "New
- * arrivals" is carried by whitespace/typography, not a rule.
- *
- * Responsive: desktop/tablet render the whole group centered on one row
- * (`justify-center`, spacing widens with the viewport); on mobile the row
- * becomes a touch-scrollable carousel — `min-w-max` keeps each item at its
- * natural size and the `overflow-x-auto` wrapper scrolls, so the first item
- * is never clipped off the scrollable start and the component never causes
- * page-level horizontal overflow.
+ * `md:` and up keep the original centered, fixed-size row (16px circles,
+ * widening gaps) — desktop is unchanged.
  *
  * Data + routing are unchanged: one `HomeCategoryTile[]` from `GET
  * /api/v1/home`, each item links to `/products?category=<slug>`. Only
@@ -47,10 +36,11 @@ import type { HomeCategoryTile } from "../api/home.client";
  */
 export function CategoryRail({ categories }: { categories: HomeCategoryTile[] }) {
   if (categories.length === 0) return null;
+  const fitsInRow = categories.length <= 5;
 
   return (
-    <section aria-label="Shop by category" className="px-4 pb-3 pt-3 sm:px-6">
-      <div className="mx-auto max-w-6xl">
+    <section aria-label="Shop by category" className="pb-3 pt-3 sm:px-6">
+      <div className="mx-auto max-w-6xl px-4 sm:px-0">
         <SectionHeader
           action={
             <Link href="/products" className="hover:underline">
@@ -61,15 +51,23 @@ export function CategoryRail({ categories }: { categories: HomeCategoryTile[] })
           Shop by category
         </SectionHeader>
       </div>
-      <nav className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <ul className="mx-auto flex min-w-max items-start justify-center gap-4 sm:gap-7 md:min-w-0 md:max-w-6xl md:gap-9 lg:gap-11">
+      <nav className="overflow-x-auto px-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:px-0 [&::-webkit-scrollbar]:hidden">
+        <ul className="mx-auto flex snap-x snap-proximity items-start gap-1.5 sm:min-w-max sm:justify-center sm:gap-7 md:min-w-0 md:max-w-6xl md:gap-9 lg:gap-11">
           {categories.map((category) => (
-            <li key={category.id} className="shrink-0">
+            <li
+              key={category.id}
+              className={cn(
+                "snap-start",
+                fitsInRow
+                  ? "min-w-0 flex-1 sm:flex-none"
+                  : "min-w-0 shrink-0 basis-[calc((100%-1.5rem)/5)] sm:basis-auto",
+              )}
+            >
               <Link
                 href={`/products?category=${encodeURIComponent(category.slug)}`}
-                className="group flex flex-col items-center gap-1.5 text-center transition-transform active:scale-95 motion-reduce:transition-none"
+                className="group flex flex-col items-center gap-2 text-center transition-transform active:scale-95 motion-reduce:transition-none"
               >
-                <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-surface-2 transition group-hover:border-primary motion-reduce:transition-none sm:h-16 sm:w-16">
+                <span className="flex aspect-square w-full max-w-[4.9rem] shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-surface-2 transition group-hover:border-primary motion-reduce:transition-none sm:h-16 sm:w-16">
                   {category.imageUrl ? (
                     <img
                       src={category.imageUrl}
@@ -82,7 +80,7 @@ export function CategoryRail({ categories }: { categories: HomeCategoryTile[] })
                     <span className="font-display text-sm text-primary">{category.name.slice(0, 1)}</span>
                   )}
                 </span>
-                <span className="whitespace-nowrap font-body text-[11px] font-medium leading-tight text-text-secondary transition-colors group-hover:text-text-primary">
+                <span className="whitespace-nowrap font-body text-[clamp(0.59rem,2.75vw,0.6875rem)] font-medium leading-tight text-text-secondary transition-colors group-hover:text-text-primary">
                   {category.name}
                 </span>
               </Link>
