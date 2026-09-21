@@ -99,5 +99,15 @@ check "id-token: write only on the two AWS jobs"                   '[ "$(grep -c
 # environment), not a specific repository name.
 check "OIDC trust subject unchanged (branch ref, no environment)"  'grep -q "subject   = \"repo:\${var.github_repository}:ref:refs/heads/\${var.github_branch}\"" "$TFDIR/modules/github-oidc/main.tf" && ! grep -q "environment:" "$TFDIR/modules/github-oidc/main.tf" && grep -q "default     = \"jsurya114@187753860/Wobee-ecommerce@1345844181\"" "$TFDIR/environments/production/variables.tf"'
 
+# Regression (2026-09-21): deploy.sh piped its startup/diagnostic `docker ps
+# -a` line through `head -6`. Once the container fleet grew past 6 lines
+# (woobe-api + woobe-worker joined the 5 observability containers = 7
+# containers + a header = 8 lines), `head -6` closed early, SIGPIPEd the
+# still-writing `docker ps -a`, and `set -eu -o pipefail` aborted deploy.sh
+# on the spot -- before pull, migrate, or the candidate phase ever ran. This
+# silently failed EVERY deploy (exit 141, no application error) until fixed.
+# Guards against reintroducing any fixed-line head on that command.
+check "deploy.sh docker-ps diagnostics: no fixed-line head (SIGPIPE regression)" '! grep -q "docker ps -a --filter name=.\^woobe-. 2>&1 | head" "$TFDIR/modules/ssm-deploy/deploy.sh"'
+
 echo; echo "passed: $pass  failed: $fail"
 [ "$fail" -eq 0 ]
