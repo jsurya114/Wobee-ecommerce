@@ -148,7 +148,12 @@ log "Deploying tag=$IMAGE_TAG"
 log "  new image:                    $IMAGE"
 log "  last verified-good API:       ${PREVIOUS_API_IMAGE:-none}"
 log "  last verified-good worker:    ${PREVIOUS_WORKER_IMAGE:-none}"
-docker ps -a --filter name='^woobe-' 2>&1 | head -6
+# No `| head -N`: docker ps -a's own stdout is short (one host, single-digit
+# container count) and piping it into a fixed-line head previously SIGPIPEd
+# the writer once the fleet grew past that count -- with `set -eu -o
+# pipefail` that aborted the whole script before touching anything, on every
+# deploy (root-caused 2026-09-21: exactly 7 "woobe-" containers, head -6).
+docker ps -a --filter name='^woobe-' 2>&1
 
 # ---- 1. pull (by digest) ----------------------------------------------------
 log "Pulling image"
@@ -260,7 +265,8 @@ verify() {
 
 diagnose() { # container names...
   echo "----- diagnostics -----"
-  docker ps -a --filter name='^woobe-' 2>&1 | head -6
+  # See the comment on the same command above: no `| head -N` (SIGPIPE risk).
+  docker ps -a --filter name='^woobe-' 2>&1
   for c in "$@"; do
     if docker inspect "$c" >/dev/null 2>&1; then
       health="$(inspect .State.Health.Status "$c" | head -n 1 || true)"
