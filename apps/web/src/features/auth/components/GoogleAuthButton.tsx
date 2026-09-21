@@ -11,6 +11,9 @@ import { GoogleGlyph } from "./SocialAuthButtons";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
+/** False when the client ID wasn't set at build time — the button renders nothing, so callers should drop any chrome (dividers) built around it too. */
+export const IS_GOOGLE_AUTH_CONFIGURED = Boolean(GOOGLE_CLIENT_ID);
+
 interface GoogleCredentialResponse {
   credential: string;
 }
@@ -131,7 +134,7 @@ export function GoogleAuthButton() {
     realButton?.click();
   }, [busy, scriptReady]);
 
-  if (!GOOGLE_CLIENT_ID) return null;
+  if (!IS_GOOGLE_AUTH_CONFIGURED) return null;
 
   return (
     <>

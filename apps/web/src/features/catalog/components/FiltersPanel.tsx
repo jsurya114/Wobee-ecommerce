@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import type { ProductSort } from "../api/products.client";
 import { useFilterResultCount } from "../hooks/useFilterResultCount";
 import { buildProductsHref, parseProductsQueryParams, type ProductsQueryParams } from "../lib/build-products-href";
-import { PLP_CONTROL_BUTTON_CLASS } from "../lib/filter-options";
+import { PLP_CONTROL_BUTTON_CLASS, PLP_CONTROL_INACTIVE_CLASS } from "../lib/filter-options";
 
 /**
  * The full PLP filter sheet (redesign spec §14) — Colour, Price,
@@ -94,7 +94,7 @@ export function FiltersPanel({ currentParams }: { currentParams: ProductsQueryPa
         aria-haspopup="dialog"
         className={cn(
           PLP_CONTROL_BUTTON_CLASS,
-          count > 0 ? "border-primary bg-primary text-white" : "border-border bg-surface text-text-primary hover:border-primary",
+          count > 0 ? "border-primary bg-primary text-white" : PLP_CONTROL_INACTIVE_CLASS,
         )}
       >
         <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
