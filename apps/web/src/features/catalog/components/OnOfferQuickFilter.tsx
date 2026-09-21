@@ -2,7 +2,7 @@ import { cn } from "@woobe/ui";
 import { Tag } from "lucide-react";
 import Link from "next/link";
 import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
-import { PLP_CONTROL_BUTTON_CLASS } from "../lib/filter-options";
+import { PLP_CONTROL_BUTTON_CLASS, PLP_CONTROL_INACTIVE_CLASS } from "../lib/filter-options";
 
 /**
  * "On Offer" storefront filter (offer-discovery pass, 2026-09-15) — a plain
@@ -20,7 +20,7 @@ export function OnOfferQuickFilter({ currentParams }: { currentParams: ProductsQ
     <Link
       href={buildProductsHref({ ...currentParams, onOffer: active ? undefined : "true" })}
       aria-pressed={active}
-      className={cn(PLP_CONTROL_BUTTON_CLASS, active ? "border-primary bg-primary text-white" : "border-border bg-surface text-text-primary hover:border-primary")}
+      className={cn(PLP_CONTROL_BUTTON_CLASS, active ? "border-primary bg-primary text-white" : PLP_CONTROL_INACTIVE_CLASS)}
     >
       <Tag className="h-4 w-4" aria-hidden="true" />
       On Offer
