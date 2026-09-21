@@ -191,15 +191,41 @@ export function OfferStrip({ offers }: { offers: HomeOffer[] }) {
  * merchandising pass, 2026-09-15) — `tabIndex={-1}` on every hidden
  * duplicate/coverage copy keeps keyboard users from tabbing into invisible
  * or redundant content.
+ *
+ * Admin-authored names routinely already carry the discount ("Ethnic Wear —
+ * ₹200 Off", "Sitewide 10% Off") — appending the formatter's label to those
+ * rendered it twice ("… — ₹200 OFF — ₹200 OFF"), so the label is only added
+ * when the name doesn't already state it (2026-09-21 fix).
  */
 function OfferMessage({ offer, tabIndex }: { offer: HomeOffer; tabIndex?: number }) {
+  const discountLabel = formatOfferBadgeLabel(offer);
+  const nameStatesDiscount = offerNameStatesDiscount(offer.name, discountLabel);
   return (
     <Link
       href={`/products?offerId=${offer.id}`}
       tabIndex={tabIndex}
       className="font-body text-[11px] font-semibold uppercase tracking-wide hover:underline sm:text-xs"
     >
-      {offer.name} <span className="font-normal text-white/85">— {formatOfferBadgeLabel(offer)}</span>
+      {nameStatesDiscount ? (
+        offer.name
+      ) : (
+        <>
+          {offer.name} <span className="font-normal text-white/85">— {discountLabel}</span>
+        </>
+      )}
     </Link>
   );
+}
+
+/** True when `name` already contains the discount `label` ("20% OFF" / "₹200 OFF") — case-insensitive, whitespace-normalised, and not merely the tail of a larger number (so "Flash 120% Off" doesn't count as stating "20% OFF"). */
+function offerNameStatesDiscount(name: string, label: string): boolean {
+  const normalise = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+  const haystack = normalise(name);
+  const needle = normalise(label);
+  let from = haystack.indexOf(needle);
+  while (from !== -1) {
+    if (!/[\d.]/.test(haystack[from - 1] ?? "")) return true;
+    from = haystack.indexOf(needle, from + 1);
+  }
+  return false;
 }

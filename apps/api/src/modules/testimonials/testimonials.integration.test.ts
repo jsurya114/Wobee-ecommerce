@@ -335,6 +335,69 @@ describe("Admin testimonial moderation", () => {
     const resubmit = await agent.post("/api/v1/testimonials").field("orderId", orderId).field("rating", "5").field("text", "Trying to resubmit after rejection.");
     expect(resubmit.status).toBe(409);
   });
+
+  it("returns 404 for an unknown testimonial id on approve and reject, and changes nothing", async () => {
+    const adminAuth = await superAdminAuth();
+    for (const action of ["approve", "reject"]) {
+      const res = await request(app).post(`/api/v1/admin/testimonials/does-not-exist/${action}`).set("Authorization", `Bearer ${adminAuth}`);
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it("moderation is terminal: approving a REJECTED testimonial, or rejecting an APPROVED one, is a 409 and leaves the status alone", async () => {
+    const adminAuth = await superAdminAuth();
+
+    const rejected = await submitAndFetchId();
+    expect((await request(app).post(`/api/v1/admin/testimonials/${rejected.testimonialId}/reject`).set("Authorization", `Bearer ${adminAuth}`)).status).toBe(200);
+    expect((await request(app).post(`/api/v1/admin/testimonials/${rejected.testimonialId}/approve`).set("Authorization", `Bearer ${adminAuth}`)).status).toBe(409);
+    expect((await prisma.testimonial.findUniqueOrThrow({ where: { id: rejected.testimonialId } })).status).toBe("REJECTED");
+
+    const approved = await submitAndFetchId();
+    expect((await request(app).post(`/api/v1/admin/testimonials/${approved.testimonialId}/approve`).set("Authorization", `Bearer ${adminAuth}`)).status).toBe(200);
+    expect((await request(app).post(`/api/v1/admin/testimonials/${approved.testimonialId}/reject`).set("Authorization", `Bearer ${adminAuth}`)).status).toBe(409);
+    expect((await prisma.testimonial.findUniqueOrThrow({ where: { id: approved.testimonialId } })).status).toBe("APPROVED");
+  });
+
+  it("rejects the moderation list from an unauthenticated caller and a non-super-admin staff role", async () => {
+    expect((await request(app).get("/api/v1/admin/testimonials")).status).toBe(401);
+    const staffAuth = await orderStaffAuth();
+    expect((await request(app).get("/api/v1/admin/testimonials").set("Authorization", `Bearer ${staffAuth}`)).status).toBe(403);
+  });
+
+  it("status filter returns only the requested status (PENDING / APPROVED / REJECTED), and every status when omitted", async () => {
+    const adminAuth = await superAdminAuth();
+    const pending = await submitAndFetchId();
+    const approved = await submitAndFetchId();
+    const rejected = await submitAndFetchId();
+    await request(app).post(`/api/v1/admin/testimonials/${approved.testimonialId}/approve`).set("Authorization", `Bearer ${adminAuth}`);
+    await request(app).post(`/api/v1/admin/testimonials/${rejected.testimonialId}/reject`).set("Authorization", `Bearer ${adminAuth}`);
+
+    const list = async (query: string) => {
+      const res = await request(app).get(`/api/v1/admin/testimonials?${query}`).set("Authorization", `Bearer ${adminAuth}`);
+      expect(res.status).toBe(200);
+      return res.body.items as { id: string; status: string }[];
+    };
+    const ours = [pending.testimonialId, approved.testimonialId, rejected.testimonialId];
+
+    for (const [status, expectedId] of [
+      ["PENDING", pending.testimonialId],
+      ["APPROVED", approved.testimonialId],
+      ["REJECTED", rejected.testimonialId],
+    ] as const) {
+      const items = await list(`status=${status}&pageSize=100`);
+      expect(items.every((t) => t.status === status)).toBe(true);
+      expect(items.map((t) => t.id)).toContain(expectedId);
+      expect(items.map((t) => t.id).filter((id) => ours.includes(id))).toEqual([expectedId]);
+    }
+
+    const all = (await list("pageSize=100")).map((t) => t.id);
+    for (const id of ours) expect(all).toContain(id);
+  });
+
+  it("rejects an unrecognised status filter value with 400", async () => {
+    const res = await request(app).get("/api/v1/admin/testimonials?status=BOGUS").set("Authorization", `Bearer ${await superAdminAuth()}`);
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("Aggregate rating", () => {
