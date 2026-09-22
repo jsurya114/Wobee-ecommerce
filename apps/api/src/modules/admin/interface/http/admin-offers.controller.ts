@@ -7,13 +7,25 @@ import type { ListOffersAdminUseCase } from "../../../offers/application/use-cas
 import type { SetOfferActiveUseCase } from "../../../offers/application/use-cases/admin/set-offer-active.use-case";
 import type { UpdateOfferUseCase } from "../../../offers/application/use-cases/admin/update-offer.use-case";
 
-/** Thin permission-gated HTTP gateway onto the offers module's own exported use-cases (ADR-025) — same shape as AdminCouponsController. */
+/**
+ * Thin permission-gated HTTP gateway onto the offers module's own exported
+ * use-cases (ADR-025) — same shape as AdminCouponsController.
+ *
+ * create/update are typed as `Pick<..., "execute">` rather than the
+ * concrete offers-module classes (fix: admin offer discount validation) —
+ * `admin.module.ts` actually wires in `products`' `CreateOfferWithPriceValidationUseCase`
+ * / `UpdateOfferWithPriceValidationUseCase` instead, which validate the
+ * discount against the target product(s)' price before delegating to these
+ * same offers use-cases. `Pick<>` is what lets either one satisfy this
+ * constructor without this controller needing to know which it got — it
+ * still only ever calls `.execute(...)`.
+ */
 export class AdminOffersController {
   constructor(
     private readonly listOffersAdminUseCase: ListOffersAdminUseCase,
     private readonly getOfferAdminUseCase: GetOfferAdminUseCase,
-    private readonly createOfferUseCase: CreateOfferUseCase,
-    private readonly updateOfferUseCase: UpdateOfferUseCase,
+    private readonly createOfferUseCase: Pick<CreateOfferUseCase, "execute">,
+    private readonly updateOfferUseCase: Pick<UpdateOfferUseCase, "execute">,
     private readonly setOfferActiveUseCase: SetOfferActiveUseCase,
   ) {}
 

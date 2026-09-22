@@ -18,6 +18,7 @@ import type {
   ListProductsAdminResult,
   ListProductsFilter,
   ListProductsResult,
+  OfferPriceFloorTarget,
   ProductRepositoryPort,
   ProductSummaryProjection,
   ProductSummaryProjectionWithStatus,
@@ -791,6 +792,21 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
       where: { id: productId },
       data: { minPricePaiseCache: result._min.effectivePricePaiseCache ?? 0 },
     });
+  }
+
+  async getMinPricePaiseForOfferTarget(target: OfferPriceFloorTarget): Promise<number | null> {
+    const where: Prisma.ProductWhereInput = {
+      // gt: 0 (not isActive) — a product with no active variant recomputes
+      // to exactly 0 (see recomputeMinPrice above), which has nothing
+      // currently purchasable to violate; excluding it here is what keeps
+      // this check from flagging every offer that happens to also target
+      // an out-of-stock/unpriced product as "too large."
+      minPricePaiseCache: { gt: 0 },
+      ...(target.scope === "CATEGORY" ? { categoryId: target.categoryId } : {}),
+      ...(target.scope === "PRODUCTS" ? { id: { in: target.productIds } } : {}),
+    };
+    const result = await prisma.product.aggregate({ where, _min: { minPricePaiseCache: true } });
+    return result._min.minPricePaiseCache ?? null;
   }
 
   async addImage(productId: string, input: AddProductImageInput): Promise<AdminProductImageEntity> {
