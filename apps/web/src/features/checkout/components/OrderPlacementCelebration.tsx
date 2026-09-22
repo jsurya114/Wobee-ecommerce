@@ -54,10 +54,12 @@ const SPARKLE_POSITIONS: { top?: string; left?: string; right?: string; bottom?:
  *
  * Exported (2026-09-22) so OrderConfirmation can fire the same burst when a
  * RAZORPAY order's webhook-verified capture actually lands — that page
- * never rendered this component (checkout navigates straight past it via
- * `?autopay=1`), so a real payment success had no celebration at all.
- * Callers are responsible for their own reduced-motion + once-only guards,
- * same as this component's own usage below.
+ * never rendered this component (checkout navigates straight to the
+ * dedicated `/payment/[id]` page instead, which itself only ever hands off
+ * to OrderConfirmation once that capture lands), so a real payment success
+ * had no celebration at all. Callers are responsible for their own
+ * reduced-motion + once-only guards, same as this component's own usage
+ * below.
  */
 export function fireConfetti(): void {
   void import("canvas-confetti").then(({ default: confetti }) => {

@@ -186,13 +186,18 @@ export function CheckoutForm() {
         // from here the flow is one continuous action. Skips the
         // OrderPlacementCelebration entirely (celebrating "placed" before
         // payment has even happened would be misleading) and hands off to
-        // OrderConfirmation's `?autopay=1` handling, which opens the exact
-        // same Razorpay widget this page would have opened, via the same
-        // untouched payment functions. ADR-014 is unaffected: the order
-        // stays PENDING_PAYMENT until the webhook-verified capture confirms
-        // it, exactly as before — only the UI trigger moved earlier.
+        // the dedicated `/payment/[id]` page's `?autopay=1` handling, which
+        // opens the exact same Razorpay widget this page would have opened,
+        // via the same untouched payment functions. Bug fix (2026-09-22):
+        // this deliberately does NOT go to /order-confirmation — that route
+        // is confirmed-orders-only now, so a cancelled/failed payment can
+        // never show "Order placed" there; /payment/[id] itself navigates on
+        // to /order-confirmation only once the webhook-verified capture
+        // actually lands. ADR-014 is unaffected: the order stays
+        // PENDING_PAYMENT until then, exactly as before — only the UI
+        // trigger moved earlier.
         void refreshCart().catch(() => {});
-        router.push(`/order-confirmation/${order.id}?autopay=1`);
+        router.push(`/payment/${order.id}?autopay=1`);
         return;
       }
 
