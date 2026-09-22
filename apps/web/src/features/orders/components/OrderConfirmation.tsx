@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { ApiError } from "@/lib/api-client";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
+import { fireConfetti } from "@/features/checkout/components/OrderPlacementCelebration";
 import { openRazorpayCheckout } from "@/features/payments/lib/razorpay-checkout";
 import * as paymentsApi from "@/features/payments/api/payments.client";
 import * as ordersApi from "../api/orders.client";
@@ -46,6 +47,8 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   const [stage, setStage] = useState<PaymentStage>("idle");
   const codConfirmAttempted = useRef(false);
   const razorpayAutoAttempted = useRef(false);
+  const confettiFiredRef = useRef(false);
+  const shouldReduceMotion = useReducedMotion();
   // Guards every setState below that can resolve after the widget/poll
   // outlives the component (navigated away mid-payment, mid-poll) — avoids
   // a "set state on an unmounted component" warning, not a correctness bug,
@@ -141,6 +144,19 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
     razorpayAutoAttempted.current = true;
     void payWithRazorpay();
   }, [shouldAutopay, order, payWithRazorpay]);
+
+  // CheckoutForm's own celebration (confetti + "Order Placed!") fires at
+  // COD placement time and never renders on this page — but a RAZORPAY
+  // order navigates here via `?autopay=1` with nothing to celebrate yet
+  // (payment hasn't happened). The real "it worked" moment for Razorpay is
+  // the webhook-verified CONFIRMED transition the poll above picks up, so
+  // that's what gets the burst here instead — once per mount, and skipped
+  // under reduced motion exactly like OrderPlacementCelebration's own guard.
+  useEffect(() => {
+    if (shouldReduceMotion || !order || order.status !== "CONFIRMED" || confettiFiredRef.current) return;
+    confettiFiredRef.current = true;
+    fireConfetti();
+  }, [order, shouldReduceMotion]);
 
   if (loadError) {
     return (
