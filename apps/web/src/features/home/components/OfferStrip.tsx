@@ -1,9 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { formatOfferBadgeLabel } from "@/features/catalog/lib/format-offer-badge";
 import type { HomeOffer } from "../api/home.client";
+
+// Browsing surfaces only — home and the shop listing (same route set as
+// SiteHeader's SEARCH_ROUTES). Every other page (cart, checkout, account,
+// auth, PDP …) has its own job; a promo strip there is noise, and on auth
+// pages specifically it undercuts the page's single purpose. `usePathname`
+// reflects the current route on the server-rendered pass too (matches the
+// header search's exact same mechanism, 2026-09-03), so the strip never
+// mounts then vanishes on excluded pages — no navigation flash.
+const OFFER_STRIP_ROUTES = new Set(["/", "/products"]);
 
 /** Constant scroll speed (2026-09-16) — the strip's duration is derived FROM this, never the other way round, so pace stays identical whether the container is a phone or an ultra-wide monitor. */
 const PX_PER_SECOND = 45;
@@ -24,7 +34,10 @@ const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffec
  * The storefront's promotional offer marquee (Phase 2, 2026-09-14;
  * redesigned offer merchandising pass, 2026-09-15; moved sitewide, above
  * `SiteHeader` in the shared layout, 2026-09-16; edge-to-edge coverage +
- * constant-speed rewrite, 2026-09-16). Purely a rendering of
+ * constant-speed rewrite, 2026-09-16; scoped back to Home + Shop only via
+ * `OFFER_STRIP_ROUTES`, 2026-09-22 — "sitewide" turned out to mean every
+ * page including login/checkout/PDP, which wasn't the intent). Purely a
+ * rendering of
  * `home.activeOffers` (already filtered + deterministically ordered
  * server-side — priority DESC, then createdAt DESC, see
  * `ListActiveOffersForStripUseCase`) — never hardcoded copy, and `[]`
@@ -82,6 +95,7 @@ const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffec
  * requests.
  */
 export function OfferStrip({ offers }: { offers: HomeOffer[] }) {
+  const pathname = usePathname();
   const [reducedMotion, setReducedMotion] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -119,7 +133,7 @@ export function OfferStrip({ offers }: { offers: HomeOffer[] }) {
     return () => observer.disconnect();
   }, [offers, reducedMotion]);
 
-  if (offers.length === 0) return null;
+  if (offers.length === 0 || !OFFER_STRIP_ROUTES.has(pathname)) return null;
 
   return (
     <div ref={containerRef} className="relative flex h-9 items-center overflow-hidden bg-primary text-white" role="region" aria-label="Current offers">

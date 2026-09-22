@@ -5,6 +5,7 @@ import { OrderPriceBreakdown } from "./OrderPriceBreakdown";
 import { CheckCircle2, PackageX } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth/hooks/useAuth";
@@ -31,10 +32,20 @@ type PaymentStage = "idle" | "confirming-cod" | "awaiting-razorpay" | "confirmin
  */
 export function OrderConfirmation({ orderId }: { orderId: string }) {
   const { accessToken, status: authStatus } = useAuth();
+  // `?autopay=1` — CheckoutForm appends this when it navigates straight here
+  // after placing a RAZORPAY order, so the payment widget opens immediately
+  // instead of requiring a second manual click (no real store makes a
+  // shopper click twice to pay). A later, unrelated visit to this same URL
+  // (order history, an emailed link, a page refresh) never carries this
+  // param, so the manual "Pay now"/"Try payment again" button below remains
+  // the only trigger then — this only fires once, right after checkout.
+  const searchParams = useSearchParams();
+  const shouldAutopay = searchParams.get("autopay") === "1";
   const [order, setOrder] = useState<OrderView | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [stage, setStage] = useState<PaymentStage>("idle");
   const codConfirmAttempted = useRef(false);
+  const razorpayAutoAttempted = useRef(false);
   // Guards every setState below that can resolve after the widget/poll
   // outlives the component (navigated away mid-payment, mid-poll) — avoids
   // a "set state on an unmounted component" warning, not a correctness bug,
@@ -113,6 +124,23 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
       toast.error(error instanceof Error ? error.message : "Payment didn't go through. You can try again.");
     }
   }, [order, accessToken, pollUntilConfirmed]);
+
+  // Same shape as the COD auto-confirm effect above: fires once, only when
+  // CheckoutForm's `?autopay=1` says a shopper just clicked "Place order"
+  // with Razorpay selected and hasn't paid yet.
+  useEffect(() => {
+    if (
+      !shouldAutopay ||
+      !order ||
+      order.paymentMethod !== "RAZORPAY" ||
+      order.status !== "PENDING_PAYMENT" ||
+      razorpayAutoAttempted.current
+    ) {
+      return;
+    }
+    razorpayAutoAttempted.current = true;
+    void payWithRazorpay();
+  }, [shouldAutopay, order, payWithRazorpay]);
 
   if (loadError) {
     return (

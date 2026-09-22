@@ -104,6 +104,16 @@ export interface ProductSummaryWithStatus extends ProductSummaryEntity {
 /** What `findByIds` returns from the repository — the projection (unresolved `from*` pricing) plus the active flag. `GetProductsByIdsUseCase` resolves it into `ProductSummaryWithStatus`. */
 export type ProductSummaryProjectionWithStatus = ProductSummaryProjection & { isActive: boolean };
 
+/**
+ * Admin offer-discount validation support (fix: admin offer discount
+ * validation) — the same three shapes `OfferEntity.scope` can take, used to
+ * ask "what's the cheapest product this offer's target would apply to."
+ */
+export type OfferPriceFloorTarget =
+  | { scope: "ALL_PRODUCTS" }
+  | { scope: "CATEGORY"; categoryId: string }
+  | { scope: "PRODUCTS"; productIds: string[] };
+
 export interface ListProductsAdminFilter {
   search?: string;
   categoryId?: string;
@@ -299,6 +309,22 @@ export interface ProductRepositoryPort {
   findVariantForAdmin(variantId: string): Promise<(AdminProductVariantEntity & { productId: string }) | null>;
   /** Recomputes `Product.minPricePaiseCache` from its currently-active variants (or 0 if none) — called after any variant create/update/activation-change, since that cache drives the customer-facing listing's price display and sort. */
   recomputeMinPrice(productId: string): Promise<void>;
+  /**
+   * Admin offer-discount validation support (fix: admin offer discount
+   * validation) — the lowest `minPricePaiseCache` among the products an
+   * offer with this scope/target would actually apply to, so a
+   * FIXED_AMOUNT discount larger than any one of them can be rejected
+   * before the offer is ever saved (see products'
+   * `ValidateOfferDiscountUseCase` for why this check lives in `products`
+   * rather than `offers` itself). Only considers products with a positive
+   * `minPricePaiseCache` — a product with no active variant has nothing
+   * currently purchasable for a discount to exceed, and would otherwise
+   * make every FIXED_AMOUNT offer touching it look invalid. `null` when
+   * the target currently has no such product at all (an empty category,
+   * every listed id inactive, or an empty catalogue) — the caller treats
+   * that as "nothing to validate against yet," never a rejection.
+   */
+  getMinPricePaiseForOfferTarget(target: OfferPriceFloorTarget): Promise<number | null>;
 
   addImage(productId: string, input: AddProductImageInput): Promise<AdminProductImageEntity>;
   removeImage(productId: string, imageId: string): Promise<void>;

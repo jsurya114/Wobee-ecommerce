@@ -7,6 +7,7 @@ import type {
   ListProductsAdminResult,
   ListProductsFilter,
   ListProductsResult,
+  OfferPriceFloorTarget,
   ProductRepositoryPort,
   ProductSummaryProjection,
   ProductSummaryProjectionWithStatus,
@@ -170,6 +171,10 @@ export class CachedProductRepository implements ProductRepositoryPort {
   async recomputeMinPrice(productId: string): Promise<void> {
     await this.inner.recomputeMinPrice(productId);
     await bumpCatalogCacheVersion();
+  }
+  /** Read-only admin support query (fix: admin offer discount validation) — same uncached passthrough as findVariantForAdmin; nothing to invalidate. */
+  getMinPricePaiseForOfferTarget(target: OfferPriceFloorTarget): ReturnType<ProductRepositoryPort["getMinPricePaiseForOfferTarget"]> {
+    return this.inner.getMinPricePaiseForOfferTarget(target);
   }
   async addImage(productId: string, input: AddProductImageInput): Promise<AdminProductImageEntity> {
     const result = await this.inner.addImage(productId, input);

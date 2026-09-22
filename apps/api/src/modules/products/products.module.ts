@@ -9,7 +9,7 @@
 import { findCategoryBySlugUseCase } from "../categories/categories.module";
 import { findCollectionBySlugUseCase } from "../collections/collections.module";
 import { findInStockVariantIdsUseCase, getAvailableQuantitiesUseCase, initializeInventoryForVariantUseCase } from "../inventory/inventory.module";
-import { resolveApplicableOffersUseCase } from "../offers/offers.module";
+import { createOfferUseCase, getOfferAdminUseCase, resolveApplicableOffersUseCase, updateOfferUseCase } from "../offers/offers.module";
 import { calculateEffectivePriceUseCase } from "../pricing/pricing.module";
 import { env } from "../../config/env";
 import type { CategoryReaderPort } from "./application/ports/category-reader.port";
@@ -20,6 +20,7 @@ import type { OfferReaderPort } from "./application/ports/offer-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
 import type { ProductRepositoryPort } from "./application/ports/product-repository.port";
 import { AddProductImageUseCase } from "./application/use-cases/admin/add-product-image.use-case";
+import { CreateOfferWithPriceValidationUseCase } from "./application/use-cases/admin/create-offer-with-price-validation.use-case";
 import { CreateProductUseCase } from "./application/use-cases/admin/create-product.use-case";
 import { CreateProductVariantUseCase } from "./application/use-cases/admin/create-product-variant.use-case";
 import { GetProductAdminUseCase } from "./application/use-cases/admin/get-product-admin.use-case";
@@ -30,8 +31,10 @@ import { SetProductActiveUseCase } from "./application/use-cases/admin/set-produ
 import { SetProductVariantActiveUseCase } from "./application/use-cases/admin/set-product-variant-active.use-case";
 import { GetProductCostsUseCase } from "./application/use-cases/admin/get-product-costs.use-case";
 import { SetProductCostsUseCase } from "./application/use-cases/admin/set-product-costs.use-case";
+import { UpdateOfferWithPriceValidationUseCase } from "./application/use-cases/admin/update-offer-with-price-validation.use-case";
 import { UpdateProductUseCase } from "./application/use-cases/admin/update-product.use-case";
 import { UpdateProductVariantUseCase } from "./application/use-cases/admin/update-product-variant.use-case";
+import { ValidateOfferDiscountUseCase } from "./application/use-cases/admin/validate-offer-discount.use-case";
 import { CountActiveProductsBySizeUseCase } from "./application/use-cases/count-active-products-by-size.use-case";
 import { GetCategoryImagesUseCase } from "./application/use-cases/get-category-images.use-case";
 import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-slug.use-case";
@@ -99,6 +102,22 @@ export const getCategoryImagesUseCase = new GetCategoryImagesUseCase(productRepo
 export const countActiveProductsBySizeUseCase = new CountActiveProductsBySizeUseCase(productRepository);
 /** Exported for cross-module use (offer merchandising pass, 2026-09-15) — `home`'s per-Offer campaign sections. */
 export const groupProductsByOfferUseCase = new GroupProductsByOfferUseCase(productRepository, inventoryReader, pricingReader, offerReader);
+
+/**
+ * Fix: admin offer discount validation — cross-module guards in front of
+ * `offers`' own create/update use-cases (see
+ * `ValidateOfferDiscountUseCase`'s own doc comment for why this lives
+ * here). Exported for `admin`'s HTTP layer (ADR-025) IN PLACE OF
+ * `offers.module`'s raw `createOfferUseCase`/`updateOfferUseCase` — see
+ * admin.module.ts's own comment on why it imports these from here instead.
+ */
+const validateOfferDiscountUseCase = new ValidateOfferDiscountUseCase(productRepository);
+export const createOfferWithPriceValidationUseCase = new CreateOfferWithPriceValidationUseCase(validateOfferDiscountUseCase, createOfferUseCase);
+export const updateOfferWithPriceValidationUseCase = new UpdateOfferWithPriceValidationUseCase(
+  getOfferAdminUseCase,
+  validateOfferDiscountUseCase,
+  updateOfferUseCase,
+);
 
 /** Exported for `admin`'s HTTP layer (ADR-025) — Week 2 Day 7 admin product management. */
 export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepository);

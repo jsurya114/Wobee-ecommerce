@@ -2,12 +2,11 @@
 
 import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact } from "@woobe/utils";
 import { Button, cn, PriceTag } from "@woobe/ui";
-import { ArrowRight, Check, ChevronDown, Minus, PackageCheck, Plus } from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, ChevronDown, Minus, PackageCheck, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useCart } from "@/features/cart/hooks/useCart";
 import { deriveWeightStatus, type WeightStatus } from "@/features/cart/lib/derive-weight-status";
-import { getShippingEstimate, type ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import { FLOATING_STACK_GAP_REM, MOBILE_BOTTOM_NAV_HEIGHT_REM } from "@/lib/layout-constants";
 import type { ProductDetail } from "../api/products.client";
 import { OfferBadge } from "./OfferBadge";
@@ -43,8 +42,13 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   const [quantity, setQuantity] = useState(1);
 
   const [pincode, setPincode] = useState("");
-  const [estimate, setEstimate] = useState<ShippingEstimate | null>(null);
-  const [checkingPincode, setCheckingPincode] = useState(false);
+  const [pincodeError, setPincodeError] = useState<string | null>(null);
+  // Set only by a successful `checkPincode()` call, to the exact pincode
+  // that was checked — never derived from `pincode` directly — so editing
+  // the field after a result (any keystroke, see `handlePincodeChange`)
+  // immediately un-associates that result from the new, not-yet-checked
+  // value instead of leaving a stale "available" showing under it.
+  const [checkedPincode, setCheckedPincode] = useState<string | null>(null);
 
   const colors = useMemo(() => Array.from(new Set(product.variants.map((v) => v.color))), [product.variants]);
   const selectedVariant = product.variants.find((v) => v.id === selectedVariantId);
@@ -82,20 +86,32 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
     }
   }
 
-  async function checkPincode() {
+  /**
+   * Woobe ships across India — there's no restricted-pincode list to check
+   * against (nothing approved one, same reasoning as the API's own
+   * `checkPincodeServiceability`), so this is pure frontend format
+   * validation, not a serviceability lookup: any well-formed 6-digit pincode
+   * is available, and there's deliberately no network round-trip here to
+   * confirm that (2026-09-22 — replaced the earlier `getShippingEstimate`
+   * call, which hit a real endpoint just to re-derive the same "always
+   * serviceable" answer).
+   */
+  function checkPincode() {
     const trimmed = pincode.trim();
     if (!/^\d{6}$/.test(trimmed)) {
-      setEstimate(null);
+      setPincodeError("Enter a valid 6-digit PIN code");
+      setCheckedPincode(null);
       return;
     }
-    setCheckingPincode(true);
-    try {
-      setEstimate(await getShippingEstimate(trimmed));
-    } catch {
-      setEstimate(null);
-    } finally {
-      setCheckingPincode(false);
-    }
+    setPincodeError(null);
+    setCheckedPincode(trimmed);
+  }
+
+  /** Every edit invalidates any previous result immediately — the "✓ available" line is only ever shown for the exact value last checked, not the field's current (possibly since-edited) contents. */
+  function handlePincodeChange(value: string) {
+    setPincode(value.replace(/\D/g, "").slice(0, 6));
+    setPincodeError(null);
+    setCheckedPincode(null);
   }
 
   if (!selectedVariant) {
@@ -220,29 +236,33 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
       ) : null}
 
       <div className="border-t border-border pt-3">
-        <p className="mb-2 font-body text-sm font-medium text-text-primary">Delivery</p>
+        <p className="mb-2 font-body text-sm font-medium text-text-primary">Deliver to</p>
         {/* Input now takes the available row width instead of a fixed w-40 (2026-09-04) — the row previously left the Check button stranded in empty space at mobile widths. */}
         <div className="flex gap-2">
           <input
             value={pincode}
-            onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) => handlePincodeChange(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void checkPincode();
+              if (e.key === "Enter") checkPincode();
             }}
             inputMode="numeric"
-            placeholder="Delivery pincode"
-            aria-label="Delivery pincode"
+            placeholder="Enter PIN code"
+            aria-label="Delivery PIN code"
+            aria-invalid={pincodeError !== null}
             className="h-10 w-full min-w-0 flex-1 rounded-control border border-border bg-surface px-3 font-body text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
-          <Button type="button" variant="secondary" size="sm" onClick={() => void checkPincode()} isLoading={checkingPincode} className="shrink-0">
+          <Button type="button" variant="secondary" size="sm" onClick={checkPincode} className="shrink-0">
             Check
           </Button>
         </div>
-        {estimate ? (
-          <p className={`mt-2 font-body text-xs ${estimate.serviceable ? "text-text-secondary" : "text-error"}`}>
-            {estimate.serviceable
-              ? `Delivers in ${estimate.estimatedDeliveryDaysMin}–${estimate.estimatedDeliveryDaysMax} days`
-              : (estimate.reason ?? "Not serviceable at this pincode")}
+        {pincodeError ? (
+          <p role="alert" className="mt-2 font-body text-xs text-error">
+            {pincodeError}
+          </p>
+        ) : checkedPincode ? (
+          <p className="mt-2 flex items-center gap-1 font-body text-xs text-success">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            Delivery is available at this location.
           </p>
         ) : null}
       </div>

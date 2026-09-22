@@ -176,6 +176,26 @@ export function CheckoutForm() {
   const onSubmit = handleSubmit(async (data) => {
     try {
       const order = await checkoutApi.checkout(data, accessToken ?? undefined);
+
+      if (data.paymentMethod === "RAZORPAY") {
+        // Go straight to the payment gateway — no store on earth makes a
+        // shopper click "Place order", land on a separate page, then click
+        // "Pay now" again. The order row still has to exist first (Razorpay's
+        // own order needs a receipt/amount to reference — same requirement
+        // every gateway has), but that's a backend implementation detail;
+        // from here the flow is one continuous action. Skips the
+        // OrderPlacementCelebration entirely (celebrating "placed" before
+        // payment has even happened would be misleading) and hands off to
+        // OrderConfirmation's `?autopay=1` handling, which opens the exact
+        // same Razorpay widget this page would have opened, via the same
+        // untouched payment functions. ADR-014 is unaffected: the order
+        // stays PENDING_PAYMENT until the webhook-verified capture confirms
+        // it, exactly as before — only the UI trigger moved earlier.
+        void refreshCart().catch(() => {});
+        router.push(`/order-confirmation/${order.id}?autopay=1`);
+        return;
+      }
+
       // Order already placed successfully server-side — from this point on,
       // this component's own empty-cart/weight guards must stop reading
       // cart state (see the flag's doc comment above) regardless of what
