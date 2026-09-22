@@ -14,6 +14,13 @@ import { colors } from "@woobe/ui";
 
 interface RazorpayInstance {
   open(): void;
+  /** Bug fix (2026-09-22): registered below so a genuine gateway/bank
+   * decline (`payment.failed`) can be told apart from the shopper simply
+   * closing the widget (`modal.ondismiss`) — see the two error classes
+   * below and OrderConfirmation's `payWithRazorpay` catch, which needs
+   * that distinction to show "Payment failed" vs "Payment cancelled"
+   * instead of a single generic state. */
+  on(event: "payment.failed", handler: (response: { error?: { description?: string; reason?: string } }) => void): void;
 }
 
 interface RazorpayOptions {
@@ -26,6 +33,22 @@ interface RazorpayOptions {
   handler: (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => void;
   modal?: { ondismiss?: () => void };
   theme?: { color?: string };
+}
+
+/** Widget closed/cancelled before completing payment — distinct from an actual gateway decline below. */
+export class RazorpayPaymentCancelledError extends Error {
+  constructor() {
+    super("Payment cancelled");
+    this.name = "RazorpayPaymentCancelledError";
+  }
+}
+
+/** A real `payment.failed` event from Razorpay (declined, insufficient funds, authentication failed, etc.) — never thrown for a plain modal close. */
+export class RazorpayPaymentFailedError extends Error {
+  constructor(message = "Payment failed") {
+    super(message);
+    this.name = "RazorpayPaymentFailedError";
+  }
 }
 
 declare global {
@@ -78,9 +101,15 @@ export async function openRazorpayCheckout(config: {
       name: "Woobe",
       description: `Order ${config.orderNumber}`,
       handler: () => resolve(),
-      modal: { ondismiss: () => reject(new Error("Payment cancelled")) },
+      modal: { ondismiss: () => reject(new RazorpayPaymentCancelledError()) },
       theme: { color: colors.brand.primary },
     });
+    // A technical/gateway failure (declined card, insufficient funds, failed
+    // authentication, ...) fires this event while the widget stays open for
+    // the shopper to retry inline; if they then close it, `ondismiss` above
+    // would also fire, but a promise only ever settles once, so whichever of
+    // the two fires first wins — here that's always this one.
+    instance.on("payment.failed", (response) => reject(new RazorpayPaymentFailedError(response?.error?.description)));
     instance.open();
   });
 }
