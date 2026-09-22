@@ -12,7 +12,7 @@ import { useAuth } from "@/features/auth/hooks/useAuth";
 import { ApiError } from "@/lib/api-client";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
 import { fireConfetti } from "@/features/checkout/components/OrderPlacementCelebration";
-import { openRazorpayCheckout } from "@/features/payments/lib/razorpay-checkout";
+import { RazorpayPaymentCancelledError, openRazorpayCheckout } from "@/features/payments/lib/razorpay-checkout";
 import * as paymentsApi from "@/features/payments/api/payments.client";
 import * as ordersApi from "../api/orders.client";
 import { OrderStatusBadge } from "./OrderStatusBadge";
@@ -20,7 +20,11 @@ import { OrderStatusBadge } from "./OrderStatusBadge";
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 60_000;
 
-type PaymentStage = "idle" | "confirming-cod" | "awaiting-razorpay" | "confirming-razorpay" | "failed";
+// "cancelled" is its own stage, not folded into "failed" (Bug fix
+// 2026-09-22) — a shopper closing the widget is not the same outcome as a
+// bank/gateway decline, and StatusHeading below shows different copy for
+// each, per razorpay-checkout.ts's two dedicated error classes.
+type PaymentStage = "idle" | "confirming-cod" | "awaiting-razorpay" | "confirming-razorpay" | "cancelled" | "failed";
 
 /**
  * The Week 1 Day 5 order-confirmation page. `Order.status` starting at
@@ -123,8 +127,16 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
       if (isMountedRef.current) setStage("idle");
     } catch (error) {
       if (!isMountedRef.current) return;
-      setStage("failed");
-      toast.error(error instanceof Error ? error.message : "Payment didn't go through. You can try again.");
+      // Bug fix (2026-09-22): cancelled vs. failed get their own stage/copy
+      // (see PaymentStage's doc comment) — neither ever lands here as
+      // "Order placed"; StatusHeading below has an explicit branch for each.
+      if (error instanceof RazorpayPaymentCancelledError) {
+        setStage("cancelled");
+        toast.error("Payment cancelled. Your order has not been confirmed.");
+      } else {
+        setStage("failed");
+        toast.error(error instanceof Error ? error.message : "Payment didn't go through. You can try again.");
+      }
     }
   }, [order, accessToken, pollUntilConfirmed]);
 
@@ -152,8 +164,13 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   // the webhook-verified CONFIRMED transition the poll above picks up, so
   // that's what gets the burst here instead — once per mount, and skipped
   // under reduced motion exactly like OrderPlacementCelebration's own guard.
+  // Bug fix (2026-09-22): this must stay RAZORPAY-only. A COD order also
+  // transitions PENDING_PAYMENT -> CONFIRMED on this very page (via the
+  // confirming-cod effect above), and without this guard that transition
+  // fired a SECOND confetti burst on top of the one CheckoutForm already
+  // played during OrderPlacementCelebration, seconds earlier.
   useEffect(() => {
-    if (shouldReduceMotion || !order || order.status !== "CONFIRMED" || confettiFiredRef.current) return;
+    if (shouldReduceMotion || !order || order.paymentMethod !== "RAZORPAY" || order.status !== "CONFIRMED" || confettiFiredRef.current) return;
     confettiFiredRef.current = true;
     fireConfetti();
   }, [order, shouldReduceMotion]);
@@ -201,7 +218,7 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
 
       {order.status === "PENDING_PAYMENT" && order.paymentMethod === "RAZORPAY" && stage !== "confirming-razorpay" ? (
         <Button onClick={() => void payWithRazorpay()} isLoading={stage === "awaiting-razorpay"}>
-          {stage === "failed" ? "Try payment again" : "Pay now"}
+          {stage === "failed" || stage === "cancelled" ? "Try payment again" : "Pay now"}
         </Button>
       ) : null}
 
@@ -236,6 +253,9 @@ function StatusHeading({ order, stage }: { order: OrderView; stage: PaymentStage
       <div className="flex flex-col items-center gap-3">
         <PackageX {...iconProps} className="h-9 w-9 text-error" />
         <h1 className="font-display text-2xl text-text-primary">Payment failed</h1>
+        <p className="max-w-xs font-body text-sm text-text-secondary">
+          Your payment could not be completed. Your order has not been confirmed.
+        </p>
       </div>
     );
   }
@@ -246,6 +266,41 @@ function StatusHeading({ order, stage }: { order: OrderView; stage: PaymentStage
         <h1 className="font-display text-2xl text-text-primary">Confirming your order…</h1>
       </div>
     );
+  }
+  // Bug fix (2026-09-22): the root cause of the "Order Placed" shown before
+  // Razorpay payment ever succeeded. `order.status` starts (and, on
+  // cancel/failure, STAYS) PENDING_PAYMENT — a webhook-verified capture is
+  // the only thing that ever moves it to CONFIRMED (ADR-014), so this
+  // branch previously fell all the way through to the generic "Order
+  // placed" fallback below for every one of: the widget still opening,
+  // awaiting the widget, a cancelled payment, and a failed payment. None of
+  // those are "placed". Each now gets its own explicit, honest heading;
+  // only a genuinely confirmed or COD order (which has no gateway step —
+  // see the confirming-cod effect above) ever reaches the fallback.
+  if (order.paymentMethod === "RAZORPAY" && order.status === "PENDING_PAYMENT") {
+    if (stage === "cancelled") {
+      return (
+        <div className="flex flex-col items-center gap-3">
+          <PackageX {...iconProps} className="h-9 w-9 text-error" />
+          <h1 className="font-display text-2xl text-text-primary">Payment cancelled</h1>
+          <p className="max-w-xs font-body text-sm text-text-secondary">
+            You closed the payment window before it completed. Your order has not been confirmed.
+          </p>
+        </div>
+      );
+    }
+    if (stage === "failed") {
+      return (
+        <div className="flex flex-col items-center gap-3">
+          <PackageX {...iconProps} className="h-9 w-9 text-error" />
+          <h1 className="font-display text-2xl text-text-primary">Payment failed</h1>
+          <p className="max-w-xs font-body text-sm text-text-secondary">
+            Your payment could not be completed. Your order has not been confirmed.
+          </p>
+        </div>
+      );
+    }
+    return <h1 className="font-display text-2xl text-text-primary">Complete your payment</h1>;
   }
   return <h1 className="font-display text-2xl text-text-primary">Order placed</h1>;
 }
