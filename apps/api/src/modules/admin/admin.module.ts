@@ -57,13 +57,7 @@ import {
 } from "../coupons/coupons.module";
 import { adjustInventoryUseCase, listInventoryAdminUseCase } from "../inventory/inventory.module";
 import { enqueueNotificationUseCase } from "../notifications/notifications.module";
-import {
-  createOfferUseCase,
-  getOfferAdminUseCase,
-  listOffersAdminUseCase,
-  setOfferActiveUseCase,
-  updateOfferUseCase,
-} from "../offers/offers.module";
+import { getOfferAdminUseCase, listOffersAdminUseCase, setOfferActiveUseCase } from "../offers/offers.module";
 import {
   cancelOrderUseCase,
   deliverOrderUseCase,
@@ -77,6 +71,7 @@ import {
 } from "../orders/orders.module";
 import {
   addProductImageUseCase,
+  createOfferWithPriceValidationUseCase,
   createProductUseCase,
   createProductVariantUseCase,
   getProductAdminUseCase,
@@ -87,6 +82,7 @@ import {
   setProductActiveUseCase,
   setProductCostsUseCase,
   setProductVariantActiveUseCase,
+  updateOfferWithPriceValidationUseCase,
   updateProductUseCase,
   updateProductVariantUseCase,
 } from "../products/products.module";
@@ -209,11 +205,17 @@ const adminCouponsController = new AdminCouponsController(
   setCouponActiveUseCase,
   deleteCouponUseCase,
 );
+// createOfferWithPriceValidationUseCase/updateOfferWithPriceValidationUseCase
+// (from `products`, fix: admin offer discount validation) IN PLACE OF
+// offers.module's raw createOfferUseCase/updateOfferUseCase — offers can't
+// depend on products itself (no-circular), so this cross-module discount
+// check is wired in from the other side; see products.module.ts's own
+// comment and ValidateOfferDiscountUseCase's doc comment.
 const adminOffersController = new AdminOffersController(
   listOffersAdminUseCase,
   getOfferAdminUseCase,
-  createOfferUseCase,
-  updateOfferUseCase,
+  createOfferWithPriceValidationUseCase,
+  updateOfferWithPriceValidationUseCase,
   setOfferActiveUseCase,
 );
 

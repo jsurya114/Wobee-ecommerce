@@ -214,6 +214,35 @@ describe("coupons: cart preview + apply/remove", () => {
     expect(res.status).toBe(422);
   });
 
+  /**
+   * Fix: coupon discount validation — a FLAT coupon's face value is never
+   * validated against any specific price at creation time (unlike an
+   * Offer, a coupon isn't tied to known products; its eligible amount is
+   * whatever the customer's cart happens to contain at apply time), so the
+   * existing, correct semantic is CAP the discount at the eligible amount,
+   * never reject the coupon itself — calculateCouponDiscount's own
+   * Math.min(discount, eligibleLineTotalPaise) clamp already implements
+   * this; this is the end-to-end (HTTP + real cart) proof of it, not just
+   * the pure-function unit test calculate-coupon-discount.test.ts already
+   * has.
+   */
+  it("caps a FLAT coupon larger than the cart's own eligible amount — never a negative discount", async () => {
+    const { agent } = await createTestUser();
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5, pricePaise: 200_00 });
+    const code = await createCoupon({ type: "FLAT", value: 500_00 }); // far more than the ₹200 cart
+
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    const applyRes = await agent.post("/api/v1/cart/coupon").send({ code });
+
+    expect(applyRes.status).toBe(200);
+    expect(applyRes.body.appliedCoupon).toMatchObject({ code, isValid: true });
+    // Capped at the cart's own ₹200 subtotal — never the coupon's full ₹500 face value.
+    expect(applyRes.body.discountPaise).toBe(200_00);
+
+    const getRes = await agent.get("/api/v1/cart");
+    expect(getRes.body.discountPaise).toBe(200_00);
+  });
+
   it("restricts the discount to matching products only", async () => {
     const { agent } = await createTestUser();
     const { variantId: matchingVariantId, productId: matchingProductId } = await createTestVariant({
@@ -333,6 +362,41 @@ describe("coupons: checkout redemption", () => {
     // session) — a future cart for this user must not silently inherit it.
     const cart = await prisma.cart.findUniqueOrThrow({ where: { userId } });
     expect(cart.couponCode).toBeNull();
+  });
+
+  /**
+   * Fix: coupon discount validation — the price-safety invariant
+   * (finalPayableAmount >= 0) proven through the FULL checkout pipeline,
+   * not just the cart-apply preview above: subtotal, tax (recalculated on
+   * the discounted value), and shipping all combine with a discount that's
+   * capped at the order's own subtotal, so totalPaise can never go
+   * negative regardless of how large the coupon's face value is.
+   */
+  it("checkout total is never negative when a FLAT coupon's face value exceeds the order's own subtotal", async () => {
+    const { agent } = await createTestUser();
+    const { variantId } = await createTestVariant({ weightGrams: 1200, quantityAvailable: 5, pricePaise: 200_00 });
+    const code = await createCoupon({ type: "FLAT", value: 500_00 }); // far more than the ₹200 order
+
+    await agent.post("/api/v1/cart/items").send({ variantId, quantity: 1 });
+    await agent.post("/api/v1/cart/coupon").send({ code });
+
+    const checkoutRes = await agent.post("/api/v1/orders/checkout").send({
+      contactEmail: "buyer@test.woobe.internal",
+      address: checkoutAddress,
+      paymentMethod: "COD",
+    });
+
+    expect(checkoutRes.status).toBe(201);
+    createdOrderIds.push(checkoutRes.body.id);
+    // The order's snapshotted discount is the CAPPED amount (the coupon's
+    // own ₹500 face value never appears anywhere on the order).
+    expect(checkoutRes.body.discountPaise).toBe(200_00);
+    expect(checkoutRes.body.discountPaise).toBeLessThanOrEqual(checkoutRes.body.subtotalPaise);
+    // The invariant this fix is about.
+    expect(checkoutRes.body.totalPaise).toBeGreaterThanOrEqual(0);
+    expect(checkoutRes.body.totalPaise).toBe(
+      checkoutRes.body.subtotalPaise + checkoutRes.body.taxPaise + checkoutRes.body.shippingFeePaise - checkoutRes.body.discountPaise,
+    );
   });
 
   it("rejects checkout (rolling back the whole transaction) once the coupon's usage limit is exhausted by a concurrent checkout", async () => {
