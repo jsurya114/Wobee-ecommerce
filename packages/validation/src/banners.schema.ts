@@ -32,7 +32,13 @@ const PROBE_ORIGIN = "https://woobe.invalid";
 // Backslashes, whitespace and control characters are rewritten or stripped by
 // browsers' URL parsers ("/\\evil.com" and "/\t/evil.com" both become
 // "//evil.com"), so they are never allowed in a banner link at all.
-const UNSAFE_LINK_CHARS = /[\\\s\u0000-\u001f\u007f]/;
+function hasUnsafeLinkChars(value: string): boolean {
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    if (char === "\\" || /\s/.test(char) || code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
 
 /**
  * True only for a same-site path — decided by actually parsing it the way a
@@ -40,7 +46,7 @@ const UNSAFE_LINK_CHARS = /[\\\s\u0000-\u001f\u007f]/;
  * "//evil.com", "/\\evil.com" or "/\t/evil.com" resolve to another host and fail.
  */
 export function isSitePath(value: string): boolean {
-  if (!value.startsWith("/") || UNSAFE_LINK_CHARS.test(value)) return false;
+  if (!value.startsWith("/") || hasUnsafeLinkChars(value)) return false;
   try {
     return new URL(value, PROBE_ORIGIN).origin === PROBE_ORIGIN;
   } catch {
@@ -50,7 +56,7 @@ export function isSitePath(value: string): boolean {
 
 /** An absolute http(s) URL with no characters a browser would silently rewrite. */
 function isAbsoluteHttpUrl(value: string): boolean {
-  if (UNSAFE_LINK_CHARS.test(value)) return false;
+  if (hasUnsafeLinkChars(value)) return false;
   try {
     const url = new URL(value);
     return (url.protocol === "https:" || url.protocol === "http:") && url.hostname.length > 0;
