@@ -16,12 +16,14 @@ import { calculateGstUseCase } from "../pricing/pricing.module";
 import { observability } from "../../shared/infrastructure/observability/prometheus/prometheus-observability";
 import { getProductsByIdsUseCase, resolveProductIdsForVariantsUseCase } from "../products/products.module";
 import { createShipmentUseCase, evaluateShippingUseCase } from "../shipping/shipping.module";
+import { getAppConfigUseCase } from "../settings/settings.module";
 import { saveCheckoutAddressUseCase } from "../users/users.module";
 import type { AddressSaverPort } from "./application/ports/address-saver.port";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
 import type { CartReaderPort } from "./application/ports/cart-reader.port";
 import type { CartResolverPort } from "./application/ports/cart-resolver.port";
 import type { CartWriterPort } from "./application/ports/cart-writer.port";
+import type { CheckoutRulesReaderPort } from "./application/ports/checkout-rules-reader.port";
 import type { CouponRedeemerPort } from "./application/ports/coupon-redeemer.port";
 import type { GstReaderPort } from "./application/ports/gst-reader.port";
 import type { InventoryRestockPort } from "./application/ports/inventory-restock.port";
@@ -81,7 +83,7 @@ const couponRedeemer: CouponRedeemerPort = {
   validateAndLock: (input, tx) => redeemCouponUseCase.validateAndLock(input, tx),
   finalize: (couponId, userId, orderId, tx) => redeemCouponUseCase.finalize(couponId, userId, orderId, tx),
 };
-const shippingReader: ShippingReaderPort = { evaluate: (grams) => evaluateShippingUseCase.execute(grams) };
+const shippingReader: ShippingReaderPort = { evaluate: (grams, subtotalPaise) => evaluateShippingUseCase.execute(grams, subtotalPaise) };
 const shipmentCreator: ShipmentCreatorPort = { createShipment: (input) => createShipmentUseCase.execute(input) };
 const gstReader: GstReaderPort = { calculateMany: (lines) => calculateGstUseCase.executeMany(lines) };
 const inventoryReservation: InventoryReservationPort = {
@@ -92,6 +94,7 @@ const inventoryRestock: InventoryRestockPort = { restock: (items, tx) => restock
 const auditLogger: AuditLoggerPort = { log: (entry, tx) => recordAuditLogUseCase.execute(entry, tx) };
 const notificationEnqueuer: NotificationEnqueuerPort = { enqueue: (input) => enqueueNotificationUseCase.execute(input) };
 /** Persistent-address feature — dedup-and-save lives in `users` (owns the Address table, ADR-010); orders only ever calls through this port. */
+const checkoutRules: CheckoutRulesReaderPort = { getMinCartQuantity: async () => (await getAppConfigUseCase.execute()).minCartQuantity };
 const addressSaver: AddressSaverPort = { saveIfNew: (userId, address) => saveCheckoutAddressUseCase.execute(userId, address) };
 
 const checkoutUseCase = new CheckoutUseCase(
@@ -107,6 +110,7 @@ const checkoutUseCase = new CheckoutUseCase(
   couponRedeemer,
   addressSaver,
   observability,
+  checkoutRules,
 );
 /** Exported for `returns`' customer-facing OrderReaderPort adapter (Week 2 Day 6) — keeps the exact same ownership-check semantics GetOrderUseCase's own doc comment describes. */
 export const getOrderUseCase = new GetOrderUseCase(orderRepository);

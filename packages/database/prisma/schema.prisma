@@ -944,16 +944,38 @@ model OfferProduct {
 /// already got in DECISIONS_PENDING.md #2, added there as #5 by this
 /// change, not silently assumed final.
 model ShippingRule {
-  id                         String   @id @default(uuid())
-  minWeightGramsForCheckout  Int      @default(1000)
-  freeDeliveryThresholdGrams Int      @default(1500)
-  standardFeePaise           Int
-  estimatedDeliveryDaysMin   Int      @default(3)
-  estimatedDeliveryDaysMax   Int      @default(7)
-  effectiveFrom              DateTime @default(now())
-  createdAt                  DateTime @default(now())
+  id                           String   @id @default(uuid())
+  minWeightGramsForCheckout    Int      @default(1000)
+  freeDeliveryThresholdGrams   Int      @default(1500)
+  standardFeePaise             Int
+  estimatedDeliveryDaysMin     Int      @default(3)
+  estimatedDeliveryDaysMax     Int      @default(7)
+  /// Admin settings (2026-09-28) — free delivery by ITEMS SUBTOTAL (after automatic offers, before any coupon), in addition to the weight-based threshold above: either condition qualifies. 0 disables it. Lives here, next to the weight threshold it complements, so every shipping rule stays versioned together in one table.
+  freeDeliveryMinSubtotalPaise Int      @default(0)
+  effectiveFrom                DateTime @default(now())
+  createdAt                    DateTime @default(now())
 
   @@map("shipping_rules")
+}
+
+/// Admin settings (2026-09-28) — store-wide switches and presets that are
+/// not pricing (PricingSetting) or shipping (ShippingRule) rules. Single row,
+/// id "singleton": read paths fall back to these column defaults when the row
+/// is missing, so a fresh database behaves identically before anyone saves
+/// settings. Presets are comma-separated (an individual preset value may not
+/// contain a comma — enforced by the admin validation schema).
+model AppConfig {
+  id              String   @id @default("singleton")
+  /// Minimum total item count (sum of line quantities) to place an order.
+  minCartQuantity Int      @default(1)
+  presetSizes     String   @default("XS,S,M,L,XL,XXL,3XL,Free Size")
+  presetFabrics   String   @default("Cotton,Silk,Linen,Polyester,Rayon,Georgette,Chiffon,Crepe,Velvet")
+  presetFits      String   @default("Regular,Slim,Relaxed,Oversized,A-Line")
+  /// Feature flag — customers can request NEW returns only when true. Existing returns stay visible and admin can still process them.
+  returnsEnabled  Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+
+  @@map("app_config")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

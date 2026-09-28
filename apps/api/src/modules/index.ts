@@ -19,6 +19,7 @@ import { router as productsRouter } from "./products/products.module";
 import { router as refundsRouter } from "./refunds/refunds.module";
 import { router as returnsRouter } from "./returns/returns.module";
 import { router as testimonialsRouter } from "./testimonials/testimonials.module";
+import { router as settingsRouter } from "./settings/settings.module";
 import { router as shippingRouter } from "./shipping/shipping.module";
 import { router as staffRouter } from "./staff/staff.module";
 import { router as usersRouter } from "./users/users.module";
@@ -45,6 +46,7 @@ export const moduleRouters: { path: string; router: Router }[] = [
   { path: "/orders", router: ordersRouter },
   { path: "/payments", router: paymentsRouter },
   { path: "/shipping", router: shippingRouter },
+  { path: "/settings", router: settingsRouter },
   { path: "/testimonials", router: testimonialsRouter },
   { path: "/media", router: mediaRouter },
   { path: "/returns", router: returnsRouter },

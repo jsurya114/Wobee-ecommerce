@@ -12,6 +12,7 @@ export * from "./offers.schema";
 export * from "./orders.schema";
 export * from "./payments.schema";
 export * from "./pricing.schema";
+export * from "./settings.schema";
 export * from "./products.schema";
 export * from "./returns.schema";
 export * from "./testimonials.schema";

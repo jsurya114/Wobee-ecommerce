@@ -10,8 +10,8 @@ export class EvaluateShippingUseCase {
   constructor(private readonly shippingRepository: ShippingRepositoryPort) {}
 
   /** Caller passes the cart's WEIGHT-BASED-items-only weight (2026-08-31) — see resolveShippingEvaluation's own doc comment. */
-  async execute(weightBasedTotalGrams: number): Promise<ShippingEvaluation> {
+  async execute(weightBasedTotalGrams: number, itemsSubtotalPaise = 0): Promise<ShippingEvaluation> {
     const rule = await this.shippingRepository.findCurrentRule();
-    return resolveShippingEvaluation(weightBasedTotalGrams, rule);
+    return resolveShippingEvaluation(weightBasedTotalGrams, rule, itemsSubtotalPaise);
   }
 }

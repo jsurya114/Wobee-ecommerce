@@ -88,6 +88,8 @@ import {
 } from "../products/products.module";
 import { getPaymentForOrderUseCase, markCodPaymentCapturedUseCase } from "../payments/payments.module";
 import { getPricingSettingUseCase, updatePricingSettingUseCase } from "../pricing/pricing.module";
+import { getAppConfigUseCase, updateAppConfigUseCase } from "../settings/settings.module";
+import { getShippingRuleUseCase, updateShippingRuleUseCase } from "../shipping/shipping.module";
 import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
 import {
   approveReturnUseCase,
@@ -244,7 +246,14 @@ const adminProductsController = new AdminProductsController(
   setProductCostsUseCase,
 );
 const adminInventoryController = new AdminInventoryController(listInventoryAdminUseCase, adjustInventoryUseCase);
-const adminSettingsController = new AdminSettingsController(getPricingSettingUseCase, updatePricingSettingUseCase);
+const adminSettingsController = new AdminSettingsController(
+  getPricingSettingUseCase,
+  updatePricingSettingUseCase,
+  getAppConfigUseCase,
+  updateAppConfigUseCase,
+  getShippingRuleUseCase,
+  updateShippingRuleUseCase,
+);
 
 // Cross-module customer detail (week2 (1).md §19) — same "compose in admin,
 // nothing imports it back" reasoning as CancelOrderWithRefundUseCase above,

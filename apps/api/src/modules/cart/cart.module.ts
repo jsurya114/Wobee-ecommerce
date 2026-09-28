@@ -37,7 +37,7 @@ const pricingReader: PricingReaderPort = { calculateMany: (inputs) => calculateE
 const inventoryReader: InventoryReaderPort = {
   getAvailableQuantities: (variantIds) => getAvailableQuantitiesUseCase.execute(variantIds),
 };
-const shippingReader: ShippingReaderPort = { evaluate: (grams) => evaluateShippingUseCase.execute(grams) };
+const shippingReader: ShippingReaderPort = { evaluate: (grams, subtotalPaise) => evaluateShippingUseCase.execute(grams, subtotalPaise) };
 const couponPreview: CouponPreviewPort = { preview: (input) => previewCouponUseCase.execute(input) };
 /** Phase 2 (2026-09-14) — see OfferReaderPort's own doc comment. */
 const offerReader: OfferReaderPort = { resolveMany: (inputs) => resolveApplicableOffersUseCase.executeMany(inputs) };
