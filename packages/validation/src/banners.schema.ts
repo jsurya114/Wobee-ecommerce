@@ -7,13 +7,77 @@ import { z } from "zod";
  */
 
 const urlSchema = z.string().trim().url("Must be a valid URL").max(2048);
-// Internal storefront routes (e.g. "/products?category=dresses") aren't
-// absolute URLs — accepted alongside a full URL for ctaUrl specifically.
+
+/**
+ * Banner CTA actions (2026-09-28). Admin picks an action instead of typing a
+ * URL; the stored `ctaUrl` becomes a small typed reference the API resolves
+ * to a live storefront path (by slug) on every read:
+ *   category:<uuid> | collection:<uuid> | product:<uuid> | offers |
+ *   new_arrivals | custom:<path-or-url>
+ * Anything else that is a site path ("/…") or http(s) URL is a LEGACY raw
+ * link from before this change and keeps working unchanged.
+ */
+export type BannerCtaAction =
+  | { type: "NONE" }
+  | { type: "CATEGORY"; id: string }
+  | { type: "COLLECTION"; id: string }
+  | { type: "PRODUCT"; id: string }
+  | { type: "OFFERS" }
+  | { type: "NEW_ARRIVALS" }
+  | { type: "CUSTOM_URL"; url: string };
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A site path ("/…", never "//host") or an absolute http(s) URL — the only link shapes a banner may point at. */
+export function isAllowedBannerLink(value: string): boolean {
+  return (value.startsWith("/") && !value.startsWith("//")) || /^https?:\/\/[^\s]+$/i.test(value);
+}
+
+/** Parses a stored `ctaUrl`. Returns null for a value that is neither a known action nor a valid legacy link. */
+export function parseBannerCta(value: string | null | undefined): BannerCtaAction | null {
+  if (value == null || value.trim() === "") return { type: "NONE" };
+  const trimmed = value.trim();
+  if (trimmed === "offers") return { type: "OFFERS" };
+  if (trimmed === "new_arrivals") return { type: "NEW_ARRIVALS" };
+  const separator = trimmed.indexOf(":");
+  const prefix = separator > 0 ? trimmed.slice(0, separator) : "";
+  const rest = separator > 0 ? trimmed.slice(separator + 1) : "";
+  if (prefix === "category" || prefix === "collection" || prefix === "product") {
+    if (!UUID_PATTERN.test(rest)) return null;
+    return { type: prefix === "category" ? "CATEGORY" : prefix === "collection" ? "COLLECTION" : "PRODUCT", id: rest.toLowerCase() };
+  }
+  if (prefix === "custom") {
+    return isAllowedBannerLink(rest) ? { type: "CUSTOM_URL", url: rest } : null;
+  }
+  // Legacy raw link (pre-2026-09-28 banners).
+  return isAllowedBannerLink(trimmed) ? { type: "CUSTOM_URL", url: trimmed } : null;
+}
+
+/** The stored form of an action — `null` for NONE (no link). */
+export function formatBannerCta(action: BannerCtaAction): string | null {
+  switch (action.type) {
+    case "NONE":
+      return null;
+    case "CATEGORY":
+      return `category:${action.id}`;
+    case "COLLECTION":
+      return `collection:${action.id}`;
+    case "PRODUCT":
+      return `product:${action.id}`;
+    case "OFFERS":
+      return "offers";
+    case "NEW_ARRIVALS":
+      return "new_arrivals";
+    case "CUSTOM_URL":
+      return `custom:${action.url}`;
+  }
+}
+
 const ctaUrlSchema = z
   .string()
   .trim()
   .max(2048)
-  .refine((value) => value.startsWith("/") || /^https?:\/\//.test(value), "Must be a site path (starting with /) or a full URL");
+  .refine((value) => parseBannerCta(value) !== null, "Choose a valid link: a category, collection, product, offers, new arrivals, or a site path/URL");
 const isoDateSchema = z.string().trim().datetime({ message: "Must be an ISO 8601 date-time" });
 
 export const createBannerSchema = z.object({

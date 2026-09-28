@@ -17,6 +17,10 @@ import { BannerRepository } from "./infrastructure/repositories/banner.repositor
 import { BannersController } from "./interface/http/banners.controller";
 import { createBannersRouter } from "./interface/http/banners.routes";
 import { env } from "../../config/env";
+import { listCategoriesUseCase } from "../categories/categories.module";
+import { listCollectionsUseCase } from "../collections/collections.module";
+import { getProductsByIdsUseCase } from "../products/products.module";
+import type { BannerLinkTargetsPort } from "./application/ports/banner-link-targets.port";
 
 // ADR-017 (Caching Strategy) — see CachedBannerRepository's own doc comment
 // for what's cached (findVisible only) vs. left live (every admin method).
@@ -27,7 +31,16 @@ const bannerRepository: BannerRepositoryPort =
   env.NODE_ENV === "test" ? realBannerRepository : new CachedBannerRepository(realBannerRepository);
 
 /** Exported for cross-module use — `home` composes this into its homepage payload (no extra request). */
-export const listVisibleBannersUseCase = new ListVisibleBannersUseCase(bannerRepository);
+// 2026-09-28 — CTA actions resolve to live slugs of ACTIVE targets only.
+const linkTargets: BannerLinkTargetsPort = {
+  categorySlugs: async () => new Map((await listCategoriesUseCase.execute()).map((c) => [c.id, c.slug])),
+  collectionSlugs: async () =>
+    new Map((await listCollectionsUseCase.execute()).filter((c) => c.isActive).map((c) => [c.id, c.slug])),
+  productSlugs: async (ids) =>
+    new Map([...(await getProductsByIdsUseCase.execute(ids)).values()].filter((p) => p.isActive).map((p) => [p.id, p.slug])),
+};
+
+export const listVisibleBannersUseCase = new ListVisibleBannersUseCase(bannerRepository, linkTargets);
 
 // Exported for the admin module's thin HTTP gateway (ADR-025).
 export const listBannersAdminUseCase = new ListBannersAdminUseCase(bannerRepository);
