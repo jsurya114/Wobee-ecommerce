@@ -29,7 +29,7 @@ const presetListSchema = z
       .string()
       .trim()
       .min(1, "A preset can't be empty")
-      .max(40, "Keep each preset under 40 characters")
+      .max(30, "Keep each preset to 30 characters or fewer")
       .refine((value) => !value.includes(","), "A preset can't contain a comma"),
   )
   .min(1, "Keep at least one option")
