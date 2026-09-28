@@ -8,8 +8,13 @@ describe("validateUpload", () => {
     expect(validateUpload("image/webp", 1024)).toEqual({ ok: true });
   });
 
+  it("accepts an animated GIF (banners, 2026-09-28) up to the 10MB cap", () => {
+    expect(validateUpload("image/gif", 9 * 1024 * 1024)).toEqual({ ok: true });
+    expect(MAX_UPLOAD_SIZE_BYTES).toBe(10 * 1024 * 1024);
+  });
+
   it("rejects a disallowed mime type", () => {
-    const result = validateUpload("image/gif", 1024);
+    const result = validateUpload("image/svg+xml", 1024);
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/unsupported file type/i);
   });

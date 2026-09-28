@@ -166,6 +166,10 @@ function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boole
   const href = bannerHref(banner);
   const content = (
     <div className="relative aspect-[8/5] w-full max-h-[280px] overflow-hidden bg-surface-2 sm:aspect-[3/2] sm:max-h-[320px] md:aspect-[16/9] md:max-h-[380px] lg:aspect-[2/1] lg:max-h-[440px] xl:max-h-[480px]">
+      {/* Deliberately a plain <img>, not next/image: banners may be animated
+          GIFs (2026-09-28), and Next's image optimizer re-encodes them to a
+          single static frame. The first slide still loads eagerly with
+          fetchPriority="high". */}
       <img
         src={banner.imageUrl}
         alt={banner.title ?? ""}

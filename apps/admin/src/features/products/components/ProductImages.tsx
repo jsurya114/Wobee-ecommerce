@@ -133,7 +133,7 @@ export function ProductImages({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         className="hidden"
         onChange={(e) => void onFileSelected(e)}
       />

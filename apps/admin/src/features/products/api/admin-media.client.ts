@@ -34,6 +34,11 @@ export async function uploadMedia(file: File, altText: string, accessToken: stri
   });
 
   const data: unknown = await res.json().catch(() => null);
+  if (res.status === 413) {
+    // Rejected by the reverse proxy in front of the API (its own, smaller body
+    // limit) — no JSON body, so give the admin a concrete reason instead of "Upload failed".
+    throw new ApiError(413, "PAYLOAD_TOO_LARGE", `"${file.name}" is too large for the server to accept. Try a smaller or more compressed image.`);
+  }
   if (!res.ok) {
     const errorBody = (data as { error?: { code?: string; message?: string } })?.error;
     throw new ApiError(res.status, errorBody?.code ?? "UNKNOWN_ERROR", errorBody?.message ?? "Upload failed");
