@@ -26,6 +26,7 @@ export class PaymentRepository implements PaymentRepositoryPort {
           status: input.status,
           amountPaise: input.amountPaise,
           razorpayOrderId: input.razorpayOrderId,
+          upfrontAmountPaise: input.upfrontAmountPaise ?? null,
         },
       });
       return toEntity(payment);
@@ -85,6 +86,7 @@ function toEntity(payment: {
   razorpayOrderId: string | null;
   razorpayPaymentId: string | null;
   razorpaySignature: string | null;
+  upfrontAmountPaise: number | null;
 }): PaymentEntity {
   return {
     id: payment.id,
@@ -95,5 +97,6 @@ function toEntity(payment: {
     razorpayOrderId: payment.razorpayOrderId,
     razorpayPaymentId: payment.razorpayPaymentId,
     razorpaySignature: payment.razorpaySignature,
+    upfrontAmountPaise: payment.upfrontAmountPaise,
   };
 }

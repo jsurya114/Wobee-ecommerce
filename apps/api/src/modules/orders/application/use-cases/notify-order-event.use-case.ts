@@ -61,6 +61,8 @@ export class NotifyOrderEventUseCase {
         // payment captured (the webhook is the only path to CONFIRMED for
         // it); a COD order is confirmed with payment still due on delivery.
         paymentStatus: order.paymentMethod === "COD" ? "PAY_ON_DELIVERY" : "PAID",
+        // COD shipping upfront (2026-09-28) — the cash still due at the door once the delivery fee was paid online.
+        ...(order.shippingPaidUpfront && order.payableOnDeliveryPaise !== null ? { payableOnDeliveryPaise: order.payableOnDeliveryPaise } : {}),
         placedAt: order.placedAt.toISOString(),
         items: order.items.map((item) => ({
           name: item.productNameSnapshot,

@@ -37,6 +37,10 @@ export interface AdminOrderView {
   totalPaise: number;
   totalWeightGrams: number;
   paymentMethod: PaymentMethod;
+  /** COD shipping upfront (2026-09-28) — the delivery fee was paid online. */
+  shippingPaidUpfront: boolean;
+  /** Cash the courier collects for a COD order whose delivery fee is prepaid online; null otherwise. */
+  payableOnDeliveryPaise: number | null;
   /** Week 3 Day 6 — distinct from paymentMethod: whether money has actually moved. Null only in the narrow window before checkout's own Payment row exists. */
   paymentStatus: PaymentStatus | null;
   placedAt: string;

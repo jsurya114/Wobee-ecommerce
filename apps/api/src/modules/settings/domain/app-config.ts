@@ -9,6 +9,8 @@ export interface AppConfigValues {
   presetFabrics: string[];
   presetFits: string[];
   returnsEnabled: boolean;
+  /** COD orders with a delivery fee prepay that fee online before confirmation (2026-09-28). */
+  codShippingUpfront: boolean;
 }
 
 /** Mirrors the schema column defaults — used when the singleton row doesn't exist yet (fresh database, nothing saved). */
@@ -18,6 +20,7 @@ export const DEFAULT_APP_CONFIG: AppConfigValues = {
   presetFabrics: ["Cotton", "Silk", "Linen", "Polyester", "Rayon", "Georgette", "Chiffon", "Crepe", "Velvet"],
   presetFits: ["Regular", "Slim", "Relaxed", "Oversized", "A-Line"],
   returnsEnabled: false,
+  codShippingUpfront: false,
 };
 
 export function splitPresetList(csv: string): string[] {

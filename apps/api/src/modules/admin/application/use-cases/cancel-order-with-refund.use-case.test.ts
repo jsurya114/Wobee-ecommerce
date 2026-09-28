@@ -10,7 +10,7 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     subtotalPaise: 100, discountPaise: 0, shippingFeePaise: 0, taxPaise: 0, totalPaise: 100, totalWeightGrams: 100,
     paymentMethod: "RAZORPAY", placedAt: new Date(),
     items: [{ id: "item-1", variantId: "variant-1", productNameSnapshot: "P", skuSnapshot: "SKU", color: "Red", size: "M", weightGrams: 100, pricingMode: "WEIGHT_BASED", unitRatePerKgPaise: 1000, basePricePaise: 100, unitPricePaise: 100, quantity: 2, lineTotalPaise: 200, taxAmountPaise: 10, discountPaise: 0, offerId: null, offerNameSnapshot: null, offerDiscountType: null, offerDiscountValue: null, offerDiscountPaise: 0 }],
-    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: new Date(), cancellationReason: null, hasActiveReturn: false,
+    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: new Date(), cancellationReason: null, hasActiveReturn: false, shippingPaidUpfront: false, payableOnDeliveryPaise: null,
     ...overrides,
   };
 }

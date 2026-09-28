@@ -95,7 +95,7 @@ export class CancelOrderWithRefundUseCase {
       return { order, refundIssued: false };
     }
 
-    const { refundIssued } = await this.issueRefundForCancelledOrderUseCase.execute(orderId);
+    const { refundIssued, amountPaise: refundedPaise } = await this.issueRefundForCancelledOrderUseCase.execute(orderId);
 
     await this.recordAuditLogUseCase.execute({
       actorId: actor.id,
@@ -132,7 +132,9 @@ export class CancelOrderWithRefundUseCase {
         payload: {
           contactEmail: order.contactEmail,
           orderNumber: order.orderNumber,
-          amountPaise: order.totalPaise,
+          // The amount actually refunded — the order total for a Razorpay order,
+          // only the prepaid delivery fee for a COD-with-upfront-shipping order.
+          amountPaise: refundedPaise ?? order.totalPaise,
         },
       });
     }

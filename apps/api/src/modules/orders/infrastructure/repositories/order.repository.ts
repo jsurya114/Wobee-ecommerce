@@ -51,6 +51,7 @@ export class OrderRepository implements OrderRepositoryPort {
           totalWeightGrams: input.totalWeightGrams,
           paymentMethod: input.paymentMethod,
           analyticsSessionId: input.analyticsSessionId ?? null,
+          payableOnDeliveryPaise: input.payableOnDeliveryPaise ?? null,
           items: {
             create: input.items.map((item) => ({
               variantId: item.variantId,
@@ -152,7 +153,10 @@ export class OrderRepository implements OrderRepositoryPort {
     to: OrderEntity["status"],
     tx: unknown,
     extraFields?: Partial<
-      Pick<OrderEntity, "trackingNumber" | "carrier" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
+      Pick<
+        OrderEntity,
+        "trackingNumber" | "carrier" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason" | "shippingPaidUpfront"
+      >
     >,
   ): Promise<TransitionOrderStatusResult> {
     const client = tx as PrismaTx;
@@ -263,6 +267,8 @@ function toEntity(order: OrderWithItems): OrderEntity {
     totalPaise: order.totalPaise,
     totalWeightGrams: order.totalWeightGrams,
     paymentMethod: order.paymentMethod,
+    shippingPaidUpfront: order.shippingPaidUpfront,
+    payableOnDeliveryPaise: order.payableOnDeliveryPaise,
     placedAt: order.placedAt,
     trackingNumber: order.trackingNumber,
     carrier: order.carrier,

@@ -10,6 +10,7 @@ type AppConfigRow = {
   presetFabrics: string;
   presetFits: string;
   returnsEnabled: boolean;
+  codShippingUpfront: boolean;
   updatedAt: Date;
 };
 
@@ -27,6 +28,7 @@ export class AppConfigRepository implements AppConfigRepositoryPort {
       ...(patch.presetFabrics !== undefined ? { presetFabrics: joinPresetList(patch.presetFabrics) } : {}),
       ...(patch.presetFits !== undefined ? { presetFits: joinPresetList(patch.presetFits) } : {}),
       ...(patch.returnsEnabled !== undefined ? { returnsEnabled: patch.returnsEnabled } : {}),
+      ...(patch.codShippingUpfront !== undefined ? { codShippingUpfront: patch.codShippingUpfront } : {}),
     };
     // Upsert: the first save creates the row (every column not in `data`
     // takes its schema default, which equals DEFAULT_APP_CONFIG).
@@ -42,6 +44,7 @@ function toRecord(row: AppConfigRow): AppConfigRecord {
     presetFabrics: splitPresetList(row.presetFabrics),
     presetFits: splitPresetList(row.presetFits),
     returnsEnabled: row.returnsEnabled,
+    codShippingUpfront: row.codShippingUpfront,
     updatedAt: row.updatedAt,
   };
 }

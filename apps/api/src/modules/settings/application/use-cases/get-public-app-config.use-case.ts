@@ -11,6 +11,7 @@ export interface PublicAppConfigView {
   minCartQuantity: number;
   freeDeliveryMinSubtotalPaise: number;
   returnsEnabled: boolean;
+  codShippingUpfront: boolean;
   presetSizes: string[];
   presetFabrics: string[];
   presetFits: string[];
@@ -29,6 +30,7 @@ export class GetPublicAppConfigUseCase {
       minCartQuantity: config.minCartQuantity,
       freeDeliveryMinSubtotalPaise: shippingRule.freeDeliveryMinSubtotalPaise,
       returnsEnabled: config.returnsEnabled,
+      codShippingUpfront: config.codShippingUpfront,
       presetSizes: config.presetSizes,
       presetFabrics: config.presetFabrics,
       presetFits: config.presetFits,

@@ -118,10 +118,11 @@ export class CheckoutUseCase {
     // reservation below plus the in-transaction shipping re-read; this can
     // still race and lose to them, which is fine (the transaction's own
     // checks are the real, always-correct guards).
-    const [preCheckShipping, minCartQuantity] = await Promise.all([
+    const [preCheckShipping, rules] = await Promise.all([
       this.shippingReader.evaluate(cart.weightBasedTotalGrams, cart.totalPaise),
-      this.checkoutRules.getMinCartQuantity(),
+      this.checkoutRules.getRules(),
     ]);
+    const { minCartQuantity } = rules;
     if (!preCheckShipping.meetsMinimum) {
       // ADR-021 minimum order weight (ShippingRule.minWeightGramsForCheckout, admin-editable).
       const minimumGrams = cart.weightBasedTotalGrams + preCheckShipping.gramsToMinimum;
@@ -196,6 +197,13 @@ export class CheckoutUseCase {
       const subtotalPaise = items.reduce((sum, item) => sum + item.lineTotalPaise, 0);
       const taxPaise = items.reduce((sum, item) => sum + item.taxAmountPaise, 0);
 
+      const totalPaise = subtotalPaise + taxPaise + shipping.shippingFeePaise - discountPaise;
+      // COD shipping upfront (2026-09-28): with the setting on, a COD order that
+      // carries a delivery fee prepays exactly that fee online; the courier
+      // collects the rest. Recorded now so confirmation can require the
+      // prepayment (ConfirmCodOrderUseCase) even if the setting changes later.
+      const requiresUpfrontShipping = input.paymentMethod === "COD" && rules.codShippingUpfront && shipping.shippingFeePaise > 0;
+
       const orderBase: Omit<CreateOrderInput, "orderNumber"> = {
         userId: input.userId ?? null,
         contactName: input.address.fullName,
@@ -206,7 +214,8 @@ export class CheckoutUseCase {
         discountPaise,
         shippingFeePaise: shipping.shippingFeePaise,
         taxPaise,
-        totalPaise: subtotalPaise + taxPaise + shipping.shippingFeePaise - discountPaise,
+        totalPaise,
+        payableOnDeliveryPaise: requiresUpfrontShipping ? totalPaise - shipping.shippingFeePaise : null,
         totalWeightGrams: cart.totalWeightGrams,
         paymentMethod: input.paymentMethod,
         analyticsSessionId: input.analyticsSessionId ?? null,

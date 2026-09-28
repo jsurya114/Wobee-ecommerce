@@ -44,6 +44,7 @@ export const updateAppConfigSchema = z
     presetFabrics: presetListSchema,
     presetFits: presetListSchema,
     returnsEnabled: z.boolean(),
+    codShippingUpfront: z.boolean(),
   })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, { message: "Nothing to update" });

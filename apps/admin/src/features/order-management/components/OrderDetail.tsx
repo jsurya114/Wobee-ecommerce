@@ -83,7 +83,14 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             ) : null}
             <div className="flex justify-between text-text-secondary">
               <span>Shipping</span>
-              <span className="text-text-primary">{order.shippingFeePaise === 0 ? "Free" : formatPaiseAsInr(order.shippingFeePaise)}</span>
+              <span className="text-text-primary">
+                {order.shippingFeePaise === 0 ? "Free" : formatPaiseAsInr(order.shippingFeePaise)}
+                {order.payableOnDeliveryPaise !== null && order.shippingFeePaise > 0
+                  ? order.shippingPaidUpfront
+                    ? " · Paid online"
+                    : " · Awaiting online payment"
+                  : null}
+              </span>
             </div>
             <div className="flex justify-between text-text-secondary">
               <span>Tax</span>
@@ -99,6 +106,13 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             <span className="font-body text-sm font-medium text-text-primary">Total</span>
             <span className="font-display text-xl font-semibold text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
           </div>
+          {/* COD shipping upfront (2026-09-28) — what the courier must collect at the door. */}
+          {order.payableOnDeliveryPaise !== null ? (
+            <div className="mt-2 flex items-baseline justify-between rounded-control bg-primary-tint px-3 py-2">
+              <span className="font-body text-sm font-medium text-text-primary">COD amount (collect at delivery)</span>
+              <span className="font-body text-base font-semibold text-text-primary">{formatPaiseAsInr(order.payableOnDeliveryPaise)}</span>
+            </div>
+          ) : null}
         </Card>
 
         <Card className="p-4">

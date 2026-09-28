@@ -16,7 +16,12 @@ import type { OrderRepositoryPort, TransitionOrderStatusResult } from "../ports/
 export class ConfirmOrderUseCase {
   constructor(private readonly orderRepository: OrderRepositoryPort) {}
 
-  async execute(orderId: string, tx: unknown): Promise<TransitionOrderStatusResult> {
+  /**
+   * `options.shippingPaidUpfront` (2026-09-28) — set by the webhook when the
+   * capture being confirmed is a COD order's prepaid delivery fee; written in
+   * the same conditional update as the status change.
+   */
+  async execute(orderId: string, tx: unknown, options: { shippingPaidUpfront?: boolean } = {}): Promise<TransitionOrderStatusResult> {
     const existing = await this.orderRepository.findById(orderId);
     if (!existing) {
       throw new NotFoundError("Order not found");
@@ -28,6 +33,12 @@ export class ConfirmOrderUseCase {
       throw new ConflictError(`Cannot confirm an order in status ${existing.status}`);
     }
 
-    return this.orderRepository.transitionStatus(orderId, "PENDING_PAYMENT", "CONFIRMED", tx);
+    return this.orderRepository.transitionStatus(
+      orderId,
+      "PENDING_PAYMENT",
+      "CONFIRMED",
+      tx,
+      options.shippingPaidUpfront ? { shippingPaidUpfront: true } : undefined,
+    );
   }
 }

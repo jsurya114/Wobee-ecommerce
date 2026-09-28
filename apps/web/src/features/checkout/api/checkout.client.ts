@@ -32,6 +32,10 @@ export interface OrderView {
   totalPaise: number;
   totalWeightGrams: number;
   paymentMethod: "RAZORPAY" | "COD";
+  /** COD shipping upfront (2026-09-28) — true once the delivery fee was paid online. */
+  shippingPaidUpfront: boolean;
+  /** Cash due at the door for a COD order whose delivery fee is paid online; null for every other order. */
+  payableOnDeliveryPaise: number | null;
   placedAt: string;
   trackingNumber: string | null;
   carrier: string | null;

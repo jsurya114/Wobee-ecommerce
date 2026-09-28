@@ -94,7 +94,12 @@ const inventoryRestock: InventoryRestockPort = { restock: (items, tx) => restock
 const auditLogger: AuditLoggerPort = { log: (entry, tx) => recordAuditLogUseCase.execute(entry, tx) };
 const notificationEnqueuer: NotificationEnqueuerPort = { enqueue: (input) => enqueueNotificationUseCase.execute(input) };
 /** Persistent-address feature — dedup-and-save lives in `users` (owns the Address table, ADR-010); orders only ever calls through this port. */
-const checkoutRules: CheckoutRulesReaderPort = { getMinCartQuantity: async () => (await getAppConfigUseCase.execute()).minCartQuantity };
+const checkoutRules: CheckoutRulesReaderPort = {
+  getRules: async () => {
+    const config = await getAppConfigUseCase.execute();
+    return { minCartQuantity: config.minCartQuantity, codShippingUpfront: config.codShippingUpfront };
+  },
+};
 const addressSaver: AddressSaverPort = { saveIfNew: (userId, address) => saveCheckoutAddressUseCase.execute(userId, address) };
 
 const checkoutUseCase = new CheckoutUseCase(

@@ -46,6 +46,12 @@ export class ConfirmCodOrderUseCase {
     if (order.status !== "PENDING_PAYMENT") {
       throw new ConflictError(`Cannot confirm an order in status ${order.status}`);
     }
+    // COD shipping upfront (2026-09-28): an order checkout marked as needing
+    // its delivery fee prepaid online can only be confirmed by the
+    // webhook-verified capture of that fee — never by this client call.
+    if (typeof order.payableOnDeliveryPaise === "number") {
+      throw new ConflictError("Pay the delivery fee online to confirm this cash-on-delivery order");
+    }
 
     const result = await this.transaction.run(async (tx) => {
       const { changed } = await this.orderPort.confirm(order.id, tx);

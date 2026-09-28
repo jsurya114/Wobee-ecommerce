@@ -965,15 +965,17 @@ model ShippingRule {
 /// settings. Presets are comma-separated (an individual preset value may not
 /// contain a comma — enforced by the admin validation schema).
 model AppConfig {
-  id              String   @id @default("singleton")
+  id                 String   @id @default("singleton")
   /// Minimum total item count (sum of line quantities) to place an order.
-  minCartQuantity Int      @default(1)
-  presetSizes     String   @default("XS,S,M,L,XL,XXL,3XL,Free Size")
-  presetFabrics   String   @default("Cotton,Silk,Linen,Polyester,Rayon,Georgette,Chiffon,Crepe,Velvet")
-  presetFits      String   @default("Regular,Slim,Relaxed,Oversized,A-Line")
+  minCartQuantity    Int      @default(1)
+  presetSizes        String   @default("XS,S,M,L,XL,XXL,3XL,Free Size")
+  presetFabrics      String   @default("Cotton,Silk,Linen,Polyester,Rayon,Georgette,Chiffon,Crepe,Velvet")
+  presetFits         String   @default("Regular,Slim,Relaxed,Oversized,A-Line")
   /// Feature flag — customers can request NEW returns only when true. Existing returns stay visible and admin can still process them.
-  returnsEnabled  Boolean  @default(false)
-  updatedAt       DateTime @updatedAt
+  returnsEnabled     Boolean  @default(false)
+  /// Feature flag (2026-09-28) — when true, a COD order with a delivery fee must pay that fee online (Razorpay) before it is confirmed; the rest is collected in cash on delivery. Off by default so enabling it is a deliberate admin action once Razorpay is verified in that environment.
+  codShippingUpfront Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
 
   @@map("app_config")
 }
@@ -1006,6 +1008,10 @@ model Order {
   totalWeightGrams Int
 
   paymentMethod PaymentMethod
+
+  /// COD shipping upfront (2026-09-28). `payableOnDeliveryPaise` is set at checkout ONLY when the order must prepay its delivery fee online (= totalPaise - shippingFeePaise, the cash the courier collects); null means an ordinary COD/online order. `shippingPaidUpfront` flips to true when the webhook-verified Razorpay capture of that fee confirms the order.
+  shippingPaidUpfront    Boolean @default(false)
+  payableOnDeliveryPaise Int?
 
   /// Denormalized for admin filtering only — the real state lives on Return (plan.md §4).
   hasActiveReturn   Boolean @default(false)
@@ -1139,16 +1145,18 @@ model AdminAuditLog {
 // ─────────────────────────────────────────────────────────────────────────
 
 model Payment {
-  id                String        @id @default(uuid())
-  orderId           String
-  provider          PaymentMethod
-  status            PaymentStatus @default(CREATED)
-  amountPaise       Int
-  razorpayOrderId   String?
-  razorpayPaymentId String?
-  razorpaySignature String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  orderId            String
+  provider           PaymentMethod
+  status             PaymentStatus @default(CREATED)
+  amountPaise        Int
+  razorpayOrderId    String?
+  razorpayPaymentId  String?
+  razorpaySignature  String?
+  /// COD shipping upfront (2026-09-28) — for a COD Payment, the portion charged online through Razorpay (the delivery fee); null for every other payment. `amountPaise` stays the order total; the cash still owed at delivery is amountPaise - upfrontAmountPaise.
+  upfrontAmountPaise Int?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

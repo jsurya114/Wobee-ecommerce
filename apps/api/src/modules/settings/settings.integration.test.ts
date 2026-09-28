@@ -166,6 +166,7 @@ describe("admin settings: store config", () => {
     // Only the public subset — nothing internal leaks.
     expect(Object.keys(pub.body.config).sort()).toEqual(
       [
+        "codShippingUpfront",
         "freeDeliveryMinSubtotalPaise",
         "minCartQuantity",
         "minCartWeightGrams",

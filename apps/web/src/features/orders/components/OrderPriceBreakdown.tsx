@@ -1,5 +1,6 @@
 import { formatGrams, formatPaiseAsInr, formatPaiseAsInrCompact, sumWeightBasedGrams } from "@woobe/utils";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
+import { codUpfrontSplit } from "@/features/payments/lib/online-payment";
 
 /**
  * The authoritative order money breakdown (redesign spec §E/§I) — shown on
@@ -14,6 +15,7 @@ import type { OrderView } from "@/features/checkout/api/checkout.client";
  */
 export function OrderPriceBreakdown({ order }: { order: OrderView }) {
   const weightBasedTotalGrams = sumWeightBasedGrams(order.items);
+  const codSplit = codUpfrontSplit(order);
   return (
     <div className="flex flex-col gap-4">
       <ul className="flex flex-col gap-3">
@@ -64,6 +66,21 @@ export function OrderPriceBreakdown({ order }: { order: OrderView }) {
         <span className="text-text-primary">Total</span>
         <span className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
       </div>
+
+      {codSplit ? (
+        <dl className="flex flex-col gap-1.5 rounded-control bg-surface-2 px-3 py-2.5 font-body text-sm">
+          <div className="flex justify-between">
+            <dt className="text-text-secondary">Delivery fee</dt>
+            <dd className="text-text-primary">
+              {formatPaiseAsInr(codSplit.deliveryFeePaise)} {order.shippingPaidUpfront ? "· paid online" : "· due online"}
+            </dd>
+          </div>
+          <div className="flex justify-between font-medium">
+            <dt className="text-text-primary">Cash on delivery</dt>
+            <dd className="text-text-primary">{formatPaiseAsInr(codSplit.payableOnDeliveryPaise)}</dd>
+          </div>
+        </dl>
+      ) : null}
     </div>
   );
 }

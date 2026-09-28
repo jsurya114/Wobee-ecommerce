@@ -72,6 +72,16 @@ export function StorePoliciesForm() {
         disabled={isSaving}
         onChange={(checked) => save({ returnsEnabled: checked }, checked ? "Returns turned on" : "Returns turned off")}
       />
+      <PolicyToggle
+        id="policy-cod-shipping-upfront"
+        label="Collect COD delivery fee online"
+        description="Cash-on-delivery orders with a delivery fee pay that fee online (Razorpay) before they are confirmed; the rest is paid in cash at the door. Only turn on once online payments work in this environment."
+        checked={config.codShippingUpfront}
+        disabled={isSaving}
+        onChange={(checked) =>
+          save({ codShippingUpfront: checked }, checked ? "COD delivery fee will be collected online" : "COD delivery fee collected at the door")
+        }
+      />
     </Card>
   );
 }

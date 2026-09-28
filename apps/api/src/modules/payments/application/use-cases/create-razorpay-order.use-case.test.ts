@@ -16,6 +16,9 @@ function order(overrides: Partial<OrderForPayment> = {}): OrderForPayment {
     status: "PENDING_PAYMENT",
     paymentMethod: "RAZORPAY",
     totalPaise: 10000,
+    shippingFeePaise: 0,
+    payableOnDeliveryPaise: null,
+    shippingPaidUpfront: false,
     items: [],
     ...overrides,
   };
@@ -31,16 +34,18 @@ function payment(overrides: Partial<PaymentEntity> = {}): PaymentEntity {
     razorpayOrderId: "rzp_order_existing",
     razorpayPaymentId: null,
     razorpaySignature: null,
+    upfrontAmountPaise: null,
     ...overrides,
   };
 }
 
 function buildUseCase(params: {
+  order?: OrderForPayment;
   existingPayment?: PaymentEntity | null;
   createResult?: PaymentEntity | (() => never);
   winnerAfterRace?: PaymentEntity | null;
 }) {
-  const orderPort = { getOrder: vi.fn().mockResolvedValue(order()) } as unknown as OrderPort;
+  const orderPort = { getOrder: vi.fn().mockResolvedValue(params.order ?? order()) } as unknown as OrderPort;
   const gateway = {
     createOrder: vi.fn().mockResolvedValue({ id: "rzp_order_new", amountPaise: 10000, currency: "INR" }),
   } as unknown as RazorpayGatewayPort;
@@ -128,5 +133,33 @@ describe("CreateRazorpayOrderUseCase", () => {
     const useCase = new CreateRazorpayOrderUseCase(orderPort, paymentRepository, gateway);
 
     await expect(useCase.execute("order-1", "user-1")).rejects.toThrow(/not found/i);
+  });
+
+  describe("COD delivery fee paid upfront (2026-09-28)", () => {
+    const codUpfront = order({ paymentMethod: "COD", totalPaise: 11_000, shippingFeePaise: 5_000, payableOnDeliveryPaise: 6_000 });
+
+    it("charges ONLY the delivery fee online, recording it as upfrontAmountPaise on the COD payment", async () => {
+      const { useCase, gateway, paymentRepository } = buildUseCase({ order: codUpfront, existingPayment: null });
+      const result = await useCase.execute("order-1", "user-1");
+      expect(gateway.createOrder).toHaveBeenCalledWith(expect.objectContaining({ amountPaise: 5_000 }));
+      expect(paymentRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "COD", amountPaise: 11_000, upfrontAmountPaise: 5_000 }),
+      );
+      expect(result).toMatchObject({ amountPaise: 5_000, purpose: "DELIVERY_FEE" });
+    });
+
+    it("returns the fee (not the order total) when re-asked for an existing delivery-fee payment", async () => {
+      const existing = payment({ provider: "COD", amountPaise: 11_000, upfrontAmountPaise: 5_000, razorpayOrderId: "rzp_existing" });
+      const { useCase, gateway } = buildUseCase({ order: codUpfront, existingPayment: existing });
+      const result = await useCase.execute("order-1", "user-1");
+      expect(gateway.createOrder).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ razorpayOrderId: "rzp_existing", amountPaise: 5_000, purpose: "DELIVERY_FEE" });
+    });
+
+    it("refuses an ordinary COD order (nothing to pay online)", async () => {
+      const { useCase, gateway } = buildUseCase({ order: order({ paymentMethod: "COD" }) });
+      await expect(useCase.execute("order-1", "user-1")).rejects.toThrow("isn't set up for online payment");
+      expect(gateway.createOrder).not.toHaveBeenCalled();
+    });
   });
 });

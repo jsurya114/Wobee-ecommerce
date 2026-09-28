@@ -20,6 +20,8 @@ export interface AppConfig {
   presetFabrics: string[];
   presetFits: string[];
   returnsEnabled: boolean;
+  /** COD orders with a delivery fee prepay that fee online (2026-09-28). */
+  codShippingUpfront: boolean;
   updatedAt: string | null;
 }
 
@@ -86,6 +88,7 @@ export interface PublicAppConfig {
   minCartQuantity: number;
   freeDeliveryMinSubtotalPaise: number;
   returnsEnabled: boolean;
+  codShippingUpfront: boolean;
   presetSizes: string[];
   presetFabrics: string[];
   presetFits: string[];
