@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
 import { hasPermission } from "@/features/shell/nav-config";
-import type { AdminOrderView } from "../api/admin-orders.client";
+import type { AdminOrderView, CancelRefundOutcome } from "../api/admin-orders.client";
 
 interface Props {
   order: AdminOrderView;
@@ -16,10 +16,11 @@ interface Props {
   onDeliver: () => Promise<void>;
   onCancel: (input: { reason?: string }) => Promise<void>;
   onReturnToOrigin: () => Promise<void>;
-  lastRefundIssued: boolean | null;
+  /** Outcome of a cancellation made in THIS session (null otherwise). */
+  lastRefundOutcome: CancelRefundOutcome | null;
 }
 
-export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onDeliver, onCancel, onReturnToOrigin, lastRefundIssued }: Props) {
+export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onDeliver, onCancel, onReturnToOrigin, lastRefundOutcome }: Props) {
   const { user } = useAdminAuth();
   const [busy, setBusy] = useState(false);
   const [shipping, setShipping] = useState(false);
@@ -147,8 +148,16 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
     );
   }
 
-  if (lastRefundIssued === false && order.status === "CANCELLED") {
-    return <p className="font-body text-sm text-error">Refund needs manual follow-up — the automatic attempt didn't succeed.</p>;
+  // Bug fix (2026-09-28): this used to key off `refundIssued === false`, which
+  // is ALSO what a COD cancel returns (nothing was ever collected, so nothing
+  // to refund) — every successful COD cancellation showed this red warning
+  // and looked like it had failed. Only a genuinely failed refund attempt
+  // needs a human now.
+  if (order.status === "CANCELLED" && lastRefundOutcome === "FAILED") {
+    return <p className="font-body text-sm text-error">Order cancelled, but the refund needs manual follow-up — the automatic attempt didn&apos;t succeed.</p>;
+  }
+  if (order.status === "CANCELLED" && lastRefundOutcome === "COMPLETED") {
+    return <p className="font-body text-sm text-success">Order cancelled and refund issued.</p>;
   }
 
   return null;

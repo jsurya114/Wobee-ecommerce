@@ -75,7 +75,7 @@ export function useAdminOrder(orderId: string) {
     order: query.data ?? null,
     loading: query.isPending,
     error: query.error ? "Couldn't load this order." : null,
-    lastRefundIssued: cancelMutation.data?.refundIssued ?? null,
+    lastRefundOutcome: cancelMutation.data?.refundOutcome ?? null,
     refetch: query.refetch,
     startProcessing: async () => {
       await startProcessingMutation.mutateAsync();

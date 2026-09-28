@@ -111,7 +111,14 @@ export function deliver(id: string, accessToken: string): Promise<AdminOrderView
   return apiFetch(`/api/v1/admin/orders/${id}/deliver`, { method: "POST", accessToken });
 }
 
-export function cancel(id: string, input: CancelOrderInput, accessToken: string): Promise<{ order: AdminOrderView; refundIssued: boolean }> {
+/** What happened to the money on cancellation — only FAILED needs a human (2026-09-28). */
+export type CancelRefundOutcome = "NOT_APPLICABLE" | "COMPLETED" | "FAILED";
+
+export function cancel(
+  id: string,
+  input: CancelOrderInput,
+  accessToken: string,
+): Promise<{ order: AdminOrderView; refundIssued: boolean; refundOutcome: CancelRefundOutcome }> {
   return apiFetch(`/api/v1/admin/orders/${id}/cancel`, { method: "POST", body: input, accessToken });
 }
 

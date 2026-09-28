@@ -13,7 +13,7 @@ import { OrderStatusActions } from "./OrderStatusActions";
 import { OrderTimeline } from "./OrderTimeline";
 
 export function OrderDetail({ orderId }: { orderId: string }) {
-  const { order, loading, error, startProcessing, markPacked, ship, deliver, cancel, returnToOrigin, lastRefundIssued } = useAdminOrder(orderId);
+  const { order, loading, error, startProcessing, markPacked, ship, deliver, cancel, returnToOrigin, lastRefundOutcome } = useAdminOrder(orderId);
   const { user } = useAdminAuth();
   const canViewCustomer = hasPermission(user?.role, "MANAGE_CUSTOMERS");
 
@@ -146,7 +146,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           onDeliver={deliver}
           onCancel={cancel}
           onReturnToOrigin={returnToOrigin}
-          lastRefundIssued={lastRefundIssued}
+          lastRefundOutcome={lastRefundOutcome}
         />
       </div>
 
