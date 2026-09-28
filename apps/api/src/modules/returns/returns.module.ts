@@ -17,11 +17,13 @@ import { recordAuditLogUseCase } from "../audit/audit.module";
 import { getOrderForAdminUseCase, getOrderUseCase, setOrderHasActiveReturnUseCase } from "../orders/orders.module";
 import { enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { issueRefundForReturnUseCase } from "../refunds/refunds.module";
+import { getAppConfigUseCase } from "../settings/settings.module";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";
 import type { NotificationEnqueuerPort } from "./application/ports/notification-enqueuer.port";
 import type { OrderReaderPort, ReturnOrderView } from "./application/ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "./application/ports/order-return-flag-writer.port";
 import type { RefundIssuerPort } from "./application/ports/refund-issuer.port";
+import type { ReturnsPolicyPort } from "./application/ports/returns-policy.port";
 import { ApproveReturnUseCase } from "./application/use-cases/approve-return.use-case";
 import { GetReturnForAdminUseCase } from "./application/use-cases/get-return-for-admin.use-case";
 import { GetReturnUseCase } from "./application/use-cases/get-return.use-case";
@@ -86,12 +88,14 @@ const refundIssuer: RefundIssuerPort = {
 };
 const auditLogger: AuditLoggerPort = { log: (entry) => recordAuditLogUseCase.execute(entry) };
 const notificationEnqueuer: NotificationEnqueuerPort = { enqueue: (input) => enqueueNotificationUseCase.execute(input) };
+const returnsPolicy: ReturnsPolicyPort = { isEnabled: async () => (await getAppConfigUseCase.execute()).returnsEnabled };
 
 const requestReturnUseCase = new RequestReturnUseCase(
   orderReader,
   returnRepository,
   orderReturnFlagWriter,
   notificationEnqueuer,
+  returnsPolicy,
 );
 const listMyReturnsUseCase = new ListMyReturnsUseCase(returnRepository);
 const getReturnUseCase = new GetReturnUseCase(returnRepository, orderReader);

@@ -1,15 +1,19 @@
 "use client";
 
 import { Button, FormField } from "@woobe/ui";
+import { paiseToRupeeInput, parseRupeeInputToPaise } from "@woobe/utils";
 import { useState } from "react";
+import { usePublicAppConfig } from "@/features/settings/hooks/usePublicAppConfig";
 import { useFormError } from "@/lib/use-form-error";
 import type { AdminProductVariant, UpdateVariantPayload, VariantPayload } from "../api/admin-products.client";
+import { PresetSelect } from "./PresetSelect";
 
 export interface VariantFormValues {
   color: string;
   size: string;
   weightGrams: string;
-  fixedPricePaise: string;
+  /** Typed in rupees (2026-09-28); converted to integer paise only at submit. */
+  fixedPriceRupees: string;
   fabric: string;
   fit: string;
   measurements: string;
@@ -21,7 +25,7 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
     color: variant?.color ?? "",
     size: variant?.size ?? "",
     weightGrams: variant ? String(variant.weightGrams) : "",
-    fixedPricePaise: variant?.fixedPricePaise != null ? String(variant.fixedPricePaise) : "",
+    fixedPriceRupees: variant?.fixedPricePaise != null ? paiseToRupeeInput(variant.fixedPricePaise) : "",
     fabric: variant?.fabric ?? "",
     fit: variant?.fit ?? "",
     measurements: variant?.measurements ?? "",
@@ -60,6 +64,8 @@ export function VariantForm({
   const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
   const isEditing = Boolean(variant);
   const isFixed = pricingMode === "FIXED";
+  // Presets are optional — if they can't load, PresetSelect falls back to a free-text field.
+  const { config: presets, loading: presetsLoading } = usePublicAppConfig();
 
   const set = <K extends keyof VariantFormValues>(key: K, value: VariantFormValues[K]) => setValues((prev) => ({ ...prev, [key]: value }));
 
@@ -79,10 +85,19 @@ export function VariantForm({
       setFieldError("weightGrams", "Weight is required");
       return;
     }
-    const fixedPricePaise = values.fixedPricePaise ? Number(values.fixedPricePaise) : null;
-    if (isFixed && !fixedPricePaise) {
-      setFieldError("fixedPricePaise", "This product is fixed-price — enter a price");
-      return;
+    let fixedPricePaise: number | null = null;
+    if (isFixed) {
+      if (!values.fixedPriceRupees.trim()) {
+        setFieldError("fixedPricePaise", "This product is fixed-price — enter a price");
+        return;
+      }
+      // Display boundary only: the admin types rupees, the API still receives integer paise.
+      const parsed = parseRupeeInputToPaise(values.fixedPriceRupees);
+      if (!parsed.ok) {
+        setFieldError("fixedPricePaise", parsed.error);
+        return;
+      }
+      fixedPricePaise = parsed.paise;
     }
     setIsSubmitting(true);
     try {
@@ -91,8 +106,8 @@ export function VariantForm({
         size: values.size.trim(),
         weightGrams,
         fixedPricePaise: isFixed ? fixedPricePaise : null,
-        fabric: values.fabric || null,
-        fit: values.fit || null,
+        fabric: values.fabric.trim() || null,
+        fit: values.fit.trim() || null,
         measurements: values.measurements || null,
         ...(isEditing ? {} : { initialQuantity: values.initialQuantity ? Number(values.initialQuantity) : 0 }),
       });
@@ -124,13 +139,25 @@ export function VariantForm({
           error={fieldErrors.weightGrams}
         />
         <FormField label="Colour" value={values.color} onChange={(e) => set("color", e.target.value)} error={fieldErrors.color} />
-        <FormField label="Size" value={values.size} onChange={(e) => set("size", e.target.value)} error={fieldErrors.size} />
+        {presetsLoading ? (
+          <FormField label="Size" value={values.size} disabled readOnly />
+        ) : (
+          <PresetSelect
+            label="Size"
+            required
+            value={values.size}
+            options={presets?.presetSizes ?? []}
+            onChange={(value) => set("size", value)}
+            error={fieldErrors.size}
+          />
+        )}
         {isFixed ? (
           <FormField
-            label="Fixed price (paise)"
-            type="number"
-            value={values.fixedPricePaise}
-            onChange={(e) => set("fixedPricePaise", e.target.value)}
+            label="Fixed price (₹)"
+            inputMode="decimal"
+            placeholder="e.g. 499 or 499.50"
+            value={values.fixedPriceRupees}
+            onChange={(e) => set("fixedPriceRupees", e.target.value)}
             error={fieldErrors.fixedPricePaise}
           />
         ) : (
@@ -150,8 +177,29 @@ export function VariantForm({
         ) : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <FormField label="Fabric (optional)" value={values.fabric} onChange={(e) => set("fabric", e.target.value)} error={fieldErrors.fabric} />
-        <FormField label="Fit (optional)" value={values.fit} onChange={(e) => set("fit", e.target.value)} error={fieldErrors.fit} />
+        {presetsLoading ? (
+          <>
+            <FormField label="Fabric (optional)" value={values.fabric} disabled readOnly />
+            <FormField label="Fit (optional)" value={values.fit} disabled readOnly />
+          </>
+        ) : (
+          <>
+            <PresetSelect
+              label="Fabric (optional)"
+              value={values.fabric}
+              options={presets?.presetFabrics ?? []}
+              onChange={(value) => set("fabric", value)}
+              error={fieldErrors.fabric}
+            />
+            <PresetSelect
+              label="Fit (optional)"
+              value={values.fit}
+              options={presets?.presetFits ?? []}
+              onChange={(value) => set("fit", value)}
+              error={fieldErrors.fit}
+            />
+          </>
+        )}
         <FormField
           label="Measurements (optional)"
           value={values.measurements}

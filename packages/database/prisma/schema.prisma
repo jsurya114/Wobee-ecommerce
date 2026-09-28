@@ -944,16 +944,40 @@ model OfferProduct {
 /// already got in DECISIONS_PENDING.md #2, added there as #5 by this
 /// change, not silently assumed final.
 model ShippingRule {
-  id                         String   @id @default(uuid())
-  minWeightGramsForCheckout  Int      @default(1000)
-  freeDeliveryThresholdGrams Int      @default(1500)
-  standardFeePaise           Int
-  estimatedDeliveryDaysMin   Int      @default(3)
-  estimatedDeliveryDaysMax   Int      @default(7)
-  effectiveFrom              DateTime @default(now())
-  createdAt                  DateTime @default(now())
+  id                           String   @id @default(uuid())
+  minWeightGramsForCheckout    Int      @default(1000)
+  freeDeliveryThresholdGrams   Int      @default(1500)
+  standardFeePaise             Int
+  estimatedDeliveryDaysMin     Int      @default(3)
+  estimatedDeliveryDaysMax     Int      @default(7)
+  /// Admin settings (2026-09-28) — free delivery by ITEMS SUBTOTAL (after automatic offers, before any coupon), in addition to the weight-based threshold above: either condition qualifies. 0 disables it. Lives here, next to the weight threshold it complements, so every shipping rule stays versioned together in one table.
+  freeDeliveryMinSubtotalPaise Int      @default(0)
+  effectiveFrom                DateTime @default(now())
+  createdAt                    DateTime @default(now())
 
   @@map("shipping_rules")
+}
+
+/// Admin settings (2026-09-28) — store-wide switches and presets that are
+/// not pricing (PricingSetting) or shipping (ShippingRule) rules. Single row,
+/// id "singleton": read paths fall back to these column defaults when the row
+/// is missing, so a fresh database behaves identically before anyone saves
+/// settings. Presets are comma-separated (an individual preset value may not
+/// contain a comma — enforced by the admin validation schema).
+model AppConfig {
+  id                 String   @id @default("singleton")
+  /// Minimum total item count (sum of line quantities) to place an order.
+  minCartQuantity    Int      @default(1)
+  presetSizes        String   @default("XS,S,M,L,XL,XXL,3XL,Free Size")
+  presetFabrics      String   @default("Cotton,Silk,Linen,Polyester,Rayon,Georgette,Chiffon,Crepe,Velvet")
+  presetFits         String   @default("Regular,Slim,Relaxed,Oversized,A-Line")
+  /// Feature flag — customers can request NEW returns only when true. Existing returns stay visible and admin can still process them.
+  returnsEnabled     Boolean  @default(false)
+  /// Feature flag (2026-09-28) — when true, a COD order with a delivery fee must pay that fee online (Razorpay) before it is confirmed; the rest is collected in cash on delivery. Off by default so enabling it is a deliberate admin action once Razorpay is verified in that environment.
+  codShippingUpfront Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
+
+  @@map("app_config")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -984,6 +1008,10 @@ model Order {
   totalWeightGrams Int
 
   paymentMethod PaymentMethod
+
+  /// COD shipping upfront (2026-09-28). `payableOnDeliveryPaise` is set at checkout ONLY when the order must prepay its delivery fee online (= totalPaise - shippingFeePaise, the cash the courier collects); null means an ordinary COD/online order. `shippingPaidUpfront` flips to true when the webhook-verified Razorpay capture of that fee confirms the order.
+  shippingPaidUpfront    Boolean @default(false)
+  payableOnDeliveryPaise Int?
 
   /// Denormalized for admin filtering only — the real state lives on Return (plan.md §4).
   hasActiveReturn   Boolean @default(false)
@@ -1117,16 +1145,18 @@ model AdminAuditLog {
 // ─────────────────────────────────────────────────────────────────────────
 
 model Payment {
-  id                String        @id @default(uuid())
-  orderId           String
-  provider          PaymentMethod
-  status            PaymentStatus @default(CREATED)
-  amountPaise       Int
-  razorpayOrderId   String?
-  razorpayPaymentId String?
-  razorpaySignature String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  orderId            String
+  provider           PaymentMethod
+  status             PaymentStatus @default(CREATED)
+  amountPaise        Int
+  razorpayOrderId    String?
+  razorpayPaymentId  String?
+  razorpaySignature  String?
+  /// COD shipping upfront (2026-09-28) — for a COD Payment, the portion charged online through Razorpay (the delivery fee); null for every other payment. `amountPaise` stays the order total; the cash still owed at delivery is amountPaise - upfrontAmountPaise.
+  upfrontAmountPaise Int?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

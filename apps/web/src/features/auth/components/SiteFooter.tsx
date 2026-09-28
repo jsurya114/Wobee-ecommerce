@@ -48,7 +48,7 @@ const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] =
     links: [
       { label: "Contact us", href: "mailto:hello@woobe.in" },
       { label: "Track your order", href: "/account/orders" },
-      { label: "Shipping & returns", href: "/account/orders" },
+      { label: "Shipping & delivery", href: "/account/help?topic=shipping" },
     ],
   },
 ];

@@ -28,6 +28,8 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     cancelledAt: null,
     cancellationReason: null,
     hasActiveReturn: false,
+    shippingPaidUpfront: false,
+    payableOnDeliveryPaise: null,
     items: [],
     ...overrides,
   };

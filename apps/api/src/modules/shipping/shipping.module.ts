@@ -10,6 +10,8 @@
 import { EvaluateShippingUseCase } from "./application/use-cases/evaluate-shipping.use-case";
 import { CreateShipmentUseCase } from "./application/use-cases/create-shipment.use-case";
 import { GetShippingEstimateUseCase } from "./application/use-cases/get-shipping-estimate.use-case";
+import { GetShippingRuleUseCase } from "./application/use-cases/admin/get-shipping-rule.use-case";
+import { UpdateShippingRuleUseCase } from "./application/use-cases/admin/update-shipping-rule.use-case";
 import { ManualShippingProvider } from "./infrastructure/services/manual-shipping-provider.service";
 import { ShippingRepository } from "./infrastructure/repositories/shipping.repository";
 import { ShippingController } from "./interface/http/shipping.controller";
@@ -22,6 +24,9 @@ export const evaluateShippingUseCase = new EvaluateShippingUseCase(shippingRepos
 export const getShippingEstimateUseCase = new GetShippingEstimateUseCase(shippingRepository);
 /** Exported for `orders`' ShipOrderUseCase (Week 2 Day 5) — see that use-case's own doc comment. */
 export const createShipmentUseCase = new CreateShipmentUseCase(shippingProvider);
+/** Exported for the admin module's thin Settings gateway (ADR-025), same pattern as pricing's get/updatePricingSettingUseCase. */
+export const getShippingRuleUseCase = new GetShippingRuleUseCase(shippingRepository);
+export const updateShippingRuleUseCase = new UpdateShippingRuleUseCase(shippingRepository);
 
 const shippingController = new ShippingController(getShippingEstimateUseCase);
 

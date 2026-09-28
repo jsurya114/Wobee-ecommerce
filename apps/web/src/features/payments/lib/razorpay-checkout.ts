@@ -85,6 +85,8 @@ export async function openRazorpayCheckout(config: {
   amountPaise: number;
   currency: string;
   orderNumber: string;
+  /** Optional so an older API response without it still works — defaults to paying the whole order. */
+  purpose?: "ORDER_TOTAL" | "DELIVERY_FEE";
 }): Promise<void> {
   await loadRazorpayScript();
   const RazorpayCtor = window.Razorpay;
@@ -99,7 +101,7 @@ export async function openRazorpayCheckout(config: {
       currency: config.currency,
       order_id: config.razorpayOrderId,
       name: "Woobe",
-      description: `Order ${config.orderNumber}`,
+      description: config.purpose === "DELIVERY_FEE" ? `Delivery fee · Order ${config.orderNumber}` : `Order ${config.orderNumber}`,
       handler: () => resolve(),
       modal: { ondismiss: () => reject(new RazorpayPaymentCancelledError()) },
       theme: { color: colors.brand.primary },

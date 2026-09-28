@@ -5,8 +5,10 @@
  * CURATED_CLOTHING_SIZES comment already established for this codebase:
  * cross-module communication goes through composed ports (see
  * testimonials.module.ts's MediaUploaderPort), never a direct import of
- * another module's internal domain file. Same allowlist/size cap as
- * media's own — if one changes, the other must be updated to match.
+ * another module's internal domain file. Deliberately STRICTER than media's
+ * own admin allowlist since 2026-09-28: admin uploads gained GIF and a 10MB
+ * cap for animated banners, but these are public customer uploads, so they
+ * stay JPEG/PNG/WebP at 5MB.
  */
 export const ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 

@@ -13,6 +13,7 @@ import { ApiError } from "@/lib/api-client";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
 import { fireConfetti } from "@/features/checkout/components/OrderPlacementCelebration";
 import * as paymentsApi from "@/features/payments/api/payments.client";
+import { requiresOnlinePayment } from "@/features/payments/lib/online-payment";
 import * as ordersApi from "../api/orders.client";
 import { OrderStatusBadge } from "./OrderStatusBadge";
 
@@ -74,7 +75,9 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
 
   // COD confirms itself, once, as soon as the order is known to be pending.
   useEffect(() => {
-    if (!order || order.paymentMethod !== "COD" || order.status !== "PENDING_PAYMENT" || codConfirmAttempted.current) {
+    // A COD order that must prepay its delivery fee is confirmed by that
+    // payment's webhook, never by this call (the server refuses it anyway).
+    if (!order || order.paymentMethod !== "COD" || requiresOnlinePayment(order) || order.status !== "PENDING_PAYMENT" || codConfirmAttempted.current) {
       return;
     }
     codConfirmAttempted.current = true;
@@ -100,7 +103,7 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   // order — not just the checkout-initiated navigation.
   useEffect(() => {
     if (!order) return;
-    if (order.paymentMethod === "RAZORPAY" && order.status !== "CONFIRMED") {
+    if (requiresOnlinePayment(order) && order.status !== "CONFIRMED") {
       router.replace(`/payment/${order.id}`);
     }
   }, [order, router]);
@@ -115,7 +118,10 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   // above) doesn't get a second, duplicate burst on top of the one
   // CheckoutForm already played on /checkout moments earlier.
   useEffect(() => {
-    if (shouldReduceMotion || !order || order.paymentMethod !== "RAZORPAY" || order.status !== "CONFIRMED" || confettiFiredRef.current) return;
+    // Every order that came here from /payment/[id] (Razorpay, or COD with a
+    // prepaid delivery fee) celebrates now — CheckoutForm skipped its own
+    // celebration for both.
+    if (shouldReduceMotion || !order || !requiresOnlinePayment(order) || order.status !== "CONFIRMED" || confettiFiredRef.current) return;
     confettiFiredRef.current = true;
     fireConfetti();
   }, [order, shouldReduceMotion]);
@@ -135,7 +141,7 @@ export function OrderConfirmation({ orderId }: { orderId: string }) {
   // above — never render this page's own "placed"/"confirmed" content for
   // an unconfirmed RAZORPAY order, even for the one render before that
   // effect fires.
-  if (!order || (order.paymentMethod === "RAZORPAY" && order.status !== "CONFIRMED")) {
+  if (!order || (requiresOnlinePayment(order) && order.status !== "CONFIRMED")) {
     return <p className="py-16 text-center font-body text-sm text-text-secondary">Loading your order…</p>;
   }
 

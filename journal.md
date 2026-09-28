@@ -4338,3 +4338,88 @@ This also explains — and corrects — a misdiagnosis in the immediately preced
 **Suites actually run:** Valkey 93/0 (five BullMQ states x four restart kinds, production values via CONFIG GET), deploy.sh 160/0 twice (default + `API_BIND_HOST=127.0.0.1`), nginx 84/0, sync 142/0 (against the exact planned SSM document), API 968/968 idle, promtool, dashboards (79 queries), monorepo typecheck/lint/boundaries.
 **Harness bugs fixed on the way:** `docker kill` bypasses the restart policy (crash must kill the process; and the first "fix" silently did nothing because the harness image's entrypoint is `docker`); push-metrics path not remapped; NOAUTH assertion inherited the container's own REDISCLI_AUTH.
 **Caveats:** the named SSO profile `WoobeTerraformAdmin-185658217213` is not configured on this machine; the backend was exercised UNMODIFIED with only `-backend-config="profile=woobe"` (static-key IAM user, same account). Re-run `aws sso login` + `terraform init -reconfigure` + `terraform plan` with the SSO profile before applying. Two unrelated local services (Homebrew Redis, `version-vault-redis`) were stopped while the Valkey suite ran and restored (verified).
+
+## 2026-09-20 → 2026-09-23 — Catch-up note: work merged to `main` that was never journaled
+
+Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entries above are the latest state. Details live in each commit message.
+- **Production infrastructure is live.** The first real `terraform apply` ran; three AWS-API validation bugs it surfaced were fixed in `13f2607` (ASCII-only security-group descriptions, CloudFront custom error response, `{{ }}` in the observability SSM document).
+- **Two live deploy blockers, applied as targeted Terraform changes:** the GitHub OIDC trust policy now matches the ID-suffixed `sub` claim GitHub issues after the repo/owner rename (`f6c995a`); `deploy.sh`'s `head -6` SIGPIPE that aborted every deploy (exit 141) was removed (`f2e27ad`).
+- **Business-analytics module** (`91bcc38`, migration `20260921000000_business_analytics`): database-backed admin dashboard, unit-cost snapshots, funnel, first-party event collector.
+- **Storefront:** mobile liquid-glass nav and sticky search (`4717ded`); PDP pincode check is frontend-only and the offer ticker is limited to `/` and `/products` (`0a5b2e7`); offers ticker / testimonial carousel fixes.
+- **Admin:** a FIXED_AMOUNT offer can't exceed the targeted products' price (`a6ea2fb`).
+- **Razorpay checkout:** the widget opens right after "Place order"; unpaid orders live on a dedicated `/payment/[id]` page, and `/order-confirmation` only ever shows confirmed orders (`0f2e0c8`, `8618f07`, `75076e6`).
+- **CI:** gitleaks allowlists, a regression test for the deploy SIGPIPE bug, and cart rate-limit counters reset per test file.
+
+---
+
+## 2026-09-28 — Admin settings, returns switch, COD delivery fee online, banner actions, GIFs, cancel fix, confirmation dialogs (8 tasks)
+
+**Branch/commit:** `feat/admin-settings-returns-cod-banners` (off `main` @ `4dba6d2`), pushed, **not merged**. 11 commits, one per task plus two follow-up fixes: `e04c461` settings, `c4e7fc6` variant form, `71b573e` bulk upload, `a9143fb` returns + COD, `9693480` banner actions, `b61a36a` + `5055070` banner-link security fix, `a4cf501` cancel fix, `1ae5759` confirmation dialog, `ed043eb` GIF support.
+
+**What changed:**
+
+1. **Extended admin settings** (`e04c461`). New `settings` module owns a single-row `AppConfig` (id `singleton`): `minCartQuantity`, size/fabric/fit presets (stored comma-separated), `returnsEnabled`. Reads fall back to column defaults when the row is missing, and the seed upserts it without resetting saved values. Endpoints:
+   - public `GET /api/v1/settings/config/public`;
+   - `GET/PATCH /api/v1/admin/settings/config`;
+   - `GET/PATCH /api/v1/admin/settings/shipping` (all `MANAGE_SETTINGS`).
+
+   The Settings page now has four sections: Pricing / Cart & shipping rules / Product presets / Store policies.
+   - **Deviation from the brief:** minimum cart weight and "free delivery by price" live on the existing, versioned `ShippingRule` (new column `freeDeliveryMinSubtotalPaise`, 0 = off), not duplicated into `AppConfig`. Cart progress and checkout already read `ShippingRule`; a second copy could let them disagree.
+   - Free delivery by price uses the offer-adjusted, pre-coupon items subtotal. Either it or the weight threshold qualifies.
+   - Checkout enforces `minCartQuantity` (422). The minimum-weight message now reads "Minimum cart weight is 1kg to place an order — add Xg more."
+   - Rupee inputs go through a new string-based `parseRupeeInputToPaise` in `@woobe/utils` (no float math, unit-tested).
+2. **Variant form** (`c4e7fc6`). "Fixed price (₹)" is converted to integer paise at submit, and more than 2 decimals is rejected. Size (required), Fabric and Fit (optional) are dropdowns over the presets, each with "Other…" free text; a value that isn't a preset opens in "Other" mode with its text kept. Presets are capped at 30 characters to match the variant `size` column.
+3. **Bulk product image upload** (`71b573e`). `multiple` file input. Uploads run strictly one after another through the unchanged single-file `POST /media`, with an "Uploading N of M…" status. A failed file doesn't stop the batch, and the batch ends with a summary toast.
+4. **Returns switched off + COD delivery fee online** (`a9143fb`, migration `20260928010000_cod_shipping_upfront`, additive only).
+   - **Returns:** `AppConfig.returnsEnabled` (default **off**) is enforced inside `RequestReturnUseCase`, so no route can bypass it: new requests get 403 `RETURNS_DISABLED`. Existing returns stay readable and admin can still process them.
+   - **Returns UI:** the storefront hides "Request a return"; Help → Returns explains open-box delivery; footer/nav return links repointed; PDP shows "Open box delivery — verify your order at the doorstep"; the admin sidebar marks Returns "Disabled".
+   - **COD fee, deviation from the brief:** not "pay shipping, then create the order", which would take money with no order to attach it to (and `Payment.orderId` is unique). With `AppConfig.codShippingUpfront` on (default **off**), checkout creates the COD order as before and records `Order.payableOnDeliveryPaise = total − shippingFee`. The fee alone goes through the existing Razorpay order + signature-verified webhook, which confirms the order (`shippingPaidUpfront = true`).
+   - **COD fee, payment record:** the single COD `Payment` row keeps `amountPaise` = order total, records the online part in `upfrontAmountPaise`, and stays PENDING until delivery marks it CAPTURED.
+   - **COD fee, rules:** `/payments/cod/confirm` refuses such orders (409), and the webhook rejects any amount other than the fee. Cancelling refunds only the fee; the dashboard's "COD outstanding" excludes it; the confirmation email shows the split.
+5. **Banner preset actions** (`9693480`). The admin picks No link / category / collection / product (search picker) / all offers / new arrivals / custom link.
+   - `ctaUrl` stores a reference (`category:<id>`, `offers`, `custom:<url>`, …), parsed and formatted once in `@woobe/validation`.
+   - The banners API resolves it on every read to the target's *current* slug (`resolvedCtaUrl`). An inactive or missing target resolves to null, so the CTA is hidden rather than dead.
+   - Legacy raw links keep working. The home cache schema version was bumped to 6.
+6. **Security fix on banner links** (`b61a36a`, `5055070`), found by the automated commit security review. `/\evil.com` and tab/newline variants passed the old "starts with `/`, not `//`" check, but browsers turn them into `//evil.com` (an external site); the old validator had the same gap. Both the save-side validator and the storefront's `isSafeHref` now parse the link against a fixed base and require the same origin, and reject backslashes, whitespace and control characters.
+7. **Cancelling confirmed orders** (`a4cf501`).
+   - The prompt's guesses were wrong: route, `MANAGE_ORDERS` permission, allowed statuses and the transactional restock were all correct, and the refund already ran after the cancel commit, best-effort.
+   - Reproduced in the admin UI: the cancel succeeded, but every COD cancel immediately showed a red "Refund needs manual follow-up", because the API returned `refundIssued: false` both for "nothing to refund" and for "refund failed". That made successful cancels look failed.
+   - Now the API returns `refundOutcome` (`NOT_APPLICABLE` | `COMPLETED` | `FAILED`, also written to the audit log) and the warning only shows for `FAILED`.
+   - PACKED orders are still **not** cancellable (deliberate allow-list, pinned by a test). This is left as a business decision.
+8. **Confirmation dialog** (`1ae5759`). New `ConfirmationDialog` in `@woobe/ui` on native `<dialog>` + `showModal()`: Escape cancels, the confirm button is focused so Enter confirms, a spinner shows while the action runs, and there's a destructive (red) variant. Every order transition in `OrderStatusActions` goes through it, naming the order by its order number.
+9. **GIF banners** (`ed043eb`).
+   - The admin upload allowlist gains `image/gif` and the cap goes from 5MB to 10MB. SVG and video stay rejected.
+   - Customer testimonial photos keep their own stricter validator (JPEG/PNG/WebP, 5MB).
+   - The storefront carousel was already a plain `<img>` (not `next/image`), so GIFs animate with no change; a comment now guards that.
+   - The admin shows a clear message when the proxy returns 413.
+
+**Why:** the user's 8-task brief (admin settings, variant form, bulk upload, returns off + COD fee online, banner actions, cancel fix, confirmation dialogs, GIFs). Every deviation above was made where the literal instruction would have caused a correctness, money or data-loss problem, and is explained in its commit message.
+
+**Verified:**
+- `pnpm run typecheck` clean (9/9); `pnpm run lint` clean (9/9); `boundaries:check` 0 violations (no new cycles; new edges `settings→shipping`, `orders/returns→settings`, `banners→categories/collections/products`); `check:migrations` exit 0; `pnpm run build` exit 0 for all 3 apps.
+- `pnpm run test` all green: **1,159** API tests (139 files) plus utils and validation, with `SMTP_HOST=` and `GOOGLE_CLIENT_ID=` blanked because the root `.env` leaks real values into tests (the known local-only issue). One full run hit 2 failures in untouched files (`admin-staff`, `products-on-offer`); both passed 3/3 in isolation, and the next full run was all green: the documented shared-`woobe_test` flake.
+- **New tests:**
+  - settings + checkout rules integration;
+  - COD-upfront end to end: setting off → unchanged; on → 409 on `/cod/confirm`, amount-mismatch rejected, fee capture confirms, PENDING until delivery → CAPTURED; payment failure releases stock; cancel refunds only the fee;
+  - returns-disabled 403;
+  - banner CTA resolution + unsafe-link rejection;
+  - GIF upload served back byte-for-byte;
+  - refund-outcome unit and integration tests;
+  - rupee-parser and free-delivery-by-subtotal unit tests.
+- **Live in the browser** (chrome-devtools, local dev fleet, every task):
+  - **Settings:** ₹12.345 rejected with the paise message; ₹1,999.50 saved as exactly 199,950 paise in a new `shipping_rules` row; duplicate preset rejected; new preset saved and offered in the variant Size dropdown; the returns toggle flips the sidebar "Disabled" badge.
+  - **Variant form:** ₹72 shown for 7,200 paise; ₹72.505 rejected; ₹75.25 saved as 7,525 paise with the non-preset size "One Size" preserved, then reverted.
+  - **Bulk upload:** 3 PNGs + 1 text file → 3 attached, per-file error toast, "Uploading 1 of 2…" / "2 of 2…", button disabled during the batch, summary toast.
+  - **Banner:** created with a real animated GIF → stored `category:<id>`, resolved to the live slug, edit form reopens with the same selection, homepage renders it as a plain `<img>` linking to the category.
+  - **Returns:** "Request a return" hidden on a delivered order while off and shown when on; Help and footer copy updated.
+  - **COD fee:** with the setting on, checkout shows "Shipping (pay now) / Items (pay on delivery)" and "Place order & pay ₹50.00 delivery fee", lands on `/payment/[id]` showing ₹50 now / ₹840 cash on delivery, and admin shows "Awaiting online payment" + "COD amount (collect at delivery) ₹840.00". The Razorpay step itself failed locally only because `.env` has the stub key `rzp_test_stub_…` (the same failure plain "Pay online" gets here); the webhook path after a real payment is covered by integration tests.
+  - **Cancel:** a confirmed COD order cancels with no false warning.
+  - **Dialog:** Escape leaves the order unchanged, Enter performs the transition, and the destructive variant renders red with the order number.
+  - All settings, test orders, customer, banner, product images and media created during verification were removed from `woobe_dev`, with stock restored.
+
+**Follow-ups / known gaps:**
+- **Two switches are OFF by default:** returns (so returns stop as soon as this deploys, as requested), and "Collect COD delivery fee online". Turn the COD one on in Settings → Store policies only after Razorpay is verified in that environment; it has not been run against real Razorpay.
+- **Production nginx still caps uploads at 6MB**, so 6–10MB files get 413. Raise it **on the host only**; the steps are in `docs/deployment.md` → "Raising the upload size limit". Do **not** edit `api.conf.tpl`: it is rendered into `user_data`, and `user_data_replace_on_change = true` would replace the production instance on the next apply. The older advice in "Changing the nginx configuration" to mirror host edits into the template has the same risk.
+- A COD-upfront order whose fee is never paid holds its stock reservation, the same pre-existing gap as abandoned Razorpay orders.
+- PACKED-order cancellation remains an open business decision.
+- Presets are stored comma-separated, so a single preset can't contain a comma (validated).

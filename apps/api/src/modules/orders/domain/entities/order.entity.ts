@@ -60,6 +60,10 @@ export interface OrderEntity {
   totalPaise: number;
   totalWeightGrams: number;
   paymentMethod: PaymentMethod;
+  /** COD shipping upfront (2026-09-28) — true once the delivery fee was captured online. */
+  shippingPaidUpfront: boolean;
+  /** Cash the courier collects for a COD order whose delivery fee is prepaid online; null when no upfront payment applies. */
+  payableOnDeliveryPaise: number | null;
   placedAt: Date;
   trackingNumber: string | null;
   carrier: string | null;

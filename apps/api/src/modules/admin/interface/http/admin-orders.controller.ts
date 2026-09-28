@@ -63,7 +63,7 @@ export class AdminOrdersController {
     const orderId = requireOrderId(req);
     const input = req.body as CancelOrderInput;
     const result = await this.cancelOrderUseCase.execute(orderId, req.user!, input.reason);
-    res.status(200).json({ order: result.order, refundIssued: result.refundIssued });
+    res.status(200).json({ order: result.order, refundIssued: result.refundIssued, refundOutcome: result.refundOutcome });
   }
 
   async returnToOrigin(req: Request, res: Response): Promise<void> {

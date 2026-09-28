@@ -10,18 +10,21 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     subtotalPaise: 100, discountPaise: 0, shippingFeePaise: 0, taxPaise: 0, totalPaise: 100, totalWeightGrams: 100,
     paymentMethod: "RAZORPAY", placedAt: new Date(),
     items: [{ id: "item-1", variantId: "variant-1", productNameSnapshot: "P", skuSnapshot: "SKU", color: "Red", size: "M", weightGrams: 100, pricingMode: "WEIGHT_BASED", unitRatePerKgPaise: 1000, basePricePaise: 100, unitPricePaise: 100, quantity: 2, lineTotalPaise: 200, taxAmountPaise: 10, discountPaise: 0, offerId: null, offerNameSnapshot: null, offerDiscountType: null, offerDiscountValue: null, offerDiscountPaise: 0 }],
-    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: new Date(), cancellationReason: null, hasActiveReturn: false,
+    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: new Date(), cancellationReason: null, hasActiveReturn: false, shippingPaidUpfront: false, payableOnDeliveryPaise: null,
     ...overrides,
   };
 }
 
-function buildUseCase(overrides: { changed?: boolean; refundIssued?: boolean } = {}) {
+function buildUseCase(overrides: { changed?: boolean; refundIssued?: boolean; refundReason?: "not-applicable" | "gateway-error" } = {}) {
   const cancelled = order();
   const cancelOrderUseCase = {
     execute: vi.fn().mockResolvedValue({ order: cancelled, changed: overrides.changed ?? true }),
   };
   const issueRefundForCancelledOrderUseCase = {
-    execute: vi.fn().mockResolvedValue({ refundIssued: overrides.refundIssued ?? true }),
+    execute: vi.fn().mockResolvedValue({
+      refundIssued: overrides.refundIssued ?? true,
+      ...(overrides.refundIssued === false ? { reason: overrides.refundReason ?? "gateway-error" } : {}),
+    }),
   };
   const recordAuditLogUseCase = {
     execute: vi.fn().mockResolvedValue(undefined),
@@ -45,7 +48,7 @@ describe("CancelOrderWithRefundUseCase", () => {
     expect(issueRefundForCancelledOrderUseCase.execute).toHaveBeenCalledWith("order-1");
     expect(recordAuditLogUseCase.execute).toHaveBeenCalledWith({
       actorId: "staff-1", actorRole: "ORDER_PROCESSING_STAFF", action: "ORDER_CANCELLED",
-      entityType: "Order", entityId: "order-1", metadata: { reason: "Customer request", refundIssued: true },
+      entityType: "Order", entityId: "order-1", metadata: { reason: "Customer request", refundIssued: true, refundOutcome: "COMPLETED" },
     });
     const types = notificationEnqueuer.execute.mock.calls.map((c) => c[0].type);
     expect(types).toEqual(["ORDER_CANCELLED", "REFUND_COMPLETED"]);
@@ -66,13 +69,20 @@ describe("CancelOrderWithRefundUseCase", () => {
     const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
 
     expect(result.refundIssued).toBe(false);
+    expect(result.refundOutcome).toBe("FAILED");
     expect(result.order.status).toBe("CANCELLED"); // cancellation itself still succeeded
     expect(recordAuditLogUseCase.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: { reason: undefined, refundIssued: false } }),
+      expect.objectContaining({ metadata: { reason: undefined, refundIssued: false, refundOutcome: "FAILED" } }),
     );
     const types = notificationEnqueuer.execute.mock.calls.map((c) => c[0].type);
     expect(types).toEqual(["ORDER_CANCELLED"]);
     expect(types).not.toContain("REFUND_COMPLETED");
+  });
+
+  it("reports NOT_APPLICABLE (not a failure) when there was nothing to refund, e.g. an uncollected COD order", async () => {
+    const { useCase } = buildUseCase({ refundIssued: false, refundReason: "not-applicable" });
+    const result = await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" });
+    expect(result).toMatchObject({ refundIssued: false, refundOutcome: "NOT_APPLICABLE" });
   });
 
   it("is idempotent — a concurrent cancel that already won skips the refund and the audit entry entirely", async () => {

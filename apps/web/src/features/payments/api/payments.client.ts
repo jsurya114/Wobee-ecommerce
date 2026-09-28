@@ -7,6 +7,8 @@ export interface RazorpayCheckoutConfig {
   currency: string;
   orderNumber: string;
   keyId: string;
+  /** What `amountPaise` pays for — the whole order, or a COD order's delivery fee only (2026-09-28). */
+  purpose: "ORDER_TOTAL" | "DELIVERY_FEE";
 }
 
 /** COD's "no gateway step" (Week 1 Day 5) — confirms the order immediately. */

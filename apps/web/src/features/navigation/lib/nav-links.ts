@@ -33,7 +33,7 @@ export const HELP_LINKS: NavLink[] = [
   { label: "Help Center", href: "/account/help" },
   { label: "Track My Order", href: "/account/orders" },
   { label: "Shipping & Delivery", href: "/account/help?topic=shipping" },
-  { label: "Returns & Refunds", href: "/account/help?topic=returns" },
+  { label: "Refunds", href: "/account/help?topic=refunds" },
   { label: "Payment & COD", href: "/account/help?topic=payments" },
   { label: "Contact Us", href: "/account/help?topic=contact" },
 ];

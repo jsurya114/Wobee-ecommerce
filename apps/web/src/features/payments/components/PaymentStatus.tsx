@@ -11,6 +11,7 @@ import { useAuth } from "@/features/auth/hooks/useAuth";
 import type { OrderView } from "@/features/checkout/api/checkout.client";
 import * as ordersApi from "@/features/orders/api/orders.client";
 import * as paymentsApi from "../api/payments.client";
+import { codUpfrontSplit, requiresOnlinePayment } from "../lib/online-payment";
 import { RazorpayPaymentCancelledError, openRazorpayCheckout } from "../lib/razorpay-checkout";
 
 const POLL_INTERVAL_MS = 2000;
@@ -26,8 +27,9 @@ type Stage = "idle" | "awaiting-razorpay" | "confirming" | "cancelled" | "failed
  * celebration) before the backend has actually verified the payment
  * (ADR-014). `/order-confirmation/[id]` only ever renders once THIS page
  * has itself navigated there, after seeing `Order.status === "CONFIRMED"`.
- * COD never reaches this page — it has no gateway step, and
- * OrderConfirmation redirects any non-RAZORPAY order straight back there.
+ * A plain COD order never reaches this page. A COD order whose delivery fee
+ * must be prepaid online (COD shipping upfront, 2026-09-28) does — it pays
+ * only that fee here, through the same widget/poll/webhook path.
  */
 export function PaymentStatus({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -79,7 +81,7 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
   // immediately rather than rendering stale/irrelevant payment UI.
   useEffect(() => {
     if (!order) return;
-    if (order.paymentMethod !== "RAZORPAY" || (order.status !== "PENDING_PAYMENT" && order.status !== "PAYMENT_FAILED")) {
+    if (!requiresOnlinePayment(order) || (order.status !== "PENDING_PAYMENT" && order.status !== "PAYMENT_FAILED")) {
       router.replace(`/order-confirmation/${order.id}`);
       return;
     }
@@ -135,7 +137,7 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
     if (
       !shouldAutopay ||
       !order ||
-      order.paymentMethod !== "RAZORPAY" ||
+      !requiresOnlinePayment(order) ||
       order.status !== "PENDING_PAYMENT" ||
       autoAttempted.current
     ) {
@@ -159,7 +161,7 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
   // Still loading, or the hand-off effect above is about to redirect away —
   // never render this page's own payment UI for an order that isn't (or is
   // no longer) awaiting a Razorpay payment.
-  if (!order || order.paymentMethod !== "RAZORPAY" || (order.status !== "PENDING_PAYMENT" && order.status !== "PAYMENT_FAILED")) {
+  if (!order || !requiresOnlinePayment(order) || (order.status !== "PENDING_PAYMENT" && order.status !== "PAYMENT_FAILED")) {
     return <p className="py-16 text-center font-body text-sm text-text-secondary">Loading…</p>;
   }
 
@@ -168,10 +170,12 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
   // settled it to PAYMENT_FAILED, retrying here would just bounce off that
   // same rule, so the button doesn't offer it.
   const canRetry = order.status === "PENDING_PAYMENT";
+  // COD shipping upfront (2026-09-28): only the delivery fee is paid here.
+  const codSplit = codUpfrontSplit(order);
 
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-5 py-16 text-center">
-      <PaymentStatusHeading stage={stage} />
+      <PaymentStatusHeading stage={stage} isDeliveryFee={codSplit !== null} />
 
       <Card className="w-full p-5 text-left">
         <dl className="flex flex-col gap-2.5 font-body text-sm">
@@ -179,16 +183,29 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
             <dt className="text-text-secondary">Order</dt>
             <dd className="text-text-primary">{order.orderNumber}</dd>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-text-secondary">Amount</dt>
-            <dd className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</dd>
-          </div>
+          {codSplit ? (
+            <>
+              <div className="flex justify-between">
+                <dt className="text-text-secondary">Delivery fee (pay now)</dt>
+                <dd className="font-medium text-text-primary">{formatPaiseAsInr(codSplit.deliveryFeePaise)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-text-secondary">Cash on delivery</dt>
+                <dd className="text-text-primary">{formatPaiseAsInr(codSplit.payableOnDeliveryPaise)}</dd>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between">
+              <dt className="text-text-secondary">Amount</dt>
+              <dd className="text-text-primary">{formatPaiseAsInr(order.totalPaise)}</dd>
+            </div>
+          )}
         </dl>
       </Card>
 
       {canRetry && stage !== "confirming" ? (
         <Button onClick={() => void payWithRazorpay()} isLoading={stage === "awaiting-razorpay"}>
-          {stage === "cancelled" || stage === "failed" ? "Try payment again" : "Pay now"}
+          {stage === "cancelled" || stage === "failed" ? "Try payment again" : codSplit ? "Pay delivery fee" : "Pay now"}
         </Button>
       ) : null}
 
@@ -204,7 +221,7 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
   );
 }
 
-function PaymentStatusHeading({ stage }: { stage: Stage }) {
+function PaymentStatusHeading({ stage, isDeliveryFee }: { stage: Stage; isDeliveryFee: boolean }) {
   const iconProps = { className: "h-9 w-9 text-error", strokeWidth: 1.5, "aria-hidden": true } as const;
 
   if (stage === "confirming") {
@@ -233,6 +250,16 @@ function PaymentStatusHeading({ stage }: { stage: Stage }) {
         <h1 className="font-display text-2xl text-text-primary">Payment failed</h1>
         <p className="max-w-xs font-body text-sm text-text-secondary">
           Your payment could not be completed. Your order has not been confirmed.
+        </p>
+      </div>
+    );
+  }
+  if (isDeliveryFee) {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <h1 className="font-display text-2xl text-text-primary">Pay the delivery fee</h1>
+        <p className="max-w-xs font-body text-sm text-text-secondary">
+          Your cash-on-delivery order is confirmed once the delivery fee is paid online. The rest is paid in cash when it arrives.
         </p>
       </div>
     );

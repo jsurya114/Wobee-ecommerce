@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { RequestReturnForm } from "@/features/returns/components/RequestReturnForm";
+import { usePublicStoreConfig } from "@/features/settings/hooks/usePublicStoreConfig";
 import { TestimonialCta } from "@/features/testimonials/components/TestimonialCta";
 import * as returnsApi from "@/features/returns/api/returns.client";
 import type { ReturnSummary } from "@/features/returns/api/returns.client";
@@ -24,6 +25,9 @@ import { OrderTimeline } from "./OrderTimeline";
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { accessToken, status: authStatus } = useAuth();
   const [order, setOrder] = useState<OrderView | null>(null);
+  // Returns feature flag (Settings → Store policies, 2026-09-28). Hidden while
+  // loading or if settings can't load — the server refuses new requests anyway.
+  const { config: storeConfig } = usePublicStoreConfig();
   const [returns, setReturns] = useState<ReturnSummary[] | null>(null);
   const [loadError, setLoadError] = useState(false);
 
@@ -107,7 +111,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </Card>
       ) : null}
 
-      {order.status === "DELIVERED" ? (
+      {order.status === "DELIVERED" && storeConfig?.returnsEnabled ? (
         <Card className="p-4">
           <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Request a return</h2>
           {hasUnresolvedReturn ? (

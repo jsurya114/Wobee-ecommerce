@@ -93,6 +93,48 @@ describe("GET /api/v1/banners (customer-facing)", () => {
   });
 });
 
+describe("banner CTA actions resolve to live storefront paths (2026-09-28)", () => {
+  it("resolves category / product / offers actions server-side, keeps legacy links, and hides links to inactive targets", async () => {
+    const auth = { Authorization: `Bearer ${await loginAdmin("catalog@woobe.in", "Staff@12345")}` };
+    const category = await prisma.category.findFirstOrThrow({ where: { isActive: true } });
+    const activeProduct = await prisma.product.findFirstOrThrow({ where: { isActive: true } });
+    const inactiveProduct = await prisma.product.create({
+      data: { name: `Banner target ${SUFFIX}`, slug: `banner-target-${SUFFIX}`, categoryId: category.id, isActive: false },
+    });
+
+    try {
+      const make = async (title: string, ctaUrl: string) => {
+        const res = await request(app).post("/api/v1/admin/banners").set(auth).send({ imageUrl: IMAGE_URL, title, ctaLabel: "Shop", ctaUrl });
+        expect(res.status).toBe(201);
+        createdBannerIds.push(res.body.banner.id);
+      };
+      await make(`Cat ${SUFFIX}`, `category:${category.id}`);
+      await make(`Prod ${SUFFIX}`, `product:${activeProduct.id}`);
+      await make(`Gone ${SUFFIX}`, `product:${inactiveProduct.id}`);
+      await make(`Offers ${SUFFIX}`, "offers");
+      await make(`Legacy ${SUFFIX}`, "/products?size=M");
+
+      const res = await request(app).get("/api/v1/banners");
+      const byTitle = new Map(res.body.banners.map((b: { title: string; resolvedCtaUrl: string | null }) => [b.title, b.resolvedCtaUrl]));
+      expect(byTitle.get(`Cat ${SUFFIX}`)).toBe(`/products?category=${category.slug}`);
+      expect(byTitle.get(`Prod ${SUFFIX}`)).toBe(`/products/${activeProduct.slug}`);
+      expect(byTitle.get(`Gone ${SUFFIX}`)).toBeNull();
+      expect(byTitle.get(`Offers ${SUFFIX}`)).toBe("/products?onOffer=true");
+      expect(byTitle.get(`Legacy ${SUFFIX}`)).toBe("/products?size=M");
+    } finally {
+      await prisma.product.delete({ where: { id: inactiveProduct.id } });
+    }
+  });
+
+  it("rejects unsafe or malformed CTA values at save time", async () => {
+    const auth = { Authorization: `Bearer ${await loginAdmin("catalog@woobe.in", "Staff@12345")}` };
+    for (const ctaUrl of ["javascript:alert(1)", "//evil.example", "category:not-a-uuid"]) {
+      const res = await request(app).post("/api/v1/admin/banners").set(auth).send({ imageUrl: IMAGE_URL, ctaUrl });
+      expect(res.status).toBe(400);
+    }
+  });
+});
+
 describe("admin banners RBAC", () => {
   it("rejects an unauthenticated request", async () => {
     const res = await request(app).get("/api/v1/admin/banners");

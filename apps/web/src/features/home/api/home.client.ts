@@ -31,7 +31,10 @@ export interface HomeBanner {
   title: string | null;
   subtitle: string | null;
   ctaLabel: string | null;
+  /** The stored CTA reference (e.g. "category:<id>") — not a link; use `resolvedCtaUrl`. */
   ctaUrl: string | null;
+  /** 2026-09-28 — the CTA resolved server-side to a storefront path (null = no link). Optional so a cached pre-deploy payload without it still renders. */
+  resolvedCtaUrl?: string | null;
 }
 
 /** Phase 2 (2026-09-14) — one currently active, in-schedule offer for the homepage promo strip. Already filtered server-side (isOfferActive) — a scheduled or expired offer is simply absent, never included with a flag. */

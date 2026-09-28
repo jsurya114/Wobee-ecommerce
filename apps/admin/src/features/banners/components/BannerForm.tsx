@@ -8,7 +8,23 @@ import { uploadMedia } from "@/features/products/api/admin-media.client";
 import { ApiError } from "@/lib/api-client";
 import { resolveImageUrl } from "@/lib/resolve-image-url";
 import { useFormError } from "@/lib/use-form-error";
+import { formatBannerCta, parseBannerCta, type BannerCtaAction } from "@woobe/validation";
 import type { BannerPayload } from "../api/admin-banners.client";
+import { BannerCtaPicker } from "./BannerCtaPicker";
+
+/** A stored ctaUrl as a picker value. Legacy raw links become "Custom link"; an unreadable value is shown as custom text so the admin can see and fix it. */
+function toCtaAction(stored: string | null | undefined): BannerCtaAction {
+  return parseBannerCta(stored) ?? { type: "CUSTOM_URL", url: stored ?? "" };
+}
+
+/** Client-side completeness check — the server re-validates the stored value regardless. */
+function ctaActionError(action: BannerCtaAction): string | null {
+  if ((action.type === "CATEGORY" || action.type === "COLLECTION" || action.type === "PRODUCT") && !action.id) {
+    return `Choose which ${action.type.toLowerCase()} the banner opens.`;
+  }
+  if (action.type === "CUSTOM_URL" && !action.url.trim()) return "Enter a link, or pick another action.";
+  return null;
+}
 
 /** `datetime-local` has no timezone in its value — treat it as the browser's local time, same as any other admin date-time input in this app. */
 function toIsoOrUndefined(localValue: string): string | undefined {
@@ -36,7 +52,7 @@ export function BannerForm({
   const [title, setTitle] = useState(initialValues?.title ?? "");
   const [subtitle, setSubtitle] = useState(initialValues?.subtitle ?? "");
   const [ctaLabel, setCtaLabel] = useState(initialValues?.ctaLabel ?? "");
-  const [ctaUrl, setCtaUrl] = useState(initialValues?.ctaUrl ?? "");
+  const [ctaAction, setCtaAction] = useState<BannerCtaAction>(() => toCtaAction(initialValues?.ctaUrl));
   const [startAt, setStartAt] = useState(isoToLocalInputValue(initialValues?.startAt));
   const [endAt, setEndAt] = useState(isoToLocalInputValue(initialValues?.endAt));
   const [isUploading, setIsUploading] = useState(false);
@@ -69,6 +85,11 @@ export function BannerForm({
       setFieldError("imageUrl", "Upload an image first");
       return;
     }
+    const ctaError = ctaActionError(ctaAction);
+    if (ctaError) {
+      setFieldError("ctaUrl", ctaError);
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onSubmit({
@@ -76,7 +97,7 @@ export function BannerForm({
         title: title || null,
         subtitle: subtitle || null,
         ctaLabel: ctaLabel || null,
-        ctaUrl: ctaUrl || null,
+        ctaUrl: formatBannerCta(ctaAction.type === "CUSTOM_URL" ? { ...ctaAction, url: ctaAction.url.trim() } : ctaAction),
         startAt: toIsoOrUndefined(startAt) ?? null,
         endAt: toIsoOrUndefined(endAt) ?? null,
       });
@@ -105,7 +126,7 @@ export function BannerForm({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,image/gif"
           className="hidden"
           onChange={(e) => void onFileSelected(e)}
         />
@@ -130,13 +151,13 @@ export function BannerForm({
       <div className="flex flex-col gap-3">
         <SectionHeader as="h3">Action</SectionHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="CTA label (optional)" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} error={fieldErrors.ctaLabel} />
+          <BannerCtaPicker value={ctaAction} onChange={setCtaAction} error={fieldErrors.ctaUrl} />
           <FormField
-            label="CTA link (optional)"
-            value={ctaUrl}
-            onChange={(e) => setCtaUrl(e.target.value)}
-            placeholder="/products?category=dresses"
-            error={fieldErrors.ctaUrl}
+            label="CTA label (optional)"
+            value={ctaLabel}
+            onChange={(e) => setCtaLabel(e.target.value)}
+            placeholder="Shop now"
+            error={fieldErrors.ctaLabel}
           />
         </div>
       </div>

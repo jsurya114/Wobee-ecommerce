@@ -31,7 +31,13 @@ function paymentLabel(payload: Record<string, unknown>): string {
   const status = str(payload.paymentStatus);
   const method = str(payload.paymentMethod);
   if (status === "PAID") return method === "RAZORPAY" ? "Paid (Razorpay)" : "Paid";
-  if (status === "PAY_ON_DELIVERY" || method === "COD") return "Pay on delivery (Cash)";
+  if (status === "PAY_ON_DELIVERY" || method === "COD") {
+    // COD shipping upfront (2026-09-28): the delivery fee was already paid online.
+    if (typeof payload.payableOnDeliveryPaise === "number") {
+      return `Delivery fee paid online · ${money(payload.payableOnDeliveryPaise)} cash on delivery`;
+    }
+    return "Pay on delivery (Cash)";
+  }
   return status ? status.replace(/_/g, " ").toLowerCase() : "—";
 }
 

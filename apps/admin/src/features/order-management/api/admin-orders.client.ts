@@ -37,6 +37,10 @@ export interface AdminOrderView {
   totalPaise: number;
   totalWeightGrams: number;
   paymentMethod: PaymentMethod;
+  /** COD shipping upfront (2026-09-28) — the delivery fee was paid online. */
+  shippingPaidUpfront: boolean;
+  /** Cash the courier collects for a COD order whose delivery fee is prepaid online; null otherwise. */
+  payableOnDeliveryPaise: number | null;
   /** Week 3 Day 6 — distinct from paymentMethod: whether money has actually moved. Null only in the narrow window before checkout's own Payment row exists. */
   paymentStatus: PaymentStatus | null;
   placedAt: string;
@@ -107,7 +111,14 @@ export function deliver(id: string, accessToken: string): Promise<AdminOrderView
   return apiFetch(`/api/v1/admin/orders/${id}/deliver`, { method: "POST", accessToken });
 }
 
-export function cancel(id: string, input: CancelOrderInput, accessToken: string): Promise<{ order: AdminOrderView; refundIssued: boolean }> {
+/** What happened to the money on cancellation — only FAILED needs a human (2026-09-28). */
+export type CancelRefundOutcome = "NOT_APPLICABLE" | "COMPLETED" | "FAILED";
+
+export function cancel(
+  id: string,
+  input: CancelOrderInput,
+  accessToken: string,
+): Promise<{ order: AdminOrderView; refundIssued: boolean; refundOutcome: CancelRefundOutcome }> {
   return apiFetch(`/api/v1/admin/orders/${id}/cancel`, { method: "POST", body: input, accessToken });
 }
 

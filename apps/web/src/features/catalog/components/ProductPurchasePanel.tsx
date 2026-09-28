@@ -265,6 +265,10 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
             Delivery is available at this location.
           </p>
         ) : null}
+        <p className="mt-2 flex items-center gap-1.5 font-body text-xs text-text-secondary">
+          <PackageCheck className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+          Open box delivery — verify your order at the doorstep.
+        </p>
       </div>
 
       {/*
