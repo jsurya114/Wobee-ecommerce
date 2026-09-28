@@ -26,7 +26,19 @@ describe("banner CTA actions", () => {
   });
 
   it("rejects unsafe or malformed values", () => {
-    for (const bad of ["javascript:alert(1)", "//evil.com", "category:not-a-uuid", "custom:javascript:alert(1)", "custom://evil.com", "data:text/html,x"]) {
+    for (const bad of [
+      "javascript:alert(1)",
+      "//evil.com",
+      "/\\evil.com",
+      "/\t/evil.com",
+      "/\n/evil.com",
+      "custom:/\\evil.com",
+      "https://evil.com\\@x",
+      "category:not-a-uuid",
+      "custom:javascript:alert(1)",
+      "custom://evil.com",
+      "data:text/html,x",
+    ]) {
       expect(parseBannerCta(bad)).toBeNull();
     }
   });

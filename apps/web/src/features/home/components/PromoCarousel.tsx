@@ -3,6 +3,7 @@
 import useEmblaCarousel from "embla-carousel-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isAllowedBannerLink } from "@woobe/validation";
 import type { HomeBanner } from "../api/home.client";
 
 const AUTOPLAY_INTERVAL_MS = 5000;
@@ -18,8 +19,10 @@ const AUTOPLAY_INTERVAL_MS = 5000;
  * href>` with an unsafe scheme.
  */
 function isSafeHref(url: string): boolean {
-  // "//host" is protocol-relative (an external site), not a site path.
-  return (url.startsWith("/") && !url.startsWith("//")) || /^https?:\/\//i.test(url);
+  // Same parser-based check the write side uses — a string-prefix test lets
+  // "/\\evil.com" or a tab/newline variant through, which browsers turn into
+  // "//evil.com" (an external site).
+  return isAllowedBannerLink(url);
 }
 
 /**

@@ -28,9 +28,40 @@ export type BannerCtaAction =
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** A site path ("/…", never "//host") or an absolute http(s) URL — the only link shapes a banner may point at. */
+const PROBE_ORIGIN = "https://woobe.invalid";
+// Backslashes, whitespace and control characters are rewritten or stripped by
+// browsers' URL parsers ("/\\evil.com" and "/\t/evil.com" both become
+// "//evil.com"), so they are never allowed in a banner link at all.
+const UNSAFE_LINK_CHARS = /[\\\s\u0000-\u001f\u007f]/;
+
+/**
+ * True only for a same-site path — decided by actually parsing it the way a
+ * browser would, not by string prefix: "/products" stays on-site, while
+ * "//evil.com", "/\\evil.com" or "/\t/evil.com" resolve to another host and fail.
+ */
+export function isSitePath(value: string): boolean {
+  if (!value.startsWith("/") || UNSAFE_LINK_CHARS.test(value)) return false;
+  try {
+    return new URL(value, PROBE_ORIGIN).origin === PROBE_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
+/** An absolute http(s) URL with no characters a browser would silently rewrite. */
+function isAbsoluteHttpUrl(value: string): boolean {
+  if (UNSAFE_LINK_CHARS.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** A same-site path or an explicit absolute http(s) URL — the only link shapes a banner may point at. */
 export function isAllowedBannerLink(value: string): boolean {
-  return (value.startsWith("/") && !value.startsWith("//")) || /^https?:\/\/[^\s]+$/i.test(value);
+  return isSitePath(value) || isAbsoluteHttpUrl(value);
 }
 
 /** Parses a stored `ctaUrl`. Returns null for a value that is neither a known action nor a valid legacy link. */
