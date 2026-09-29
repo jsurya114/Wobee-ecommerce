@@ -4610,3 +4610,109 @@ Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entrie
 - **Local environment notes:**
   - switching branches on this iCloud-synced Desktop created 11 byte-identical `… 2.tsx/.ts/.sql` duplicates. They were verified identical and deleted, never committed.
   - `pnpm` minimum-release-age still applies to dependencies.
+
+---
+
+## 2026-09-29 (later) — Admin UX pass completed; two more logout causes found and fixed
+
+**Branch/commit:** `feat/admin-ux-session-pdp-highlights`, continuing the entry above. **Not merged, no PR, not deployed.**
+
+| Commit | What |
+|---|---|
+| `c29a01d` | `fix(auth): stop refresh-token reuse detection from logging out valid sessions` |
+| `1107416` | `feat(admin): finish admin UX pass across lists, forms, orders and settings` |
+| (this entry) | `docs(journal): …` |
+
+This supersedes the "PARTIALLY COMPLETED" status and the "optional grace window (not done)" follow-up in the entry above.
+
+### Auth: two more causes of unexpected logouts, both live on `main` today
+
+The frontend single-flight fix (`8ec6582`) was necessary but **not sufficient**. Continued browser testing hit "Refresh token reuse detected — all sessions revoked" twice more, with two different causes.
+
+**1. Lost rotation response.**
+- **What happens:** the server rotates the token, but the browser never receives the response, for example a tab reloaded or closed mid-refresh, a dropped mobile connection, or a proxy timeout. The browser keeps the old cookie, and its next refresh is treated as theft, which revokes every session.
+- **Reproduced in Chrome:** Slow 3G, then abort a `/admin/auth/refresh` in flight, then refresh → `401 reuse detected`.
+- **Fix:**
+  - `RefreshToken.replacedByTokenId` (a new nullable column) records which token replaced a rotated one.
+  - A rotated token presented again within `REFRESH_TOKEN_REUSE_GRACE_SECONDS` (default **30**, 0 disables) is treated as a lost response, **provided its replacement has never been used**. The unused replacement is retired and a fresh pair is issued.
+  - There is only ever one live token per session; the chain is never forked.
+- **Verified:** the same abort reproduction now returns `200`, and the next refresh returns `200`.
+
+**2. Stale-cookie cascade.**
+- **What happens:** a token that died *without* rotation (logout, a previous revoke-all, password reset, deactivation) is still sitting in another browser or device. When that device refreshes, the old code ran revoke-all again, signing the user out of the session they had just logged into.
+- **Found:** the token chain showed page 5's *current, correct* token revoked with no replacement recorded 36s after it was issued. It was caused by another browser context holding a dead cookie.
+- **Proven with a failing test first:** `auth.integration.test.ts` → "a stale, already-dead cookie from another device does not log out the user's current session" failed on the old code (`expected 401 to be 200`).
+- **Fix:** only a replay of a **rotated** token (`replacedByTokenId` set) triggers revoke-all. Other revoked tokens are simply rejected with a 401.
+- **Verified in the browser:** the stale context was sent to `/login`, and the fresh context stayed signed in.
+
+**Also fixed:** rotation is now atomic (`updateMany … where revokedAt IS NULL`). Before, two concurrent refreshes with the same token could *both* succeed (seen as `200, 200, 401` in the earlier curl reproduction).
+
+**Security properties kept:**
+- A replay of a rotated token after the window, or after its replacement was used, still revokes every session.
+- Deactivated accounts are refused, even inside the window.
+- TTLs and cookie flags are unchanged, and there is no localStorage.
+
+**Transitional note:** tokens rotated *before* this migration have `replacedByTokenId = NULL`. A replay of one is rejected but does not trigger revoke-all. This matters only for tokens rotated before deploy (at most 30 days).
+
+**Files:**
+- Schema and migration `20260929000000_refresh_token_replaced_by` — additive (`ALTER TABLE … ADD COLUMN "replacedByTokenId" TEXT`); the destructive-migration guard passes.
+- Auth code: `refresh-token.use-case.ts`, `issue-token-pair.ts`, the repository port and implementation, and `auth.module.ts`.
+- Config: `env.ts` and `.env.example`.
+
+**Tests added:**
+- Unit (`refresh-token.use-case.test.ts`, 5 cases):
+  - grace 0 is strict;
+  - a lost response is recovered, including a second loss in the same window;
+  - reuse after the replacement was used is theft;
+  - a logout-revoked token doesn't revoke other sessions;
+  - a deactivated account is refused.
+- Integration (`auth.integration.test.ts`):
+  - lost-response recovery;
+  - 4 concurrent refreshes leave at most one live token;
+  - a replay after the window is theft;
+  - the stale-device case.
+- The existing reuse test now uses the rotated token before the replay. A replay while the replacement is unused and inside the window is, by design, the lost-response case; the test's security assertion (revoke-all) is unchanged.
+
+**Browser (Chrome, local):**
+- Two frames booting at the same instant, ×3 rounds: both stay signed in each round (Web Locks), and the session remains valid.
+- 95 page loads in the final responsive scan: 0 logouts.
+
+**Deploy note:** this branch now carries a DB migration. The production deploy's `run_migrations=true` applies it (additive, safe). No env change is required; the default is 30s.
+
+### Admin UX — now COMPLETE for the scope listed in the entry above
+- **List pages:** all 13 use the shared `PageHeader`. Returns, Settings and Testimonials gain a one-line description.
+- **Forms:**
+  - Shared `FormActions` (a sticky save bar, Cancel, "Saving…") is used by the product, category, collection, coupon, offer, banner and staff-create forms.
+  - Shared `FormSection` is used by the product form, the **coupon** form (Discount / Conditions & limits / Schedule) and the **offer** form (Offer / Discount / Where it applies / Schedule).
+  - Staff role selects are aligned with every other select (`h-11 rounded-control text-base`).
+- **Order detail:**
+  - The status actions (the most frequent task) moved from below every card to the top of the side column (first on mobile), next to the timeline, and they stay in view on desktop.
+  - "Total weight 0g" is hidden for fixed-price-only orders.
+  - Verified: the confirmation dialog still guards every transition; it was opened and cancelled, and the order is unchanged.
+- **Settings:**
+  - Jump links (Pricing / Cart & shipping / Product presets / Store policies) replace the uppercase section labels that repeated each card's own title.
+  - The pricing card is no longer narrower than the others, and its input is half width like the grid fields.
+- **Inventory adjust:**
+  - autofocus and placeholders ("+10 or -3", "e.g. New stock arrived");
+  - a live "Available: 33 → 30" preview, flagging "can't go below zero" (the server already rejects negative stock);
+  - Enter confirms, Escape cancels, "Saving…".
+  - Verified: +1 then −1 restored the stock to 33. **Two test adjustments ("UX test (reverted)", "UX test revert") remain in local `woobe_dev` stock history.**
+- **Dashboard:** count charts (orders, sessions) had y-axis labels "0 0 1 1 1" (fractional ticks rounded by an integer formatter). They now use whole-number ticks (`niceTicks(…, integerOnly)`) and read "0 1" / "0 1 2 3".
+- **Filters:** the Testimonials and Returns single filters no longer stretch the full page width.
+- **Deliberately not done:**
+  - **Sticky table headers:** the tables sit in horizontal-scroll containers, where `position: sticky` can't pin to the page. It would need nested vertical scrolling, which is worse UX at 50 rows per page.
+  - **Badge casing:** already consistent lowercase everywhere; changing it would also change the storefront.
+- **Responsive:** 19 key pages × 375 / 390 / 768 / 1024 / 1440 = **95 checks, 0 overflow**.
+
+### Checks (servers stopped, machine idle)
+- typecheck: 8/8 ✅.
+- lint: 8/8 ✅.
+- `boundaries:check`: ✅ (738 modules, 0 violations).
+- `check-destructive-migration`: ✅.
+- `pnpm run test`: utils 33, validation 17, API **1,170/1,170** ✅.
+  - A run *during* the browser scan had 4 failures in coupons/returns. Those files passed 44/44 in isolation, and the idle full run was green; the failures came from machine load.
+- `pnpm run build`: api, web, admin ✅. The admin `.next` was cleared first, because an earlier build had run while a dev server was still up (stopping the wrapper command didn't stop the Node child; servers must be stopped by port).
+
+### Still open
+- **Production:** confirm after deploy by leaving the admin idle for more than 15 minutes, then using the dashboard. Keeping two tabs or two devices open is also worth checking.
+- **Product highlights:** saree/jewellery-specific fields still need a structured attributes model (see the entry above).
