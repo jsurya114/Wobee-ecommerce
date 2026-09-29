@@ -99,6 +99,7 @@ export function ProductDetail({ productId }: { productId: string }) {
                 brand: product.brand ?? "",
                 metaTitle: product.metaTitle ?? "",
                 metaDescription: product.metaDescription ?? "",
+                highlights: product.highlights,
               }}
               submitLabel="Save changes"
               cancelHref="/products"

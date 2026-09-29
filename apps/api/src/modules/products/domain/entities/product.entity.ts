@@ -110,6 +110,8 @@ export interface ProductDetailEntity {
    */
   metaTitle: string | null;
   metaDescription: string | null;
+  /** Admin-curated Key Highlights for the PDP (2026-09-29); [] when none were set. */
+  highlights: ProductHighlight[];
 }
 
 /**
@@ -169,6 +171,27 @@ export interface AdminProductDetailEntity {
   minPricePaiseCache: number;
   metaTitle: string | null;
   metaDescription: string | null;
+  highlights: ProductHighlight[];
   images: AdminProductImageEntity[];
   variants: AdminProductVariantEntity[];
+}
+
+/** One admin-curated Key Highlight row (Product.highlights, 2026-09-29). */
+export interface ProductHighlight {
+  label: string;
+  value: string;
+}
+
+/**
+ * Product.highlights is a JSON column — read it defensively: anything that
+ * isn't an array of { label: string, value: string } is dropped rather than
+ * trusted, so a hand-edited row can never break the PDP.
+ */
+export function parseProductHighlights(raw: unknown): ProductHighlight[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row: unknown) => {
+    if (typeof row !== "object" || row === null) return [];
+    const { label, value } = row as { label?: unknown; value?: unknown };
+    return typeof label === "string" && typeof value === "string" && label.trim() && value.trim() ? [{ label: label.trim(), value: value.trim() }] : [];
+  });
 }

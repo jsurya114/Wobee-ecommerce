@@ -123,6 +123,24 @@ const queryBooleanSchema = z
   .optional()
   .transform((value) => (value === undefined ? undefined : value === "true"));
 
+/**
+ * Admin-curated PDP "Key Highlights" (2026-09-29): ordered label/value pairs,
+ * e.g. { label: "Work", value: "Sequin" }. Kept short so they fit the image
+ * overlay; labels must be unique (case-insensitive) so a row isn't repeated.
+ */
+export const MAX_PRODUCT_HIGHLIGHTS = 8;
+export const productHighlightSchema = z.object({
+  label: z.string().trim().min(1, "Label is required").max(30, "Keep labels to 30 characters"),
+  value: z.string().trim().min(1, "Value is required").max(60, "Keep values to 60 characters"),
+});
+export const productHighlightsSchema = z
+  .array(productHighlightSchema)
+  .max(MAX_PRODUCT_HIGHLIGHTS, `At most ${MAX_PRODUCT_HIGHLIGHTS} highlights`)
+  .refine((rows) => new Set(rows.map((row) => row.label.toLowerCase())).size === rows.length, {
+    message: "Each highlight label can only be used once",
+  });
+export type ProductHighlightInput = z.infer<typeof productHighlightSchema>;
+
 export const createProductSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   slug: slugSchema,
@@ -134,6 +152,7 @@ export const createProductSchema = z.object({
   pricingMode: pricingModeSchema.default("WEIGHT_BASED"),
   metaTitle: z.string().trim().max(200).optional(),
   metaDescription: z.string().trim().max(500).optional(),
+  highlights: productHighlightsSchema.optional(),
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
@@ -150,6 +169,8 @@ export const updateProductSchema = z.object({
   pricingMode: pricingModeSchema.optional(),
   metaTitle: z.string().trim().max(200).nullable().optional(),
   metaDescription: z.string().trim().max(500).nullable().optional(),
+  /** Omitted = unchanged; [] clears them. */
+  highlights: productHighlightsSchema.optional(),
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 

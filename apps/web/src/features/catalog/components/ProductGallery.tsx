@@ -15,9 +15,9 @@ import { ShareProductButton } from "./ShareProductButton";
  * element); the rest lazy.
  *
  * The SECOND slide carries a "Key Highlights" overlay (2026-09-29) — part of
- * that slide, so it scrolls in with it and is gone again on slide 1. Built
- * from the selected variant's real data (buildKeyHighlights); shown only
- * when there are at least two images and at least two highlight rows.
+ * that slide, so it scrolls in with it and is gone again on slide 1. Uses the
+ * admin-curated highlights when set, else the selected variant's real data
+ * (buildKeyHighlights).
  */
 const MIN_HIGHLIGHT_ROWS = 2;
 
@@ -27,8 +27,10 @@ export function ProductGallery({ product }: { product: ProductDetail }) {
   const [selected, setSelected] = useState(0);
   const { selectedVariantId } = useSelectedVariant();
   const selectedVariant = product.variants.find((variant) => variant.id === selectedVariantId);
-  const highlights = buildKeyHighlights(product, selectedVariant);
-  const showHighlights = images.length > 1 && highlights.length >= MIN_HIGHLIGHT_ROWS;
+  const { rows: highlights, curated } = buildKeyHighlights(product, selectedVariant);
+  // An admin-curated list is shown even with one row (it was entered on purpose);
+  // derived rows need at least two to be worth an overlay.
+  const showHighlights = images.length > 1 && highlights.length >= (curated ? 1 : MIN_HIGHLIGHT_ROWS);
 
   const onSelect = useCallback(() => {
     if (emblaApi) setSelected(emblaApi.selectedScrollSnap());

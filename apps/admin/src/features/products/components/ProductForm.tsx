@@ -6,7 +6,8 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useFormError } from "@/lib/use-form-error";
 import type { CategoryOption } from "../api/admin-categories.client";
-import type { CreateProductPayload } from "../api/admin-products.client";
+import type { CreateProductPayload, ProductHighlight } from "../api/admin-products.client";
+import { ProductHighlightsEditor, validateHighlights } from "./ProductHighlightsEditor";
 import { FormActions } from "@/features/shell/components/FormActions";
 import { FormSection } from "@/features/shell/components/FormSection";
 
@@ -20,6 +21,7 @@ export interface ProductFormValues {
   brand: string;
   metaTitle: string;
   metaDescription: string;
+  highlights: ProductHighlight[];
 }
 
 const EMPTY_VALUES: ProductFormValues = {
@@ -31,6 +33,7 @@ const EMPTY_VALUES: ProductFormValues = {
   brand: "",
   metaTitle: "",
   metaDescription: "",
+  highlights: [],
 };
 
 /**
@@ -88,6 +91,11 @@ export function ProductForm({
       setFieldError("categoryId", "Choose a category");
       return;
     }
+    const highlights = validateHighlights(values.highlights);
+    if (!highlights.ok) {
+      setFieldError("highlights", highlights.error);
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onSubmit({
@@ -99,6 +107,7 @@ export function ProductForm({
         brand: values.brand || undefined,
         metaTitle: values.metaTitle || undefined,
         metaDescription: values.metaDescription || undefined,
+        highlights: highlights.rows,
       });
     } catch (error) {
       handle(error);
@@ -194,6 +203,13 @@ export function ProductForm({
             </p>
           ) : null}
         </fieldset>
+      </FormSection>
+
+      <FormSection
+        title="Product highlights"
+        description="Shown over the product's second photo on the store. Leave empty to show type, fabric, fit and colour automatically."
+      >
+        <ProductHighlightsEditor rows={values.highlights} onChange={(rows) => set("highlights", rows)} error={fieldErrors.highlights} />
       </FormSection>
 
       <details open={hasSeoContent} className="group rounded-control border border-border">

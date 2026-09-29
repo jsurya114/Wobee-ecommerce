@@ -137,6 +137,7 @@ export interface CreateProductInput {
   pricingMode: PricingMode;
   metaTitle?: string;
   metaDescription?: string;
+  highlights?: { label: string; value: string }[];
 }
 
 export interface UpdateProductInput {
@@ -149,6 +150,7 @@ export interface UpdateProductInput {
   pricingMode?: PricingMode;
   metaTitle?: string | null;
   metaDescription?: string | null;
+  highlights?: { label: string; value: string }[];
 }
 
 export interface CreateVariantInput {
