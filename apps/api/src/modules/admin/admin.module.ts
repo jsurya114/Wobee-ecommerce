@@ -77,6 +77,7 @@ import {
   getProductAdminUseCase,
   getProductCostsUseCase,
   listProductsAdminUseCase,
+  refreshWeightBasedPriceCachesUseCase,
   removeProductImageUseCase,
   reorderProductImagesUseCase,
   setProductActiveUseCase,
@@ -246,9 +247,25 @@ const adminProductsController = new AdminProductsController(
   setProductCostsUseCase,
 );
 const adminInventoryController = new AdminInventoryController(listInventoryAdminUseCase, adjustInventoryUseCase);
+/**
+ * Changing the global ₹/kg rate (2026-09-30) also re-prices the listing
+ * price caches of every weight-priced product — without it, the shop's price
+ * filter ("Shop by Budget"), sort and cards kept using the old rate. Composed
+ * here, same "compose in admin, nothing imports it back" reasoning as
+ * CancelOrderWithRefundUseCase: `products` already depends on `pricing`, so
+ * pricing can't call products itself. The rate is saved first; if the
+ * refresh fails the request fails, and saving again re-runs it.
+ */
+const changePricingRateUseCase = {
+  execute: async (ratePerKgPaise: number) => {
+    const setting = await updatePricingSettingUseCase.execute(ratePerKgPaise);
+    await refreshWeightBasedPriceCachesUseCase.execute();
+    return setting;
+  },
+};
 const adminSettingsController = new AdminSettingsController(
   getPricingSettingUseCase,
-  updatePricingSettingUseCase,
+  changePricingRateUseCase,
   getAppConfigUseCase,
   updateAppConfigUseCase,
   getShippingRuleUseCase,

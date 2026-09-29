@@ -166,7 +166,7 @@ interface SizeAvailabilityReader {
 
 /** Matches `ListProductsUseCase`'s own `execute` signature (2026-08-31 budget tile cover images) — the same concrete instance as `newArrivalsLister` satisfies both narrow interfaces. */
 interface BudgetProductsLister {
-  execute(input: { maxPricePaise: number; sort: "price_desc"; page: number; limit: number }): Promise<ListProductsResult>;
+  execute(input: { maxPricePaise: number; sort: "price_desc"; page: number; limit: number; inStockOnly: true }): Promise<ListProductsResult>;
 }
 
 /**
@@ -485,7 +485,8 @@ export class GetHomePageUseCase {
       tiles.map(async (tile) => {
         // An admin-uploaded cover skips the product lookup entirely.
         if (tile.coverImageUrl) return { label: tile.label, maxPricePaise: tile.maxPricePaise, imageUrl: tile.coverImageUrl };
-        const result = await this.budgetProductsLister.execute({ maxPricePaise: tile.maxPricePaise, sort: "price_desc", page: 1, limit: 1 });
+        // In stock only (2026-09-30) — the cover must be a product the tile's own shop link actually lists.
+        const result = await this.budgetProductsLister.execute({ maxPricePaise: tile.maxPricePaise, sort: "price_desc", page: 1, limit: 1, inStockOnly: true });
         return { label: tile.label, maxPricePaise: tile.maxPricePaise, imageUrl: result.products[0]?.primaryImage?.url ?? null };
       }),
     );

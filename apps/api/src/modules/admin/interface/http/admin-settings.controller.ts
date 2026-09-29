@@ -14,7 +14,8 @@ import type { UpdateShippingRuleUseCase } from "../../../shipping/application/us
 export class AdminSettingsController {
   constructor(
     private readonly getPricingSettingUseCase: GetPricingSettingUseCase,
-    private readonly updatePricingSettingUseCase: UpdatePricingSettingUseCase,
+    /** The admin module's rate change + listing price-cache refresh (see admin.module.ts) — same `execute` as UpdatePricingSettingUseCase. */
+    private readonly updatePricingSettingUseCase: Pick<UpdatePricingSettingUseCase, "execute">,
     private readonly getAppConfigUseCase: GetAppConfigUseCase,
     private readonly updateAppConfigUseCase: UpdateAppConfigUseCase,
     private readonly getShippingRuleUseCase: GetShippingRuleUseCase,

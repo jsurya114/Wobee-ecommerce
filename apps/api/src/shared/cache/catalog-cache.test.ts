@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { redis } from "../../config/redis";
-import { bumpCatalogCacheVersion, cacheAside, getCatalogCacheVersion } from "./catalog-cache";
+import { bumpCatalogCacheVersion, cacheAside, fingerprintIds, getCatalogCacheVersion } from "./catalog-cache";
 
 /**
  * Exercises the cache helper directly against the real test Redis (this
@@ -114,5 +114,14 @@ describe("catalog-cache", () => {
     const load = vi.fn().mockResolvedValue({ value: "live" });
 
     await expect(cacheAside("test:h", 60, load)).resolves.toEqual({ value: "live" });
+  });
+});
+
+describe("fingerprintIds", () => {
+  it("is order-independent, and changes when the set changes (a variant selling out or being restocked)", () => {
+    expect(fingerprintIds(["a", "b", "c"])).toBe(fingerprintIds(["c", "a", "b"]));
+    expect(fingerprintIds(["a", "b", "c"])).not.toBe(fingerprintIds(["a", "b"]));
+    expect(fingerprintIds(["a", "b"])).not.toBe(fingerprintIds(["a", "b", "d"]));
+    expect(fingerprintIds([])).toMatch(/^[0-9a-f]{16}$/);
   });
 });

@@ -365,7 +365,73 @@ describe("wishlist: inactive/out-of-stock product behavior", () => {
     await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId, variantId });
 
     const listRes = await request(app).get("/api/v1/wishlist").set(auth);
-    expect(listRes.body.items[0]).toMatchObject({ variantId, availableQuantity: 0, isAvailable: false });
+    expect(listRes.body.items[0]).toMatchObject({ variantId, availableQuantity: 0, isAvailable: false, isSoldOut: true });
+  });
+});
+
+describe("wishlist: SOLD OUT (2026-09-30 — sold-out products leave the shop/home but stay here)", () => {
+  it("a no-size item whose product has no stock left is kept, marked sold out and not available", async () => {
+    const { accessToken } = await registerCustomer();
+    const { productId } = await createTestProduct({ stock: 0 });
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId });
+
+    const listRes = await request(app).get("/api/v1/wishlist").set(auth);
+    expect(listRes.body.itemCount).toBe(1);
+    expect(listRes.body.items[0]).toMatchObject({ productId, variantId: null, isProductActive: true, isSoldOut: true, isAvailable: false });
+    expect(listRes.body.items[0].productName).toBeTruthy();
+    expect(typeof listRes.body.items[0].pricePaise).toBe("number");
+  });
+
+  it("an in-stock product is not sold out, and one in-stock size is enough", async () => {
+    const { accessToken } = await registerCustomer();
+    const { productId } = await createTestProduct({ stock: 0 });
+    await createVariant(productId, { size: "L", stock: 2 });
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId });
+
+    const listRes = await request(app).get("/api/v1/wishlist").set(auth);
+    expect(listRes.body.items[0]).toMatchObject({ productId, isSoldOut: false, isAvailable: true });
+  });
+
+  it("flips with live stock: in stock → sold out → back in stock", async () => {
+    const { accessToken } = await registerCustomer();
+    const { productId, variantId } = await createTestProduct({ stock: 1 });
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId });
+
+    expect((await request(app).get("/api/v1/wishlist").set(auth)).body.items[0].isSoldOut).toBe(false);
+    await prisma.inventory.updateMany({ where: { variantId }, data: { quantityAvailable: 0 } });
+    expect((await request(app).get("/api/v1/wishlist").set(auth)).body.items[0].isSoldOut).toBe(true);
+    await prisma.inventory.updateMany({ where: { variantId }, data: { quantityAvailable: 4 } });
+    expect((await request(app).get("/api/v1/wishlist").set(auth)).body.items[0].isSoldOut).toBe(false);
+  });
+
+  it("a deactivated product is 'no longer available', not sold out", async () => {
+    const { accessToken } = await registerCustomer();
+    const { productId } = await createTestProduct({ isActive: false, stock: 0 });
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId });
+
+    const listRes = await request(app).get("/api/v1/wishlist").set(auth);
+    expect(listRes.body.items[0]).toMatchObject({ isProductActive: false, isSoldOut: false, isAvailable: false });
+  });
+
+  it("a sold-out item can still be removed, and can't be moved to the bag", async () => {
+    const { accessToken } = await registerCustomer();
+    const { productId, variantId } = await createTestProduct({ stock: 0 });
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const addRes = await request(app).post("/api/v1/wishlist/items").set(auth).send({ productId, variantId });
+    const itemId = addRes.body.item.id as string;
+
+    const moveRes = await request(app).post(`/api/v1/wishlist/items/${itemId}/move-to-cart`).set(auth).send({ quantity: 1 });
+    expect(moveRes.status).toBe(422); // same live-stock check as "can't cover the requested quantity" below
+    const cartRes = await request(app).get("/api/v1/cart").set(auth);
+    expect(cartRes.body.items ?? []).toHaveLength(0);
+
+    const removeRes = await request(app).delete(`/api/v1/wishlist/items/${itemId}`).set(auth);
+    expect(removeRes.status).toBe(204);
+    expect((await request(app).get("/api/v1/wishlist").set(auth)).body.itemCount).toBe(0);
   });
 });
 

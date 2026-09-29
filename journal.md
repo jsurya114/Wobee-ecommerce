@@ -4770,3 +4770,132 @@ The frontend single-flight fix (`8ec6582`) was necessary but **not sufficient**.
 
   Both are additive, applied locally to `woobe_dev` and `woobe_test`, and pass the destructive-migration guard.
 - **Production:** RDS gets them through the normal deploy (`deploy.yml` with `run_migrations=true` runs `prisma migrate deploy` before the new containers start). The RDS password was **not** touched.
+
+## 2026-09-30 — Sold-out products hidden from Home/Shop (SOLD OUT in wishlist); Shop by Budget price leak fixed
+
+**Branch:** `fix/out-of-stock-budget-filter`, from main `fc47ffe`. Pushed, **not merged, no PR, not deployed.**
+**Commit:** the single `fix(catalog): …` commit on this branch (hash in `git log` / the task report).
+
+### Part 1 — Out-of-stock visibility
+
+**Existing stock rule (unchanged, not reinvented):**
+- A variant is in stock when `SUM(quantityAvailable − quantityReserved) > 0` across warehouses (`InventoryRepository.findInStockVariantIds`).
+- A product is in stock when **any ACTIVE variant** is in stock. This is the SQL the listing's `inStock` filter already applied (`EXISTS … v."isActive" AND v.id = ANY(inStockVariantIds)`).
+- Red/M 0 + Red/L 5 + Blue/M 0 → still listed. It drops out only when no active variant has stock.
+
+**What was already right:** every Home product rail was already `inStockOnly`: New Arrivals, Fashion by Weight, Offer campaigns, and Loved by Customers (post-filtered).
+
+**Root cause:**
+- **Shop:** `GET /api/v1/products` (Shop grid, load more, filter-count previews, collection pages) only hid sold-out products when the shopper ticked "In stock". The default listing showed them.
+- **Home:** the budget tile cover lookup wasn't stock-filtered.
+- **Home cache:** the whole-page Redis cache (60 s) could keep a just-sold-out product for up to a minute.
+
+**Fixes:**
+- **Shop (backend):** `ProductsController.list` always passes `inStockOnly: true`. Every storefront listing now uses the existing live in-stock filter, with no second stock implementation. `?inStock=` is still accepted; it's always satisfied now.
+- **Home:** budget tile covers use `inStockOnly: true`. "Loved by Customers" uses the new shared `FindInStockProductIdsUseCase`, which follows the same active-variant rule as the Shop SQL; the previous check ignored `isActive` on the variant.
+- **Cache (no caching disabled, no TTL changes):**
+  - New `fingerprintIds()` in `catalog-cache.ts`.
+  - In-stock listings used to skip the cache entirely. They're now cached under a key that includes a fingerprint of the live in-stock variant set, which is read on every request (DEVELOPMENT_RULES #1).
+  - The Home page cache key includes the same fingerprint.
+  - When anything sells out or is restocked, the key changes, so the page shows at once. While stock is unchanged, the cache still hits.
+  - Stock itself is never cached.
+- **Wishlist:**
+  - The API line gains `isSoldOut`: active but no stock. For a line with a chosen size, that means that variant has no stock; without a size, no active variant has stock.
+  - A size-less sold-out line is now `isAvailable: false`.
+  - UI: a red **SOLD OUT** badge (shared `Badge`), a dimmed image, and no "Move to bag" or "Choose a size" button. Remove still works.
+  - A deactivated product still reads "No longer available", not sold out.
+  - The existing move-to-cart live stock check (422) is unchanged.
+- **PDP:** unchanged. A sold-out product's page still loads (200) with all sizes unavailable.
+- **Related products (PDP rail):** unchanged and **still shows sold-out siblings**. The task limited the rule to Home and Shop; see limitations.
+
+### Part 2 — Shop by Budget (₹488 shown under ₹299)
+
+**Flow traced:**
+- The Home tile is an `<a href="/products?maxPrice=<paise>&sort=price_desc">`. It's a fresh URL, so no earlier min/max can survive.
+- `page.tsx` → `parseProductsQueryParams` → `listProducts` → `productListQuerySchema` (paise, int) → `ListProductsUseCase` → SQL `p."minPricePaiseCache" <= maxPrice`.
+- The URL, filter sheet (`Max = 499`), API and SQL all carried the same inclusive paise maximum. **The query was correct**: the new filter-only tests pass on main unchanged.
+
+**Root cause:**
+- The value being compared was stale. `effectivePricePaiseCache` and `minPricePaiseCache`, which the listing filters, sorts and shows, were only recomputed when a variant was edited. **Changing the global ₹/kg rate never re-priced them**, and a comment in `UpdatePricingSettingUseCase` wrongly claimed they refreshed "on their own read paths".
+- PDP, cart and checkout price live, so after a rate **increase** a weight-priced product could sit in the ₹299 budget at its old cached price (for example ₹240) while it actually cost ₹488.
+- **Production shows it today:**
+  - `demo-satin-wrap-top`: the list cache says ₹288 (240 g at the old ₹1,200/kg), but the PDP says ₹215.76 at the current ₹899/kg.
+  - 24 of the 27 weight-priced products (of 40 listed) still carry caches from the old rate. Currently that errs the other way (it hides products that do fit a budget), but the next rate increase would leak.
+- **The redis list cache wasn't the cause:** the key already includes `maxPricePaise` (a unit test now proves ₹299 and ₹499 never share an entry).
+
+**Fix:**
+- **`RefreshWeightBasedPriceCachesUseCase`** (products, admin):
+  - re-prices every WEIGHT_BASED variant through the existing pricing path (`PricingReaderPort.calculateMany` → `CalculateEffectivePriceUseCase`), with no second formula;
+  - writes only the prices that changed;
+  - recomputes each product's `minPricePaiseCache` in one transaction (repo `findWeightBasedVariantsForRepricing` and `updateVariantPriceCaches`);
+  - then bumps the catalog cache version.
+- **Admin wiring:** `admin.module.ts` composes "save rate, then refresh" (`changePricingRateUseCase`), because pricing can't import products (products → pricing already). `AdminSettingsController` takes `Pick<UpdatePricingSettingUseCase, "execute">`.
+- **Data migration** `20260930000000_refresh_weight_based_price_caches`:
+  - data-only, UPDATEs only (no schema change) — it passes the destructive-migration guard;
+  - re-prices the rows that are already stale, once, at the current rate;
+  - uses the same formula as `calculateWeightBasedPricePaise` (round half-up; the rate override is deprecated and ignored);
+  - production gets it through the normal deploy (`run_migrations=true`).
+- Applied locally to `woobe_dev` (checked by corrupting one row and watching it repaired) and to `woobe_test`.
+- **Not changed:** the filter still uses the base price (`minPricePaiseCache`, the price the card shows with a strikethrough when an offer applies). That's the existing price representation, as the task asked; offers, coupons, cart and checkout are untouched.
+
+### Tests
+- **New:** `shop-by-budget.integration.test.ts` (9), covering:
+  - ₹299: 100/200/299 shown; 300/488/499/500 hidden;
+  - ₹499: 499 shown, 500 hidden;
+  - 299 → 499 → 199 → reset;
+  - budget combined with category, size, colour, search, every sort, and pagination;
+  - **a rate change through `PUT /admin/settings/pricing` moves a product from ₹240 to ₹488.** It leaves the ₹299 budget and lists at ₹488 under ₹499, the same as its PDP.
+
+  The rate-change test **fails on main** (verified by stashing the fix); the other 8 pass on main.
+- `products.integration.test.ts`:
+  - the zero-stock fixture (`breeze-top`) no longer appears in any listing, and the changed tests assert its absence instead of counting it (totals 5→4, 4→3, 2→1);
+  - **new:** sold out, restock and reserved-only stock without `inStock`; the PDP still 200;
+  - **new:** listed while any active variant has stock, dropped once the only stocked variant is deactivated.
+- `collections.integration.test.ts`: the fixture helper now gives products one in-stock variant (they had none, so they were sold out by definition).
+- `wishlist.integration.test.ts`, 5 new tests:
+  - size-less sold out;
+  - one in-stock size is enough;
+  - in → out → in;
+  - deactivated product isn't "sold out";
+  - a sold-out item can be removed and can't be moved to the bag (422).
+- **Unit:**
+  - `RefreshWeightBasedPriceCachesUseCase` (2), `FindInStockProductIdsUseCase` (1);
+  - `fingerprintIds` (1);
+  - `CachedProductRepository` keys (2): budgets never share entries; the stock set is in the key;
+  - Home budget-tile expectations now include `inStockOnly: true`.
+- **Full API run:** 1,227 / 1,229. The 2 failures are in `returns.integration.test.ts`, a module this branch doesn't touch, and it passes **56/56 on its own**: the same load flake noted in earlier entries.
+- **typecheck** ✅; **lint** ✅ (`--max-warnings=0`); **boundaries** ✅ (0 violations); **build** api/web/admin ✅.
+
+### Verified locally (API and web dev servers, Redis cache ON)
+- **Stock:** selling out `embroidered-top` removed it from Shop (15→14) and from Home Fashion by Weight and its offer campaign on the very next request. The PDP still returned 200. Restocking brought it back. Stock was restored to the seed values.
+- **Budget (browser):** the Home "Under ₹499" tile went to `/products?maxPrice=49900&sort=price_desc`, the filter sheet showed Max 499 with Min empty, 13 results were all at most ₹480, and the preview count matched.
+  - Changing to ₹299 gave 5 results (max ₹264); ₹199 gave 4 (max ₹132); "Clear all" gave 15.
+  - Category pills keep the budget. Accessories under ₹299 excluded the ₹408 and ₹456 bags.
+- **Wishlist (browser, throwaway local customer, deleted afterwards):**
+  - a whole product sold out and a chosen size sold out both showed SOLD OUT, with no bag button;
+  - the in-stock item kept "Choose a size";
+  - Remove on a sold-out line worked;
+  - the sold-out product was absent from the Shop and Home HTML.
+  - Stock was restored exactly (22/18/35).
+- **Production was NOT verified:** nothing is deployed.
+
+### Files
+- **API:**
+  - `products.controller.ts`, `list`: always in-stock.
+  - `cached-product-repository.ts` (stock-keyed list cache, passthroughs) and `product.repository.ts` (3 new methods), with the matching port.
+  - New use cases: `find-in-stock-product-ids.use-case.ts` and `admin/refresh-weight-based-price-caches.use-case.ts`; wiring in `products.module.ts`.
+  - `home.module.ts` (stock-keyed cache, shared in-stock rule) and `get-homepage.use-case.ts` (in-stock budget covers).
+  - Wishlist: the `inventory-reader.port.ts` port, `get-wishlist.use-case.ts` and `wishlist.module.ts`.
+  - `admin.module.ts` and `admin-settings.controller.ts`; the doc comment in `update-pricing-setting.use-case.ts`.
+  - `shared/cache/catalog-cache.ts`: `fingerprintIds`.
+- **Web:** `wishlist.client.ts` and `WishlistLineItem.tsx`.
+- **DB:** migration `20260930000000_refresh_weight_based_price_caches`.
+- **Tests:** listed above.
+
+### Known limitations / follow-ups
+- **PDP "related products" still lists sold-out siblings.** This was left as-is on purpose (the rule is Home and Shop only). It's a one-line change (`findRelatedProducts` + in-stock ids) if wanted.
+- The search typeahead (suggestions dropdown) can still suggest a sold-out product; it links to the PDP. Shop search **results** exclude them.
+- `sitemap.xml` is built from the same listing endpoint, so while a product is sold out its PDP drops out of the sitemap; it comes back when restocked.
+- The Shop's "In stock only" toggle is now always satisfied, so it's redundant; it was kept to avoid touching unrelated filter UI.
+- Every Home request and in-stock listing does one live inventory `groupBy` for the fingerprint. It's the same query the `inStock` filter always ran, and fine at this catalogue size.
+- **Local data only:** "Embroidered Top" shows ₹0 because a local ₹300-off offer applies to a ₹264 item. That's pre-existing offer data, not part of this task.

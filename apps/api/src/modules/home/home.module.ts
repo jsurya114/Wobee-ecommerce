@@ -13,6 +13,7 @@ import { listActiveOffersForStripUseCase } from "../offers/offers.module";
 import { getBestSellingVariantQuantitiesUseCase } from "../orders/orders.module";
 import {
   countActiveProductsBySizeUseCase,
+  findInStockProductIdsUseCase,
   getCategoryImagesUseCase,
   getProductsByIdsUseCase,
   groupProductsByOfferUseCase,
@@ -21,7 +22,7 @@ import {
 } from "../products/products.module";
 import { getAppConfigUseCase } from "../settings/settings.module";
 import { getAggregateTestimonialRatingUseCase, listApprovedTestimonialsUseCase } from "../testimonials/testimonials.module";
-import { cacheAside } from "../../shared/cache/catalog-cache";
+import { cacheAside, fingerprintIds } from "../../shared/cache/catalog-cache";
 import { env } from "../../config/env";
 import { GetHomePageUseCase, type HomePageView } from "./application/use-cases/get-homepage.use-case";
 import { HomeController } from "./interface/http/home.controller";
@@ -41,18 +42,12 @@ const deliveredOnlyBestSellingVariantsReader = {
 };
 
 /**
- * Every product id with at least one currently in-stock, active variant —
- * composed from the same two building blocks `resolveBestSellers` already
- * uses for the sales aggregate (`inventory`'s in-stock variant ids,
- * `products`' variant→product resolver), not a new inventory query.
+ * Every product id with at least one currently in-stock, ACTIVE variant —
+ * `products`' own FindInStockProductIdsUseCase (2026-09-30), the same rule
+ * the shop listing applies, so a product whose only stocked variant is
+ * deactivated is sold out here too.
  */
-const inStockProductIdsProvider = {
-  execute: async (): Promise<Set<string>> => {
-    const inStockVariantIds = await findInStockVariantIdsUseCase.execute();
-    const productIdByVariant = await resolveProductIdsForVariantsUseCase.execute(inStockVariantIds);
-    return new Set(productIdByVariant.values());
-  },
-};
+const inStockProductIdsProvider = findInStockProductIdsUseCase;
 
 /** Admin-configured Shop by Budget tiles (2026-09-29) — AppConfig.budgetTiles, read through `settings`' exported use-case, never its Prisma model (ADR-010). */
 const budgetTilesReader = {
@@ -135,10 +130,14 @@ const HOME_PAGE_SCHEMA_VERSION = 7; // 6: banners carry resolvedCtaUrl (2026-09-
  * behavior is actually verified.
  */
 export const getHomePageUseCase = {
-  execute: (): Promise<HomePageView> =>
-    env.NODE_ENV === "test"
-      ? realGetHomePageUseCase.execute()
-      : cacheAside(`home:page:schema${HOME_PAGE_SCHEMA_VERSION}`, HOME_TTL_SECONDS, () => realGetHomePageUseCase.execute()),
+  execute: async (): Promise<HomePageView> => {
+    if (env.NODE_ENV === "test") return realGetHomePageUseCase.execute();
+    // Keyed by the live in-stock variant set (2026-09-30), read on every
+    // request: a product that sells out (or is restocked) changes the key, so
+    // the cached page can never keep showing it for the rest of the TTL.
+    const stock = fingerprintIds(await findInStockVariantIdsUseCase.execute());
+    return cacheAside(`home:page:schema${HOME_PAGE_SCHEMA_VERSION}:stock:${stock}`, HOME_TTL_SECONDS, () => realGetHomePageUseCase.execute());
+  },
 };
 
 const homeController = new HomeController(getHomePageUseCase);
