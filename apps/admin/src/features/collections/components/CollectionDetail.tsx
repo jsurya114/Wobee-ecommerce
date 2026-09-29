@@ -10,6 +10,7 @@ import { useAdminCollection } from "../hooks/useAdminCollection";
 import { AssignedProductsList } from "./AssignedProductsList";
 import { CollectionForm } from "./CollectionForm";
 import { ProductPicker } from "./ProductPicker";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function CollectionDetail({ collectionId }: { collectionId: string }) {
   const saveAndRedirect = useSaveAndRedirect("/collections");
@@ -43,15 +44,18 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-2xl">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl text-text-primary">{collection.name}</h1>
-        <div className="flex items-center gap-2">
-          <Badge variant={collection.isActive ? "success" : "neutral"}>{collection.isActive ? "active" : "inactive"}</Badge>
-          <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
-            {collection.isActive ? "Deactivate" : "Activate"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/collections", label: "Collections" }}
+        title={collection.name}
+        meta={<Badge variant={collection.isActive ? "success" : "neutral"}>{collection.isActive ? "active" : "inactive"}</Badge>}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
+              {collection.isActive ? "Deactivate" : "Activate"}
+            </Button>
+          </>
+        }
+      />
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>

@@ -50,6 +50,8 @@ export interface AdminProductDetail {
   minPricePaiseCache: number;
   metaTitle: string | null;
   metaDescription: string | null;
+  /** Admin-curated PDP Key Highlights (2026-09-29); [] when none. */
+  highlights: ProductHighlight[];
   images: AdminProductImage[];
   variants: AdminProductVariant[];
 }
@@ -62,6 +64,11 @@ export interface ListProductsParams {
   pageSize?: number;
 }
 
+export interface ProductHighlight {
+  label: string;
+  value: string;
+}
+
 export interface CreateProductPayload {
   name: string;
   slug: string;
@@ -72,6 +79,7 @@ export interface CreateProductPayload {
   pricingMode?: "WEIGHT_BASED" | "FIXED";
   metaTitle?: string;
   metaDescription?: string;
+  highlights?: ProductHighlight[];
 }
 
 export type UpdateProductPayload = Partial<CreateProductPayload>;

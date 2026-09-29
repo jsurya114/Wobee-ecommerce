@@ -49,11 +49,11 @@ export function BannersTable({
   return (
     <div className="flex flex-col gap-3">
       {items.map((banner, index) => (
-        <div key={banner.id} className="flex items-center gap-3 rounded-control border border-border p-3">
+        <div key={banner.id} className="flex flex-wrap items-center gap-3 rounded-control border border-border p-3">
           {/* Plain <img>, not next/image — same reasoning as ProductsTable's own thumbnail. */}
           <img src={resolveImageUrl(banner.imageUrl)!} alt="" className="h-12 w-20 shrink-0 rounded-control object-cover" />
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[8rem] flex-1">
             <Link href={`/banners/${banner.id}`} className="truncate font-body text-sm font-medium text-primary hover:underline">
               {banner.title || "Untitled banner"}
             </Link>
@@ -62,7 +62,7 @@ export function BannersTable({
 
           <Badge variant={banner.isActive ? "success" : "neutral"}>{banner.isActive ? "active" : "inactive"}</Badge>
 
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <button
               type="button"
               aria-label="Move up"

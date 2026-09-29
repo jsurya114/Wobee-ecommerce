@@ -11,6 +11,7 @@ import { useFormError } from "@/lib/use-form-error";
 import { formatBannerCta, parseBannerCta, type BannerCtaAction } from "@woobe/validation";
 import type { BannerPayload } from "../api/admin-banners.client";
 import { BannerCtaPicker } from "./BannerCtaPicker";
+import { FormActions } from "@/features/shell/components/FormActions";
 
 /** A stored ctaUrl as a picker value. Legacy raw links become "Custom link"; an unreadable value is shown as custom text so the admin can see and fix it. */
 function toCtaAction(stored: string | null | undefined): BannerCtaAction {
@@ -188,9 +189,7 @@ export function BannerForm({
         </p>
       ) : null}
 
-      <Button type="submit" isLoading={isSubmitting} className="self-start">
-        {submitLabel}
-      </Button>
+      <FormActions isSubmitting={isSubmitting} submitLabel={submitLabel} cancelHref="/banners" />
     </form>
   );
 }

@@ -1,9 +1,10 @@
 import { NewBannerForm } from "@/features/banners/components/NewBannerForm";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export default function NewBannerPage() {
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">New banner</h1>
+      <PageHeader back={{ href: "/banners", label: "Banners" }} title="New banner" />
       <NewBannerForm />
     </div>
   );

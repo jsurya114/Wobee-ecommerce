@@ -9,6 +9,8 @@ export interface TokenPair {
   accessToken: string;
   refreshToken: string;
   refreshTokenExpiresAt: Date;
+  /** Id of the new RefreshToken row — RefreshTokenUseCase records it as the rotated token's replacement. */
+  refreshTokenId: string;
 }
 
 /**
@@ -24,11 +26,11 @@ export async function issueTokenPair(
 
   const refreshToken = deps.refreshTokenService.generate();
   const refreshTokenExpiresAt = new Date(Date.now() + ms(env.JWT_REFRESH_TOKEN_TTL));
-  await deps.authRepository.createRefreshToken({
+  const created = await deps.authRepository.createRefreshToken({
     userId: user.id,
     tokenHash: deps.refreshTokenService.hash(refreshToken),
     expiresAt: refreshTokenExpiresAt,
   });
 
-  return { accessToken, refreshToken, refreshTokenExpiresAt };
+  return { accessToken, refreshToken, refreshTokenExpiresAt, refreshTokenId: created.id };
 }

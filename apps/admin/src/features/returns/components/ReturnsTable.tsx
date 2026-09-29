@@ -16,7 +16,7 @@ export function ReturnsTable({ items }: { items: AdminReturnSummaryView[] }) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[720px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">

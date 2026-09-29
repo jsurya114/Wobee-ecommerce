@@ -10,6 +10,7 @@ import type {
   ProductSuggestionEntity,
   ProductVariantEntity,
 } from "../../domain/entities/product.entity";
+import { parseProductHighlights } from "../../domain/entities/product.entity";
 import type {
   AddProductImageInput,
   CreateProductInput,
@@ -328,6 +329,7 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
       variants: row.variants,
       metaTitle: row.metaTitle,
       metaDescription: row.metaDescription,
+      highlights: parseProductHighlights(row.highlights),
     };
   }
 
@@ -600,6 +602,7 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
             pricingMode: input.pricingMode,
             metaTitle: input.metaTitle,
             metaDescription: input.metaDescription,
+            highlights: input.highlights,
           },
           include: ADMIN_DETAIL_INCLUDE,
         }),
@@ -623,6 +626,7 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
             pricingMode: input.pricingMode,
             metaTitle: input.metaTitle,
             metaDescription: input.metaDescription,
+            highlights: input.highlights,
           },
           include: ADMIN_DETAIL_INCLUDE,
         }),
@@ -948,6 +952,7 @@ function toAdminDetail(row: AdminProductRow): AdminProductDetailEntity {
     minPricePaiseCache: row.minPricePaiseCache,
     metaTitle: row.metaTitle,
     metaDescription: row.metaDescription,
+    highlights: parseProductHighlights(row.highlights),
     images: row.images,
     variants: row.variants,
   };

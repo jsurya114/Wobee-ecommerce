@@ -8,6 +8,7 @@ import { ReturnFilters } from "@/features/returns/components/ReturnFilters";
 import { ReturnsTable } from "@/features/returns/components/ReturnsTable";
 import { useAdminReturns } from "@/features/returns/hooks/useAdminReturns";
 import type { ReturnStatus } from "@/features/returns/api/admin-returns.client";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 const PAGE_SIZE = 50;
 
@@ -24,7 +25,7 @@ function ReturnsPageContent() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">Returns</h1>
+      <PageHeader title="Returns" description="Review and resolve customer return requests." />
       {orderId ? <p className="font-body text-sm text-text-secondary">Showing returns for this order only.</p> : null}
       <ReturnFilters status={status} onStatusChange={setStatus} />
       {loading ? (

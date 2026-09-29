@@ -9,6 +9,7 @@ import { LoadingState } from "@/features/shell/components/LoadingState";
 import { ApiError } from "@/lib/api-client";
 import { useAdminStaff } from "../hooks/useAdminStaff";
 import { STAFF_ROLE_LABELS, STAFF_STATUS_BADGE_VARIANT, STAFF_STATUS_LABELS } from "../lib/staff-labels";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function StaffDetail({ staffId }: { staffId: string }) {
   const { user: currentUser } = useAdminAuth();
@@ -85,10 +86,11 @@ export function StaffDetail({ staffId }: { staffId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-2xl">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-xl text-text-primary">{staff.name}</h1>
-        <Badge variant={STAFF_STATUS_BADGE_VARIANT[staff.status]}>{STAFF_STATUS_LABELS[staff.status]}</Badge>
-      </div>
+      <PageHeader
+        back={{ href: "/staff", label: "Staff" }}
+        title={staff.name}
+        meta={<Badge variant={STAFF_STATUS_BADGE_VARIANT[staff.status]}>{STAFF_STATUS_LABELS[staff.status]}</Badge>}
+      />
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Profile</h2>
@@ -120,7 +122,7 @@ export function StaffDetail({ staffId }: { staffId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <select
               aria-label="New role"
-              className="rounded-md border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary"
+              className="h-11 rounded-control border border-border bg-surface px-4 font-body text-base text-text-primary"
               value={roleToApply}
               onChange={(e) => setSelectedRole(e.target.value as StaffRole)}
             >

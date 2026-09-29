@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createStaffSchema, type CreateStaffInput } from "@woobe/validation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, Card, FormField, Label } from "@woobe/ui";
+import { Card, FormField, Label } from "@woobe/ui";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -13,6 +13,7 @@ import { ApiError } from "@/lib/api-client";
 import { applyBackendFieldErrors } from "@/lib/apply-backend-field-errors";
 import * as staffApi from "../api/admin-staff.client";
 import { STAFF_ROLE_LABELS } from "../lib/staff-labels";
+import { FormActions } from "@/features/shell/components/FormActions";
 
 export function NewStaffForm() {
   const router = useRouter();
@@ -56,7 +57,7 @@ export function NewStaffForm() {
           <Label htmlFor="role">Role</Label>
           <select
             id="role"
-            className="rounded-md border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary"
+            className="h-11 rounded-control border border-border bg-surface px-4 font-body text-base text-text-primary"
             defaultValue=""
             {...register("role")}
           >
@@ -83,9 +84,7 @@ export function NewStaffForm() {
             {formError}
           </p>
         ) : null}
-        <Button type="submit" isLoading={isSubmitting}>
-          Create staff
-        </Button>
+        <FormActions isSubmitting={isSubmitting} submitLabel="Create staff" cancelHref="/staff" />
       </form>
     </Card>
   );

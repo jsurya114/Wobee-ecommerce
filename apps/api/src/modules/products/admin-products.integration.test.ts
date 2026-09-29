@@ -475,3 +475,55 @@ describe("admin products: pricing mode", () => {
     expect(zeroed.body.error.fieldErrors?.weightGrams).toBeTruthy();
   });
 });
+
+describe("admin products: key highlights (2026-09-29)", () => {
+  it("saves curated highlights, serves them on the public product page, rejects bad input, and clears with []", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const suffix = randomUUID().slice(0, 8);
+    const highlights = [
+      { label: "Work", value: "Sequin" },
+      { label: "Blouse attached", value: "Yes" },
+    ];
+
+    const created = await request(app)
+      .post("/api/v1/admin/products")
+      .set(auth)
+      .send({ name: `${TEST_PREFIX} Saree ${suffix}`, slug: `${TEST_PREFIX}-saree-${suffix}`, categoryId, highlights });
+    expect(created.status).toBe(201);
+    createdProductIds.push(created.body.product.id);
+    expect(created.body.product.highlights).toEqual(highlights);
+
+    const variant = await request(app)
+      .post(`/api/v1/admin/products/${created.body.product.id}/variants`)
+      .set(auth)
+      .send({ color: "Red", size: "Free Size", weightGrams: 700 });
+    expect(variant.status).toBe(201);
+
+    const pdp = await request(app).get(`/api/v1/products/${created.body.product.slug}`);
+    expect(pdp.status).toBe(200);
+    expect(pdp.body.product.highlights).toEqual(highlights);
+
+    const duplicate = await request(app)
+      .patch(`/api/v1/admin/products/${created.body.product.id}`)
+      .set(auth)
+      .send({ highlights: [{ label: "Work", value: "A" }, { label: "work", value: "B" }] });
+    expect(duplicate.status).toBe(400);
+
+    // Editing something else leaves highlights untouched.
+    const renamed = await request(app).patch(`/api/v1/admin/products/${created.body.product.id}`).set(auth).send({ name: `${TEST_PREFIX} Saree renamed ${suffix}` });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.product.highlights).toEqual(highlights);
+
+    const cleared = await request(app).patch(`/api/v1/admin/products/${created.body.product.id}`).set(auth).send({ highlights: [] });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.product.highlights).toEqual([]);
+  });
+
+  it("existing products default to no highlights", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const product = await createTestProduct({ Authorization: `Bearer ${token}` });
+    const detail = await request(app).get(`/api/v1/admin/products/${product.id}`).set({ Authorization: `Bearer ${token}` });
+    expect(detail.body.product.highlights).toEqual([]);
+  });
+});

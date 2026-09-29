@@ -131,10 +131,15 @@ export function authenticateWithGoogle(
   });
 }
 
-/** Relies on the httpOnly refresh cookie (sent via credentials:'include') — no token passed explicitly. */
+/**
+ * Relies on the httpOnly refresh cookie (sent via credentials:'include') — no token passed explicitly.
+ * `keepalive` (2026-09-29): the token rotates on every call; a keepalive request
+ * outlives a tab closing/reloading mid-refresh, so the rotated cookie is still stored.
+ */
 export function refresh(): Promise<{ accessToken: string }> {
   return apiFetch<{ accessToken: string }>("/api/v1/auth/refresh", {
     method: "POST",
+    keepalive: true,
   });
 }
 
