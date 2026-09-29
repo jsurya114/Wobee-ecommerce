@@ -4716,3 +4716,57 @@ The frontend single-flight fix (`8ec6582`) was necessary but **not sufficient**.
 ### Still open
 - **Production:** confirm after deploy by leaving the admin idle for more than 15 minutes, then using the dashboard. Keeping two tabs or two devices open is also worth checking.
 - **Product highlights:** saree/jewellery-specific fields still need a structured attributes model (see the entry above).
+
+---
+
+## 2026-09-29 (final) — Refresh-token rules finalised; admin-curated product highlights
+
+**Branch/commit:** `feat/admin-ux-session-pdp-highlights`: `1267cc8` (auth), `f0755fa` (highlights), plus this entry. Merged to `main` via a PR (see below).
+
+### Auth: revoke-all only on proof of theft
+- **What was still wrong:** after `c29a01d`, an idle session could still be revoked everywhere. A frame was removed mid-refresh, so the response was lost; the session then sat unused for 23 minutes (outside the 30s window); the next refresh with the old cookie ran revoke-all. Confirmed from the token chain: the sent token was rotated at 10:49:03, its replacement was never used, and it was presented at 11:12:39. The real-world equivalent is a tab closed mid-refresh and reopened later.
+- **Browser fix:** `keepalive: true` on the refresh request in both apps, so a request cut off by the page leaving still completes and the rotated cookie is stored. **Verified:** on Slow 3G, fired a refresh, left the page after 300ms, waited 40s (beyond the window), came back → signed in. The chain shows the rotation at 11:17:26 and the new token used at 11:18:21.
+- **Server rules (`RefreshTokenUseCase.handleRevokedToken`):**
+
+| Revoked token presented | Result |
+|---|---|
+| Revoked without rotation (logout, revoke-all, password reset; or rotated before this column existed) | 401, other sessions untouched |
+| Rotated, replacement **never used**, inside the window | Recovered (fresh pair) |
+| Rotated, replacement **never used**, after the window | That session ends (401); other devices untouched |
+| Rotated, and its replacement was **itself rotated** (the chain continued) | Theft → revoke every session |
+
+- **Theft detection kept:** a grace-retired replacement now also points at its successor. If an attacker replays inside the window and keeps using the session, the legitimate token's return still triggers revoke-all (unit test "still catches theft…").
+- **Tests:** auth suites 111 ✅. The grace-0 unit test and the "after the window" integration test now assert the new rule, and they also check that another device survives.
+
+### Admin-curated Key Highlights (closes the earlier "not stored anywhere yet" gap)
+- **Data:** `Product.highlights`, JSONB `NOT NULL DEFAULT '[]'`. Migration `20260929010000_product_highlights` is additive; existing products get `[]`.
+- **Validation (`productHighlightsSchema`):**
+  - at most 8 rows; label ≤ 30 and value ≤ 60 characters, trimmed;
+  - labels unique, ignoring case;
+  - on update, leaving the field out keeps it unchanged, and `[]` clears it.
+  - 4 unit tests.
+- **API:** create, update, admin detail and the public product page carry `highlights`. The JSON is read defensively (`parseProductHighlights` drops malformed rows).
+- **Tests:** integration covers create → public product page, rejecting duplicates, "edit other fields keeps highlights", "clear with `[]`", and "existing products default to `[]`".
+- **Admin:** a "Product highlights" section in the product form (add/remove rows, 0/8 counter). Half-filled rows and duplicate labels are caught before submit; fully empty rows are ignored.
+- **Storefront:** admin-curated highlights take priority over derived ones on the second-image overlay. One curated row is enough to show the overlay; derived rows still need 2+.
+- **Verified end to end in the browser:**
+  - Admin: a half-filled row was rejected and kept the admin on the page; the valid save showed "Saved successfully".
+  - Storefront at 390px: the overlay showed "Print: Hand block-printed" and "Length: Knee length".
+  - Test data was restored (highlights `[]`, the extra image removed).
+
+### Checks
+- typecheck 8/8 ✅; lint ✅; `boundaries:check` ✅ (0 violations).
+- Tests: utils 33, validation 21, API **1,174/1,174** ✅.
+- `pnpm run build`: api, web, admin ✅.
+
+### Environment note (my mistake, fixed)
+- **What happened:** I deleted `apps/admin/.next` and `apps/web/.next` (to clear iCloud `… 2.ts` duplicates that broke `tsc`) while the developer's own `pnpm dev` was serving them, and both returned 500.
+- **Fix:** I restarted them on 3000/3001, then stopped them for the production build. They need a fresh `pnpm dev` (or `pnpm --filter ./apps/web dev` / `./apps/admin dev`). The developer's API process on :4000 was left running.
+
+### Database changes and production
+- **Migrations on this branch:**
+  - `20260929000000_refresh_token_replaced_by`
+  - `20260929010000_product_highlights`
+
+  Both are additive, applied locally to `woobe_dev` and `woobe_test`, and pass the destructive-migration guard.
+- **Production:** RDS gets them through the normal deploy (`deploy.yml` with `run_migrations=true` runs `prisma migrate deploy` before the new containers start). The RDS password was **not** touched.
