@@ -165,7 +165,12 @@ export const createVariantSchema = z.object({
   // resolveUniqueSku), stable, and immutable. The admin never types one.
   color: z.string().trim().min(1, "Colour is required").max(60),
   size: z.string().trim().min(1, "Size is required").max(30),
-  weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams"),
+  // Optional since 2026-09-29: a FIXED product's variant may leave weight
+  // blank (stored as 0 = "not tracked" — the column stays NOT NULL, no
+  // migration). Required-and-positive for a WEIGHT_BASED product is enforced
+  // by the use-case, which knows the product's pricingMode (same split as
+  // fixedPricePaise below) — weight is that product's price input.
+  weightGrams: z.coerce.number().int().min(0, "Weight can't be negative").optional(),
   // No `ratePerKgOverridePaise` field (deprecated) — pricing for a
   // WEIGHT_BASED product is always weight × the single global rate managed
   // in admin Settings (PricingSetting). The legacy per-variant override
@@ -187,7 +192,8 @@ export const updateVariantSchema = z.object({
   // thereafter (see createVariantSchema's own comment).
   color: z.string().trim().min(1, "Colour is required").max(60).optional(),
   size: z.string().trim().min(1, "Size is required").max(30).optional(),
-  weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams").optional(),
+  /** 0 = weight not tracked — only allowed for a FIXED product (enforced by the use-case, see createVariantSchema). */
+  weightGrams: z.coerce.number().int().min(0, "Weight can't be negative").optional(),
   // No `ratePerKgOverridePaise` field — see createVariantSchema's own comment.
   /** Authoritative price for a FIXED product (2026-08-31; pricingMode moved to Product 2026-09-14) — ignored for WEIGHT_BASED. */
   fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),

@@ -44,12 +44,21 @@ export class CreateProductVariantUseCase {
         fixedPricePaise: ["Required for a fixed-price product"],
       });
     }
+    // Weight is optional for a FIXED product (2026-09-29) — blank is stored
+    // as 0, "not tracked". A WEIGHT_BASED variant's weight IS its price
+    // input, so 0 there would list it at ₹0.
+    const weightGrams = input.weightGrams ?? 0;
+    if (pricingMode === "WEIGHT_BASED" && weightGrams <= 0) {
+      throw new ValidationError("This product is priced by weight — enter the variant's weight", {
+        weightGrams: ["Required for a weight-priced product"],
+      });
+    }
 
     const [price, sku] = await Promise.all([
       this.pricingReader.calculateMany([
         {
           pricingMode,
-          weightGrams: input.weightGrams,
+          weightGrams,
           // ratePerKgOverridePaise is deprecated and no longer settable by
           // the admin (see createVariantSchema's own comment) — always null
           // for a new variant, and ignored by resolveEffectiveRatePerKgPaise
@@ -66,7 +75,7 @@ export class CreateProductVariantUseCase {
       sku,
       color: input.color,
       size: input.size,
-      weightGrams: input.weightGrams,
+      weightGrams,
       // No ratePerKgOverridePaise — the column is left null (its DB default)
       // for every newly created variant; see createVariantSchema's comment.
       fixedPricePaise: input.fixedPricePaise,

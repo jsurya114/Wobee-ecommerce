@@ -60,7 +60,7 @@ export function VariantsList({
                 {variant.sku} — {variant.color} / {variant.size}
               </p>
               <p className="font-body text-xs text-text-secondary">
-                {variant.weightGrams}g · {formatPaiseAsInr(variant.effectivePricePaiseCache)}
+                {variant.weightGrams > 0 ? `${variant.weightGrams}g` : "No weight"} · {formatPaiseAsInr(variant.effectivePricePaiseCache)}
                 {variant.fabric ? ` · ${variant.fabric}` : ""}
               </p>
             </div>
