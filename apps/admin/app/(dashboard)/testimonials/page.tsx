@@ -7,6 +7,7 @@ import { TestimonialsFilters } from "@/features/testimonials/components/Testimon
 import { TestimonialsList } from "@/features/testimonials/components/TestimonialsList";
 import { useAdminTestimonials } from "@/features/testimonials/hooks/useAdminTestimonials";
 import type { TestimonialStatus } from "@/features/testimonials/api/admin-testimonials.client";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 const PAGE_SIZE = 50;
 
@@ -22,7 +23,7 @@ export default function TestimonialsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">Testimonials</h1>
+      <PageHeader title="Testimonials" description="Approve customer reviews before they appear on the storefront." />
       <TestimonialsFilters status={status} onStatusChange={setStatus} />
       {loading ? (
         <LoadingState />

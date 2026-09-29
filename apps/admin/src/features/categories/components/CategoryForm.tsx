@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api-client";
 import { resolveImageUrl } from "@/lib/resolve-image-url";
 import { useFormError } from "@/lib/use-form-error";
 import type { CategoryPayload } from "../api/admin-categories.client";
+import { FormActions } from "@/features/shell/components/FormActions";
 
 export interface CategoryFormValues {
   name: string;
@@ -145,9 +146,7 @@ export function CategoryForm({
         </p>
       ) : null}
 
-      <Button type="submit" isLoading={isSubmitting} className="self-start">
-        {isSubmitting ? "Saving…" : submitLabel}
-      </Button>
+      <FormActions isSubmitting={isSubmitting} submitLabel={submitLabel} cancelHref="/categories" />
     </form>
   );
 }

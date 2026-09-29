@@ -29,135 +29,144 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   }
 
   return (
-    <div className="grid gap-6 md:grid-cols-[2fr_1fr]">
-      <div className="flex flex-col gap-6">
-        <PageHeader
-          back={{ href: "/orders", label: "Orders" }}
-          title={order.orderNumber}
-          meta={
-            <>
-              <Badge variant="neutral">{order.status.replace(/_/g, " ").toLowerCase()}</Badge>
-              {order.hasActiveReturn ? (
-                <Link href={`/returns?orderId=${order.id}`}>
-                  <Badge variant="neutral">return requested</Badge>
-                </Link>
-              ) : null}
-            </>
-          }
-        />
+    // Layout (2026-09-29 admin UX pass): the status actions — the thing an admin
+    // does most here — sit at the top of the side column (first on mobile) instead
+    // of below every card, next to the timeline they advance.
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        back={{ href: "/orders", label: "Orders" }}
+        title={order.orderNumber}
+        meta={
+          <>
+            <Badge variant="neutral">{order.status.replace(/_/g, " ").toLowerCase()}</Badge>
+            {order.hasActiveReturn ? (
+              <Link href={`/returns?orderId=${order.id}`}>
+                <Badge variant="neutral">return requested</Badge>
+              </Link>
+            ) : null}
+          </>
+        }
+      />
+      <div className="grid gap-6 md:grid-cols-[2fr_1fr]">
+        <div className="flex min-w-0 flex-col gap-6">
 
-        <Card className="p-4">
-          <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Items</h2>
-          <ul className="flex flex-col gap-3">
-            {order.items.map((item) => (
-              <li key={item.id} className="flex items-center gap-3">
-                {item.imageUrl ? (
-                  // Plain <img>, not next/image — same reasoning as every other admin thumbnail (CategoriesTable, BannersTable).
-                  <img src={resolveImageUrl(item.imageUrl)!} alt="" className="h-14 w-14 shrink-0 rounded-control border border-border object-cover" />
-                ) : (
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-control border border-border bg-surface-2 font-body text-sm text-text-secondary">
-                    {item.productNameSnapshot.slice(0, 1).toUpperCase()}
-                  </span>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-body text-sm font-medium text-text-primary">{item.productNameSnapshot}</p>
-                  <p className="truncate font-body text-xs text-text-secondary">
-                    {item.color} · {item.size}
-                    {/* Null unitRatePerKgPaise (2026-08-31) = a FIXED-category line — weight didn't determine this price. */}
-                    {item.unitRatePerKgPaise !== null
-                      ? ` · ${formatGrams(item.weightGrams)} · ${formatPaiseAsInrCompact(item.unitRatePerKgPaise)}/kg`
-                      : ""}
-                    {` · ×${item.quantity}`}
-                  </p>
-                </div>
-                <span className="shrink-0 font-body text-sm font-semibold text-text-primary">{formatPaiseAsInr(item.lineTotalPaise)}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 flex flex-col gap-1.5 border-t border-border pt-3 font-body text-sm">
-            <div className="flex justify-between text-text-secondary">
-              <span>Subtotal</span>
-              <span className="text-text-primary">{formatPaiseAsInr(order.subtotalPaise)}</span>
-            </div>
-            {order.discountPaise > 0 ? (
+          <Card className="p-4">
+            <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Items</h2>
+            <ul className="flex flex-col gap-3">
+              {order.items.map((item) => (
+                <li key={item.id} className="flex items-center gap-3">
+                  {item.imageUrl ? (
+                    // Plain <img>, not next/image — same reasoning as every other admin thumbnail (CategoriesTable, BannersTable).
+                    <img src={resolveImageUrl(item.imageUrl)!} alt="" className="h-14 w-14 shrink-0 rounded-control border border-border object-cover" />
+                  ) : (
+                    <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-control border border-border bg-surface-2 font-body text-sm text-text-secondary">
+                      {item.productNameSnapshot.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-body text-sm font-medium text-text-primary">{item.productNameSnapshot}</p>
+                    <p className="truncate font-body text-xs text-text-secondary">
+                      {item.color} · {item.size}
+                      {/* Null unitRatePerKgPaise (2026-08-31) = a FIXED-category line — weight didn't determine this price. */}
+                      {item.unitRatePerKgPaise !== null
+                        ? ` · ${formatGrams(item.weightGrams)} · ${formatPaiseAsInrCompact(item.unitRatePerKgPaise)}/kg`
+                        : ""}
+                      {` · ×${item.quantity}`}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-body text-sm font-semibold text-text-primary">{formatPaiseAsInr(item.lineTotalPaise)}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex flex-col gap-1.5 border-t border-border pt-3 font-body text-sm">
               <div className="flex justify-between text-text-secondary">
-                <span>Coupon discount</span>
-                <span className="text-success">-{formatPaiseAsInr(order.discountPaise)}</span>
+                <span>Subtotal</span>
+                <span className="text-text-primary">{formatPaiseAsInr(order.subtotalPaise)}</span>
+              </div>
+              {order.discountPaise > 0 ? (
+                <div className="flex justify-between text-text-secondary">
+                  <span>Coupon discount</span>
+                  <span className="text-success">-{formatPaiseAsInr(order.discountPaise)}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between text-text-secondary">
+                <span>Shipping</span>
+                <span className="text-text-primary">
+                  {order.shippingFeePaise === 0 ? "Free" : formatPaiseAsInr(order.shippingFeePaise)}
+                  {order.payableOnDeliveryPaise !== null && order.shippingFeePaise > 0
+                    ? order.shippingPaidUpfront
+                      ? " · Paid online"
+                      : " · Awaiting online payment"
+                    : null}
+                </span>
+              </div>
+              <div className="flex justify-between text-text-secondary">
+                <span>Tax</span>
+                <span className="text-text-primary">{formatPaiseAsInr(order.taxPaise)}</span>
+              </div>
+              {/* Weight-based items only (ADR-021) — a FIXED-priced accessory's weight never moves this figure, client-review fix 2026-09-04. */}
+              {sumWeightBasedGrams(order.items) > 0 ? (
+                <div className="flex justify-between text-text-secondary">
+                  <span>Total weight</span>
+                  <span className="text-text-primary">{formatGrams(sumWeightBasedGrams(order.items))}</span>
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 flex items-baseline justify-between border-t border-border pt-3">
+              <span className="font-body text-sm font-medium text-text-primary">Total</span>
+              <span className="font-display text-xl font-semibold text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
+            </div>
+            {/* COD shipping upfront (2026-09-28) — what the courier must collect at the door. */}
+            {order.payableOnDeliveryPaise !== null ? (
+              <div className="mt-2 flex items-baseline justify-between rounded-control bg-primary-tint px-3 py-2">
+                <span className="font-body text-sm font-medium text-text-primary">COD amount (collect at delivery)</span>
+                <span className="font-body text-base font-semibold text-text-primary">{formatPaiseAsInr(order.payableOnDeliveryPaise)}</span>
               </div>
             ) : null}
-            <div className="flex justify-between text-text-secondary">
-              <span>Shipping</span>
-              <span className="text-text-primary">
-                {order.shippingFeePaise === 0 ? "Free" : formatPaiseAsInr(order.shippingFeePaise)}
-                {order.payableOnDeliveryPaise !== null && order.shippingFeePaise > 0
-                  ? order.shippingPaidUpfront
-                    ? " · Paid online"
-                    : " · Awaiting online payment"
-                  : null}
-              </span>
-            </div>
-            <div className="flex justify-between text-text-secondary">
-              <span>Tax</span>
-              <span className="text-text-primary">{formatPaiseAsInr(order.taxPaise)}</span>
-            </div>
-            {/* Weight-based items only (ADR-021) — a FIXED-priced accessory's weight never moves this figure, client-review fix 2026-09-04. */}
-            <div className="flex justify-between text-text-secondary">
-              <span>Total weight</span>
-              <span className="text-text-primary">{formatGrams(sumWeightBasedGrams(order.items))}</span>
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline justify-between border-t border-border pt-3">
-            <span className="font-body text-sm font-medium text-text-primary">Total</span>
-            <span className="font-display text-xl font-semibold text-text-primary">{formatPaiseAsInr(order.totalPaise)}</span>
-          </div>
-          {/* COD shipping upfront (2026-09-28) — what the courier must collect at the door. */}
-          {order.payableOnDeliveryPaise !== null ? (
-            <div className="mt-2 flex items-baseline justify-between rounded-control bg-primary-tint px-3 py-2">
-              <span className="font-body text-sm font-medium text-text-primary">COD amount (collect at delivery)</span>
-              <span className="font-body text-base font-semibold text-text-primary">{formatPaiseAsInr(order.payableOnDeliveryPaise)}</span>
-            </div>
-          ) : null}
-        </Card>
+          </Card>
 
-        <Card className="p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-body text-sm font-medium text-text-primary">Contact & shipping</h2>
-            {/* Week 3 Day 6 — "Customer relationship": null for a guest checkout (no account to link to); also hidden — same "defense in depth" reasoning as OrderStatusActions' own permission check above — for a staff role without MANAGE_CUSTOMERS, which the customer-detail route requires server-side. */}
-            {order.userId && canViewCustomer ? (
-              <Link href={`/customers/${order.userId}`} className="font-body text-xs text-primary hover:underline">
-                View customer
-              </Link>
-            ) : !order.userId ? (
-              <span className="font-body text-xs text-text-secondary">Guest checkout</span>
-            ) : null}
-          </div>
-          <dl className="flex flex-col gap-1 font-body text-sm">
-            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Name</dt><dd className="text-right text-text-primary">{order.contactName}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Phone</dt><dd className="text-right text-text-primary">{order.contactPhone}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Email</dt><dd className="break-all text-right text-text-primary">{order.contactEmail}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Address</dt><dd className="text-right text-text-primary">{order.shippingSnapshot.line1}, {order.shippingSnapshot.city}, {order.shippingSnapshot.state} {order.shippingSnapshot.pincode}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Payment method</dt><dd className="text-right text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd></div>
-            {/* Week 3 Day 6 — distinct from "Payment method" above: that says HOW, this says whether money has actually moved (a CONFIRMED COD order is often still PENDING here until delivery — see ConfirmCodOrderUseCase). */}
-            <div className="flex items-center justify-between gap-3"><dt className="shrink-0 text-text-secondary">Payment status</dt><dd className="text-right"><PaymentStatusBadge status={order.paymentStatus} /></dd></div>
-          </dl>
-        </Card>
+          <Card className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-body text-sm font-medium text-text-primary">Contact & shipping</h2>
+              {/* Week 3 Day 6 — "Customer relationship": null for a guest checkout (no account to link to); also hidden — same "defense in depth" reasoning as OrderStatusActions' own permission check above — for a staff role without MANAGE_CUSTOMERS, which the customer-detail route requires server-side. */}
+              {order.userId && canViewCustomer ? (
+                <Link href={`/customers/${order.userId}`} className="font-body text-xs text-primary hover:underline">
+                  View customer
+                </Link>
+              ) : !order.userId ? (
+                <span className="font-body text-xs text-text-secondary">Guest checkout</span>
+              ) : null}
+            </div>
+            <dl className="flex flex-col gap-1 font-body text-sm">
+              <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Name</dt><dd className="text-right text-text-primary">{order.contactName}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Phone</dt><dd className="text-right text-text-primary">{order.contactPhone}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Email</dt><dd className="break-all text-right text-text-primary">{order.contactEmail}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Address</dt><dd className="text-right text-text-primary">{order.shippingSnapshot.line1}, {order.shippingSnapshot.city}, {order.shippingSnapshot.state} {order.shippingSnapshot.pincode}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="shrink-0 text-text-secondary">Payment method</dt><dd className="text-right text-text-primary">{order.paymentMethod === "COD" ? "Cash on delivery" : "Razorpay"}</dd></div>
+              {/* Week 3 Day 6 — distinct from "Payment method" above: that says HOW, this says whether money has actually moved (a CONFIRMED COD order is often still PENDING here until delivery — see ConfirmCodOrderUseCase). */}
+              <div className="flex items-center justify-between gap-3"><dt className="shrink-0 text-text-secondary">Payment status</dt><dd className="text-right"><PaymentStatusBadge status={order.paymentStatus} /></dd></div>
+            </dl>
+          </Card>
 
-        <OrderStatusActions
-          order={order}
-          onStartProcessing={startProcessing}
-          onMarkPacked={markPacked}
-          onShip={ship}
-          onDeliver={deliver}
-          onCancel={cancel}
-          onReturnToOrigin={returnToOrigin}
-          lastRefundOutcome={lastRefundOutcome}
-        />
+        </div>
+
+        <div className="order-first flex min-w-0 flex-col gap-6 md:sticky md:top-4 md:order-none md:h-fit">
+          <OrderStatusActions
+            order={order}
+            onStartProcessing={startProcessing}
+            onMarkPacked={markPacked}
+            onShip={ship}
+            onDeliver={deliver}
+            onCancel={cancel}
+            onReturnToOrigin={returnToOrigin}
+            lastRefundOutcome={lastRefundOutcome}
+          />
+          <Card className="p-4">
+            <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Timeline</h2>
+            <OrderTimeline order={order} />
+          </Card>
+        </div>
       </div>
-
-      <Card className="h-fit p-4">
-        <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Timeline</h2>
-        <OrderTimeline order={order} />
-      </Card>
     </div>
   );
 }

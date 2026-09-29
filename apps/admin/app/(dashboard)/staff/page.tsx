@@ -9,6 +9,7 @@ import type { StaffStatus } from "@/features/staff/api/admin-staff.client";
 import { StaffFilters } from "@/features/staff/components/StaffFilters";
 import { StaffTable } from "@/features/staff/components/StaffTable";
 import { useAdminStaffList } from "@/features/staff/hooks/useAdminStaffList";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export default function StaffPage() {
   const [search, setSearch] = useState("");
@@ -19,15 +20,15 @@ export default function StaffPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-xl text-text-primary">Staff</h1>
-          <p className="font-body text-sm text-text-secondary">Manage admin team members and their access.</p>
-        </div>
-        <Link href="/staff/new" className="rounded-control bg-primary px-4 py-2 font-body text-sm font-medium text-white hover:bg-primary-hover">
-          Add staff
-        </Link>
-      </div>
+      <PageHeader
+        title="Staff"
+        description="Manage admin team members and their access."
+        actions={
+          <Link href="/staff/new" className="rounded-control bg-primary px-4 py-2 font-body text-sm font-medium text-white hover:bg-primary-hover">
+            Add staff
+          </Link>
+        }
+      />
       <StaffFilters search={search} role={role} status={status} onSearchChange={setSearch} onRoleChange={setRole} onStatusChange={setStatus} />
       {loading ? (
         <LoadingState />

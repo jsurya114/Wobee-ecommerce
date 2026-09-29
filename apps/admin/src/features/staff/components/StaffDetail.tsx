@@ -122,7 +122,7 @@ export function StaffDetail({ staffId }: { staffId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <select
               aria-label="New role"
-              className="rounded-md border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary"
+              className="h-11 rounded-control border border-border bg-surface px-4 font-body text-base text-text-primary"
               value={roleToApply}
               onChange={(e) => setSelectedRole(e.target.value as StaffRole)}
             >

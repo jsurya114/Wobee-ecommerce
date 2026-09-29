@@ -1,9 +1,10 @@
 "use client";
 
-import { Button, FormField, Textarea } from "@woobe/ui";
+import { FormField, Textarea } from "@woobe/ui";
 import { useState } from "react";
 import { useFormError } from "@/lib/use-form-error";
 import type { CollectionPayload } from "../api/admin-collections.client";
+import { FormActions } from "@/features/shell/components/FormActions";
 
 export function CollectionForm({
   initialValues,
@@ -58,9 +59,7 @@ export function CollectionForm({
           {formError}
         </p>
       ) : null}
-      <Button type="submit" isLoading={isSubmitting} className="self-start">
-        {isSubmitting ? "Saving…" : submitLabel}
-      </Button>
+      <FormActions isSubmitting={isSubmitting} submitLabel={submitLabel} cancelHref="/collections" />
     </form>
   );
 }

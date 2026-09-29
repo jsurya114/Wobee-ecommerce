@@ -1,13 +1,14 @@
 "use client";
 
-import { Button, FormField, Textarea } from "@woobe/ui";
+import { FormField, Textarea } from "@woobe/ui";
 import { slugify } from "@woobe/utils";
 import { ChevronDown } from "lucide-react";
-import Link from "next/link";
 import { useState } from "react";
 import { useFormError } from "@/lib/use-form-error";
 import type { CategoryOption } from "../api/admin-categories.client";
 import type { CreateProductPayload } from "../api/admin-products.client";
+import { FormActions } from "@/features/shell/components/FormActions";
+import { FormSection } from "@/features/shell/components/FormSection";
 
 export interface ProductFormValues {
   name: string;
@@ -225,27 +226,8 @@ export function ProductForm({
           {formError}
         </p>
       ) : null}
-
-      <div className="sticky bottom-0 z-10 -mx-4 -mb-4 flex flex-wrap items-center gap-3 rounded-b-card border-t border-border bg-surface/95 px-4 py-3 backdrop-blur">
-        <Button type="submit" isLoading={isSubmitting}>
-          {isSubmitting ? "Saving…" : submitLabel}
-        </Button>
-        {cancelHref ? (
-          <Link href={cancelHref} className="font-body text-sm text-text-secondary hover:text-primary">
-            Cancel
-          </Link>
-        ) : null}
-      </div>
+      <FormActions isSubmitting={isSubmitting} submitLabel={submitLabel} cancelHref={cancelHref} />
     </form>
-  );
-}
-
-function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-4">
-      <h3 className="font-body text-xs font-semibold uppercase tracking-[0.08em] text-text-secondary">{title}</h3>
-      {children}
-    </section>
   );
 }
 
