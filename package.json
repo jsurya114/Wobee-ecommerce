@@ -21,6 +21,8 @@
     "db:migrate:deploy": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run migrate:deploy",
     "db:seed": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run seed",
     "db:studio": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run studio",
+    "demo:seed": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run demo:seed",
+    "demo:reset": "node scripts/with-root-env.mjs pnpm --filter @woobe/database run demo:reset",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
   },
