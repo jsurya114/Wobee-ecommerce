@@ -44,6 +44,7 @@ function buildListKey(filter: ListProductsFilter): string {
     filter.maxPricePaise ?? "_",
     filter.onOffer ? "onOffer" : "_",
     filter.offerId ?? "_",
+    filter.pricingMode ?? "_",
     filter.sort,
     filter.page,
     filter.limit,

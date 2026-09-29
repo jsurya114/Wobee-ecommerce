@@ -76,6 +76,7 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   countActiveProductsBySizeUseCase,
   groupProductsByOfferUseCase,
   budgetTilesReader,
+  listProductsUseCase,
 );
 
 const HOME_TTL_SECONDS = 60;
@@ -106,7 +107,7 @@ const HOME_TTL_SECONDS = 60;
  * `offerCampaigns` — a stale cache entry from the previous shape would
  * otherwise still validate as JSON and get served with neither field intact.
  */
-const HOME_PAGE_SCHEMA_VERSION = 6; // 6: banners carry resolvedCtaUrl (2026-09-28)
+const HOME_PAGE_SCHEMA_VERSION = 7; // 6: banners carry resolvedCtaUrl (2026-09-28); 7: fashionByWeight added (2026-09-29)
 
 /**
  * ADR-017 (Caching Strategy) — the whole aggregate cached as one unit,

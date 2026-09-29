@@ -11,6 +11,8 @@ import type { PublicTestimonialView } from "../../../testimonials/application/us
 
 const NEW_ARRIVALS_LIMIT = 8;
 const BEST_SELLERS_LIMIT = 8;
+/** "Fashion by Weight" rail (2026-09-29) — same size as every other product rail. */
+const FASHION_BY_WEIGHT_LIMIT = 8;
 /**
  * Per-campaign product cap (offer merchandising pass, 2026-09-15) — same
  * size as every other homepage rail (New Arrivals, Best Sellers), so a
@@ -65,6 +67,16 @@ const TESTIMONIALS_LIMIT = 6;
  */
 interface NewArrivalsLister {
   execute(input: { sort: "newest"; page: number; limit: number; inStockOnly?: boolean }): Promise<ListProductsResult>;
+}
+
+/**
+ * "Fashion by Weight" rail (2026-09-29) — matches `ListProductsUseCase`'s own
+ * `execute` signature; the rail always passes `pricingMode: "WEIGHT_BASED"`,
+ * `sort: "newest"` and `inStockOnly: true` (same "what can I buy now" rule
+ * as New Arrivals).
+ */
+interface WeightBasedProductsLister {
+  execute(input: { pricingMode: "WEIGHT_BASED"; sort: "newest"; page: number; limit: number; inStockOnly: boolean }): Promise<ListProductsResult>;
 }
 
 /**
@@ -230,6 +242,8 @@ export interface HomePageView {
   activeOffers: OfferStripEntity[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummaryEntity[];
+  /** "Fashion by Weight" (2026-09-29) — newest in-stock WEIGHT_BASED products, priced by weight. `[]` hides the section. */
+  fashionByWeight: ProductSummaryEntity[];
   /**
    * Dynamic per-Offer campaign sections (offer merchandising pass,
    * 2026-09-15) — replaces the earlier generic "Shop our offers" single
@@ -338,6 +352,7 @@ export class GetHomePageUseCase {
     private readonly sizeAvailabilityReader: SizeAvailabilityReader,
     private readonly productsByOfferGrouper: ProductsByOfferGrouper,
     private readonly budgetTilesReader: BudgetTilesReader,
+    private readonly weightBasedProductsLister: WeightBasedProductsLister,
   ) {}
 
   async execute(): Promise<HomePageView> {
@@ -353,6 +368,7 @@ export class GetHomePageUseCase {
       budgetTiles,
       sizeAvailability,
       groupedOfferProducts,
+      fashionByWeight,
     ] = await Promise.all([
       this.visibleBannersLister.execute(),
       this.activeOffersLister.execute(),
@@ -367,6 +383,9 @@ export class GetHomePageUseCase {
       this.resolveBudgetTiles(),
       this.resolveSizeAvailability(),
       this.productsByOfferGrouper.execute({ limitPerOffer: OFFER_CAMPAIGN_PRODUCTS_LIMIT, inStockOnly: true }),
+      this.weightBasedProductsLister
+        .execute({ pricingMode: "WEIGHT_BASED", sort: "newest", page: 1, limit: FASHION_BY_WEIGHT_LIMIT, inStockOnly: true })
+        .then((result) => result.products),
     ]);
 
     return {
@@ -374,6 +393,7 @@ export class GetHomePageUseCase {
       activeOffers,
       categoryTiles,
       newArrivals,
+      fashionByWeight,
       bestSellers,
       // Every active collection (2026-09-29) — the admin controls what shows via `isActive`.
       featuredCollections,

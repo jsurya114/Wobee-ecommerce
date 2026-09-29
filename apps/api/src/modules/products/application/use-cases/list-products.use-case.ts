@@ -21,6 +21,8 @@ export interface ListProductsInput {
   onOffer?: boolean;
   /** Offer merchandising pass (2026-09-15) — pins to one specific offer's winning products; see `ListProductsFilter.offerId`'s own doc comment. */
   offerId?: string;
+  /** "Fashion by Weight" (2026-09-29) — restrict to one pricing mode; absent = both. */
+  pricingMode?: "WEIGHT_BASED" | "FIXED";
   sort: ProductSort;
   page: number;
   limit: number;
@@ -101,6 +103,7 @@ export class ListProductsUseCase {
       maxPricePaise: input.maxPricePaise,
       onOffer: input.onOffer,
       offerId: input.offerId,
+      pricingMode: input.pricingMode,
       sort: input.sort,
       page: input.page,
       limit: input.limit,

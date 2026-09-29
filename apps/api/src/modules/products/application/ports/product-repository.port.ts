@@ -54,6 +54,8 @@ export interface ListProductsFilter {
    * that matches nothing — never a 404/error.
    */
   offerId?: string;
+  /** "Fashion by Weight" (2026-09-29) — Product.pricingMode equals this; absent = no restriction. */
+  pricingMode?: "WEIGHT_BASED" | "FIXED";
   sort: ProductSort;
   page: number;
   limit: number;

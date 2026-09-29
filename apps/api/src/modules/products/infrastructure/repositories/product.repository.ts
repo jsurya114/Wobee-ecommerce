@@ -872,6 +872,7 @@ function buildOfferAwareWhere(filter: ListProductsFilter): Prisma.Sql {
   const conditions: Prisma.Sql[] = [Prisma.sql`p."isActive" = true`];
 
   if (filter.categoryId) conditions.push(Prisma.sql`p."categoryId" = ${filter.categoryId}`);
+  if (filter.pricingMode) conditions.push(Prisma.sql`p."pricingMode" = ${filter.pricingMode}::"PricingMode"`);
   if (filter.collectionId) {
     conditions.push(
       Prisma.sql`EXISTS (SELECT 1 FROM "product_collections" pc WHERE pc."productId" = p."id" AND pc."collectionId" = ${filter.collectionId})`,

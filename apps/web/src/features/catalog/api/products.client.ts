@@ -63,6 +63,8 @@ export interface ProductListParams {
   onOffer?: boolean;
   /** Offer merchandising pass (2026-09-15) — pins the listing to one specific Offer's own winning products. */
   offerId?: string;
+  /** "Fashion by Weight" (2026-09-29) — `WEIGHT_BASED` limits the listing to weight-priced products. */
+  pricingMode?: "WEIGHT_BASED" | "FIXED";
   sort?: ProductSort;
   page?: number;
   limit?: number;
@@ -80,6 +82,7 @@ export function listProducts(params: ProductListParams = {}, options: { signal?:
   if (params.maxPrice !== undefined) query.set("maxPrice", String(params.maxPrice));
   if (params.onOffer !== undefined) query.set("onOffer", String(params.onOffer));
   if (params.offerId) query.set("offerId", params.offerId);
+  if (params.pricingMode) query.set("pricingMode", params.pricingMode);
   if (params.sort) query.set("sort", params.sort);
   if (params.page) query.set("page", String(params.page));
   if (params.limit) query.set("limit", String(params.limit));

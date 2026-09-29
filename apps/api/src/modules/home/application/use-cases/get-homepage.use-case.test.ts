@@ -34,6 +34,7 @@ function makeUseCase(overrides: {
   groupedOfferProducts?: Map<string, unknown[]>;
   /** Admin-configured Shop by Budget tiles; defaults to the three shipped defaults. */
   budgetTileDefs?: { label: string; maxPricePaise: number; coverImageUrl: string | null }[];
+  weightBasedProducts?: unknown[];
 }) {
   const newArrivalsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.newArrivals ?? [], page: 1, limit: 8, total: 0 }) };
   const bestSellingVariantsReader = { execute: vi.fn().mockResolvedValue(overrides.variantSales ?? []) };
@@ -54,6 +55,9 @@ function makeUseCase(overrides: {
   };
   const sizeAvailabilityReader = { execute: vi.fn().mockResolvedValue(overrides.sizeCounts ?? new Map()) };
   const productsByOfferGrouper = { execute: vi.fn().mockResolvedValue(overrides.groupedOfferProducts ?? new Map()) };
+  const weightBasedProductsLister = {
+    execute: vi.fn().mockResolvedValue({ products: overrides.weightBasedProducts ?? [], page: 1, limit: 8, total: 0 }),
+  };
   const budgetTilesReader = {
     execute: vi.fn().mockResolvedValue(
       overrides.budgetTileDefs ?? [
@@ -81,6 +85,7 @@ function makeUseCase(overrides: {
     sizeAvailabilityReader,
     productsByOfferGrouper,
     budgetTilesReader,
+    weightBasedProductsLister,
   );
 
   return {
@@ -101,6 +106,7 @@ function makeUseCase(overrides: {
     sizeAvailabilityReader,
     productsByOfferGrouper,
     budgetTilesReader,
+    weightBasedProductsLister,
   };
 }
 
@@ -279,6 +285,7 @@ describe("GetHomePageUseCase", () => {
       activeOffers: [],
       categoryTiles: [],
       newArrivals: arrivals,
+      fashionByWeight: [],
       bestSellers: [],
       featuredCollections: [],
       testimonials: [],
@@ -339,6 +346,16 @@ describe("GetHomePageUseCase", () => {
     expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 49_900, sort: "price_desc", page: 1, limit: 1 });
     expect(result.budgetTiles[0]).toEqual({ label: "Under ₹499", maxPricePaise: 49_900, imageUrl: "https://img/under-499.jpg" });
     expect(result.budgetTiles[1]?.imageUrl).toBeNull();
+  });
+
+  it("fills Fashion by Weight with the newest in-stock weight-based products", async () => {
+    const weighed = [{ id: "w1" }, { id: "w2" }];
+    const { useCase, weightBasedProductsLister } = makeUseCase({ weightBasedProducts: weighed });
+
+    const result = await useCase.execute();
+
+    expect(weightBasedProductsLister.execute).toHaveBeenCalledWith({ pricingMode: "WEIGHT_BASED", sort: "newest", page: 1, limit: 8, inStockOnly: true });
+    expect(result.fashionByWeight).toEqual(weighed);
   });
 
   it("uses the admin-configured budget tiles in order, and an admin cover skips the product lookup", async () => {

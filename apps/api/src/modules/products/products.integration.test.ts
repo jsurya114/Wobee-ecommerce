@@ -389,6 +389,28 @@ describe("GET /api/v1/products — filters", () => {
     expect(multi.body.total).toBe(3); // + aurora-coat (Blue)
   });
 
+  it("filters by pricing mode (Fashion by Weight), and 400s an unknown mode", async () => {
+    const scarfId = productIdBySlug[`plain-scarf-${SUFFIX}`]!;
+    await prisma.product.update({ where: { id: scarfId }, data: { pricingMode: "FIXED" } });
+    try {
+      const weighed = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, pricingMode: "WEIGHT_BASED" });
+      expect(weighed.status).toBe(200);
+      expect(weighed.body.total).toBe(4);
+      expect(namesOf(weighed.body)).not.toContain(`Plain Scarf ${SUFFIX}`);
+
+      const fixed = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, pricingMode: "FIXED" });
+      expect(fixed.body.total).toBe(1);
+
+      const both = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
+      expect(both.body.total).toBe(5);
+
+      const bad = await request(app).get("/api/v1/products").query({ pricingMode: "BY_VIBES" });
+      expect(bad.status).toBe(400);
+    } finally {
+      await prisma.product.update({ where: { id: scarfId }, data: { pricingMode: "WEIGHT_BASED" } });
+    }
+  });
+
   it("treats size and color as independent facets — matches across two different variants of the same product", async () => {
     // aurora-jacket's variants are Red+L and Black+M — NO single variant is
     // both Red and M. If the filter required one variant to match both
