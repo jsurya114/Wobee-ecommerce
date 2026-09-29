@@ -21,10 +21,10 @@ import { issueTokenPair, type TokenPair } from "./issue-token-pair";
  * while its replacement has never been used, is treated as that lost
  * response: the unused replacement is retired and a fresh pair issued. At
  * most one valid token per session exists at any time (the chain is never
- * forked), and a replay outside that narrow case — after the window, or
- * after the replacement was used — is still theft. A token that was revoked
- * WITHOUT rotation (logout / revoke-all) is rejected but does not trigger the
- * theft path. `reuseGraceSeconds = 0` disables only the grace window.
+ * forked). Every-session revocation is kept for real evidence of theft —
+ * an old token replayed after its replacement was used; see
+ * handleRevokedToken for the full rules. `reuseGraceSeconds = 0` disables
+ * only the recovery window.
  */
 export class RefreshTokenUseCase {
   constructor(
@@ -66,42 +66,61 @@ export class RefreshTokenUseCase {
     return pair;
   }
 
+  /**
+   * A revoked token was presented. Revoke EVERY session only on proof the
+   * session continued past it — its replacement was itself rotated (someone
+   * used it). Otherwise nobody has continued the chain, so this is a stale or
+   * lost-response cookie, not theft:
+   *  - revoked without rotation (logout / revoke-all / password reset) → 401;
+   *  - rotated, replacement never used, inside the grace window → recover
+   *    (the client never received the rotation response);
+   *  - rotated, replacement never used, after the window → end just this
+   *    session (retire the unused replacement) → 401. Nobody gains access and
+   *    the user's other devices are untouched. Found 2026-09-29: a tab closed
+   *    mid-refresh and reopened 23 minutes later revoked every session.
+   * Rows rotated before replacedByTokenId existed (NULL) count as unrotated.
+   */
   private async handleRevokedToken(record: RefreshTokenRecord): Promise<TokenPair> {
-    const withinGrace =
-      this.reuseGraceSeconds > 0 &&
-      record.replacedByTokenId !== null &&
-      record.revokedAt !== null &&
-      Date.now() - record.revokedAt.getTime() <= this.reuseGraceSeconds * 1000;
-
-    if (withinGrace) {
-      const replacement = await this.authRepository.findRefreshTokenById(record.replacedByTokenId!);
-      // Claim the unused replacement atomically — if it was already used (or
-      // claimed by a concurrent retry), this presentation is not a lost
-      // response and falls through to the theft path below.
-      if (replacement && !replacement.revokedAt && (await this.authRepository.revokeRefreshTokenIfActive(replacement.id))) {
-        const user = await this.loadActiveUser(record.userId);
-        const pair = await this.issue(user);
-        // Keep the original pointing at the newest replacement so a second
-        // lost response inside the same window is recovered the same way.
-        await this.authRepository.setRefreshTokenReplacement(record.id, pair.refreshTokenId);
-        return pair;
-      }
-    }
-
-    // A token that died WITHOUT being rotated (logout, a previous revoke-all,
-    // password reset, deactivation) is just a stale cookie — e.g. another
-    // device waking up after the user signed in again elsewhere. That is not
-    // evidence of theft, and revoking everything here would sign the user out
-    // of the session they just created (2026-09-29, reproduced in
-    // auth.integration.test.ts "stale, already-dead cookie"). Reject it only.
-    // Rows rotated before the replacedByTokenId column existed also land here.
     if (record.replacedByTokenId === null) {
       throw new UnauthorizedError("Refresh token revoked");
     }
 
-    // Reuse of an already-rotated-out token — the most likely explanation is
-    // theft (someone replayed an old cookie). Treat it as compromise: kill
-    // every session for this user, forcing a fresh login everywhere.
+    const replacement = await this.authRepository.findRefreshTokenById(record.replacedByTokenId);
+
+    if (replacement && !replacement.revokedAt) {
+      const withinGrace =
+        this.reuseGraceSeconds > 0 && record.revokedAt !== null && Date.now() - record.revokedAt.getTime() <= this.reuseGraceSeconds * 1000;
+      // Claim the unused replacement atomically: exactly one concurrent retry wins.
+      const claimed = await this.authRepository.revokeRefreshTokenIfActive(replacement.id);
+      if (claimed && withinGrace) {
+        const user = await this.loadActiveUser(record.userId);
+        const pair = await this.issue(user);
+        // The retired replacement and the original both point at the new token,
+        // so presenting either later follows the same rules (and a replay after
+        // the new token is used is caught as theft below).
+        await this.authRepository.setRefreshTokenReplacement(replacement.id, pair.refreshTokenId);
+        await this.authRepository.setRefreshTokenReplacement(record.id, pair.refreshTokenId);
+        return pair;
+      }
+      if (claimed) {
+        throw new UnauthorizedError("Session expired — please sign in again");
+      }
+      // Lost the claim to a concurrent request — re-read and decide again.
+      const fresh = await this.authRepository.findRefreshTokenById(record.id);
+      return fresh && fresh.replacedByTokenId !== record.replacedByTokenId
+        ? this.handleRevokedToken(fresh)
+        : Promise.reject(new UnauthorizedError("Refresh token revoked"));
+    }
+
+    if (!replacement || replacement.replacedByTokenId === null) {
+      // The replacement ended without being used (logout, revoke-all, retired
+      // after the grace window): stale, not theft.
+      throw new UnauthorizedError("Refresh token revoked");
+    }
+
+    // The session continued past this token (its replacement was rotated), yet
+    // this old token came back — the most likely explanation is theft. Treat it
+    // as compromise: kill every session for this user.
     await this.authRepository.revokeAllRefreshTokensForUser(record.userId);
     throw new UnauthorizedError("Refresh token reuse detected — all sessions revoked");
   }

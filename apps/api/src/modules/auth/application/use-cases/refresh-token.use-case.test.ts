@@ -63,11 +63,30 @@ async function setup(graceSeconds: number, u: UserEntity = user) {
 }
 
 describe("RefreshTokenUseCase — reuse grace window", () => {
-  it("grace 0 disables the window: replaying a rotated token revokes every session", async () => {
+  it("grace 0 disables recovery: a rotated token whose replacement was never used just ends that session", async () => {
     const { useCase, raw, activeCount } = await setup(0);
+    await useCase.execute(raw); // response "lost"
+    await expect(useCase.execute(raw)).rejects.toThrow("Session expired");
+    expect(activeCount()).toBe(0); // the unused replacement is retired — nobody holds a live token
+  });
+
+  it("after the window, a lost-response token ends only its own session — other devices survive", async () => {
+    const { useCase, raw, rows, activeCount } = await setup(30);
     await useCase.execute(raw);
-    await expect(useCase.execute(raw)).rejects.toThrow("reuse detected");
-    expect(activeCount()).toBe(0);
+    const original = [...rows.values()][0]!;
+    original.revokedAt = new Date(Date.now() - 60 * 60 * 1000); // tab reopened an hour later
+    rows.set("other-device", { ...original, id: "other-device", tokenHash: "other", revokedAt: null, replacedByTokenId: null });
+    await expect(useCase.execute(raw)).rejects.toThrow("Session expired");
+    expect(activeCount()).toBe(1);
+  });
+
+  it("still catches theft when an attacker replays inside the window and then uses the session", async () => {
+    const { useCase, raw, activeCount } = await setup(30);
+    const legit = await useCase.execute(raw); // legit client rotates T1 -> T2 (not yet used)
+    const attacker = await useCase.execute(raw); // attacker replays stolen T1 inside the window -> T3
+    await useCase.execute(attacker.refreshToken); // attacker keeps using the session -> T4
+    await expect(useCase.execute(legit.refreshToken)).rejects.toThrow("reuse detected"); // legit T2 comes back
+    expect(activeCount()).toBe(0); // everyone, attacker included, is signed out
   });
 
   it("recovers a lost response once the replacement is unused, leaving exactly one live token", async () => {

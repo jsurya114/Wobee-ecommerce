@@ -550,25 +550,34 @@ describe("auth: refresh + logout (full session lifecycle)", () => {
     expect(current.status).toBe(200);
   });
 
-  it("still treats a replay AFTER the grace window as theft", async () => {
-    const registerRes = await registerViaOtp({ name: "Late Replay", email: uniqueEmail(), password: "Passw0rd" });
+  it("after the grace window, a token whose replacement was never used ends only that session", async () => {
+    const email = uniqueEmail();
+    const registerRes = await registerViaOtp({ name: "Late Replay", email, password: "Passw0rd" });
     const userId = registerRes.body.user.id as string;
     const originalCookie = extractCookieHeader(registerRes.headers["set-cookie"]);
 
+    // A second device, signed in normally.
+    const otherDevice = await request(app).post("/api/v1/auth/login").send({ email, password: "Passw0rd" });
+    const otherDeviceCookie = extractCookieHeader(otherDevice.headers["set-cookie"]);
+
     const rotated = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
     expect(rotated.status).toBe(200);
-    const rotatedCookie = extractCookieHeader(rotated.headers["set-cookie"]);
+    const neverReceivedCookie = extractCookieHeader(rotated.headers["set-cookie"]);
 
-    // Age the rotation past any grace window.
+    // Age the rotation past any grace window (tab reopened much later).
     await prisma.refreshToken.updateMany({
       where: { userId, replacedByTokenId: { not: null } },
       data: { revokedAt: new Date(Date.now() - 10 * 60 * 1000) },
     });
 
-    const replay = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
-    expect(replay.status).toBe(401);
-    const afterTheft = await request(app).post("/api/v1/auth/refresh").set("Cookie", rotatedCookie).send();
-    expect(afterTheft.status).toBe(401);
+    const late = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
+    expect(late.status).toBe(401);
+    // That session is over (its unused replacement was retired)…
+    const retired = await request(app).post("/api/v1/auth/refresh").set("Cookie", neverReceivedCookie).send();
+    expect(retired.status).toBe(401);
+    // …but nothing proved theft, so the other device stays signed in.
+    const other = await request(app).post("/api/v1/auth/refresh").set("Cookie", otherDeviceCookie).send();
+    expect(other.status).toBe(200);
   });
 });
 
