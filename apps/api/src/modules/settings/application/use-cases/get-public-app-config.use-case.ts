@@ -1,4 +1,5 @@
 import type { AppConfigRepositoryPort } from "../ports/app-config-repository.port";
+import type { PricingRateReaderPort } from "../ports/pricing-rate-reader.port";
 import type { ShippingRuleReaderPort } from "../ports/shipping-rule-reader.port";
 
 /**
@@ -15,16 +16,23 @@ export interface PublicAppConfigView {
   presetSizes: string[];
   presetFabrics: string[];
   presetFits: string[];
+  /** Current global ₹/kg rate for WEIGHT_BASED products, integer paise (2026-09-29) — the same rate every product page already shows. */
+  ratePerKgPaise: number;
 }
 
 export class GetPublicAppConfigUseCase {
   constructor(
     private readonly repository: AppConfigRepositoryPort,
     private readonly shippingRuleReader: ShippingRuleReaderPort,
+    private readonly pricingRateReader: PricingRateReaderPort,
   ) {}
 
   async execute(): Promise<PublicAppConfigView> {
-    const [config, shippingRule] = await Promise.all([this.repository.get(), this.shippingRuleReader.getCurrent()]);
+    const [config, shippingRule, ratePerKgPaise] = await Promise.all([
+      this.repository.get(),
+      this.shippingRuleReader.getCurrent(),
+      this.pricingRateReader.getCurrentRatePerKgPaise(),
+    ]);
     return {
       minCartWeightGrams: shippingRule.minWeightGramsForCheckout,
       minCartQuantity: config.minCartQuantity,
@@ -34,6 +42,7 @@ export class GetPublicAppConfigUseCase {
       presetSizes: config.presetSizes,
       presetFabrics: config.presetFabrics,
       presetFits: config.presetFits,
+      ratePerKgPaise,
     };
   }
 }

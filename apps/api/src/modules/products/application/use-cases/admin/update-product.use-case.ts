@@ -92,6 +92,20 @@ export class UpdateProductUseCase {
       }
     }
 
+    if (newMode === "WEIGHT_BASED") {
+      // A FIXED product's variants may have no weight (0, 2026-09-29).
+      // Weight becomes the price input after this switch, so every variant —
+      // inactive too, since reactivating one would otherwise sell it at ₹0 —
+      // needs a real weight first.
+      const weightless = variants.filter((v) => v.weightGrams <= 0);
+      if (weightless.length > 0) {
+        throw new ValidationError(
+          "Every variant needs a weight before switching this product to weight-based pricing — set it on each variant first, then switch the mode.",
+          { pricingMode: ["One or more variants have no weight set"] },
+        );
+      }
+    }
+
     // Only variants whose new-mode price is actually computable — an
     // INACTIVE variant switching to FIXED with no fixedPricePaise (the
     // active-only check above lets that through) is left completely alone

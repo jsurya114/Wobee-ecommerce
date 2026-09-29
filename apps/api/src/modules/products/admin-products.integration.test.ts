@@ -424,4 +424,54 @@ describe("admin products: pricing mode", () => {
     expect(switchedVariant.fixedPricePaise).toBeNull();
     expect(switchedVariant.effectivePricePaiseCache).toBe(Math.round((800 * rate.defaultRatePerKgPaise) / 1000));
   });
+
+  it("weight is optional for a FIXED product's variant but still required for a WEIGHT_BASED one (2026-09-29)", async () => {
+    const token = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${token}` };
+    const suffix = randomUUID().slice(0, 8);
+
+    const fixed = await request(app)
+      .post("/api/v1/admin/products")
+      .set(auth)
+      .send({ name: `${TEST_PREFIX} NoWeight ${suffix}`, slug: `${TEST_PREFIX}-no-weight-${suffix}`, categoryId, pricingMode: "FIXED" });
+    createdProductIds.push(fixed.body.product.id);
+
+    // Weight omitted entirely — stored as 0 ("not tracked"), priced by fixedPricePaise only.
+    const noWeight = await request(app)
+      .post(`/api/v1/admin/products/${fixed.body.product.id}/variants`)
+      .set(auth)
+      .send({ color: "Gold", size: "One Size", fixedPricePaise: 120_00 });
+    expect(noWeight.status).toBe(201);
+    expect(noWeight.body.variant.weightGrams).toBe(0);
+    expect(noWeight.body.variant.effectivePricePaiseCache).toBe(120_00);
+
+    // Negative weight is still rejected by the schema.
+    const negative = await request(app)
+      .post(`/api/v1/admin/products/${fixed.body.product.id}/variants`)
+      .set(auth)
+      .send({ color: "Gold", size: "S", weightGrams: -5, fixedPricePaise: 120_00 });
+    expect(negative.status).toBe(400);
+
+    // A weightless FIXED product can't be switched to WEIGHT_BASED — it would price at ₹0.
+    const switched = await request(app).patch(`/api/v1/admin/products/${fixed.body.product.id}`).set(auth).send({ pricingMode: "WEIGHT_BASED" });
+    expect(switched.status).toBe(400);
+    expect(switched.body.error.fieldErrors?.pricingMode).toBeTruthy();
+
+    // WEIGHT_BASED: missing or zero weight is rejected on create and on edit.
+    const weighted = await createTestProduct(auth);
+    const missing = await request(app).post(`/api/v1/admin/products/${weighted.id}/variants`).set(auth).send({ color: "Black", size: "M" });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error.fieldErrors?.weightGrams).toBeTruthy();
+    const ok = await request(app)
+      .post(`/api/v1/admin/products/${weighted.id}/variants`)
+      .set(auth)
+      .send({ color: "Black", size: "M", weightGrams: 500 });
+    expect(ok.status).toBe(201);
+    const zeroed = await request(app)
+      .patch(`/api/v1/admin/products/${weighted.id}/variants/${ok.body.variant.id}`)
+      .set(auth)
+      .send({ weightGrams: 0 });
+    expect(zeroed.status).toBe(400);
+    expect(zeroed.body.error.fieldErrors?.weightGrams).toBeTruthy();
+  });
 });

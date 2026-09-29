@@ -173,9 +173,18 @@ describe("admin settings: store config", () => {
         "presetFabrics",
         "presetFits",
         "presetSizes",
+        "ratePerKgPaise",
         "returnsEnabled",
       ].sort(),
     );
+  });
+
+  it("echoes the current global ₹/kg rate so the admin variant form can preview weight-based prices", async () => {
+    const rate = await prisma.pricingSetting.findFirstOrThrow({ orderBy: { effectiveFrom: "desc" } });
+    const pub = await request(app).get("/api/v1/settings/config/public");
+    expect(pub.status).toBe(200);
+    expect(pub.body.config.ratePerKgPaise).toBe(rate.defaultRatePerKgPaise);
+    expect(Number.isInteger(pub.body.config.ratePerKgPaise)).toBe(true);
   });
 });
 

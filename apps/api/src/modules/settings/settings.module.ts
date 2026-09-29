@@ -3,8 +3,10 @@
 // pricing (PricingSetting, `pricing`) nor shipping (ShippingRule, `shipping`)
 // rules. Public GET /settings/config/public here; the admin read/write is
 // exported for the `admin` module's thin HTTP gateway (ADR-025). Depends only
-// on `shipping` (read-only), and nothing it imports depends back on it.
+// on `shipping` and `pricing` (read-only), and nothing it imports depends back on it.
+import { getPricingSettingUseCase } from "../pricing/pricing.module";
 import { getShippingRuleUseCase } from "../shipping/shipping.module";
+import type { PricingRateReaderPort } from "./application/ports/pricing-rate-reader.port";
 import type { ShippingRuleReaderPort } from "./application/ports/shipping-rule-reader.port";
 import { GetAppConfigUseCase } from "./application/use-cases/get-app-config.use-case";
 import { GetPublicAppConfigUseCase } from "./application/use-cases/get-public-app-config.use-case";
@@ -15,10 +17,13 @@ import { createSettingsRouter } from "./interface/http/settings.routes";
 
 const appConfigRepository = new AppConfigRepository();
 const shippingRuleReader: ShippingRuleReaderPort = { getCurrent: () => getShippingRuleUseCase.execute() };
+const pricingRateReader: PricingRateReaderPort = {
+  getCurrentRatePerKgPaise: async () => (await getPricingSettingUseCase.execute()).ratePerKgPaise,
+};
 
 /** Exported for in-process readers (orders' minimum-quantity check, returns' feature flag) and the admin gateway. */
 export const getAppConfigUseCase = new GetAppConfigUseCase(appConfigRepository);
 export const updateAppConfigUseCase = new UpdateAppConfigUseCase(appConfigRepository);
-export const getPublicAppConfigUseCase = new GetPublicAppConfigUseCase(appConfigRepository, shippingRuleReader);
+export const getPublicAppConfigUseCase = new GetPublicAppConfigUseCase(appConfigRepository, shippingRuleReader, pricingRateReader);
 
 export const router = createSettingsRouter(new SettingsController(getPublicAppConfigUseCase));

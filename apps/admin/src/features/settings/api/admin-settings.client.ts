@@ -92,6 +92,8 @@ export interface PublicAppConfig {
   presetSizes: string[];
   presetFabrics: string[];
   presetFits: string[];
+  /** Current global ₹/kg rate in paise (2026-09-29) — drives the weight-based price preview in VariantForm. */
+  ratePerKgPaise: number;
 }
 
 export function getPublicAppConfig(): Promise<{ config: PublicAppConfig }> {
