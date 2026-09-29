@@ -3,8 +3,9 @@
 import useEmblaCarousel from "embla-carousel-react";
 import { useCallback, useEffect, useState } from "react";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
-import type { ProductImage } from "../api/products.client";
+import type { ProductDetail } from "../api/products.client";
 import { useSelectedVariant } from "../hooks/useSelectedVariant";
+import { buildKeyHighlights, type KeyHighlight } from "../lib/build-key-highlights";
 import { ShareProductButton } from "./ShareProductButton";
 
 /**
@@ -12,21 +13,22 @@ import { ShareProductButton } from "./ShareProductButton";
  * mobile swipe (with dot indicators) and the desktop thumbnail strip. The
  * first image is eager + `fetchPriority="high"` (it's the page's LCP
  * element); the rest lazy.
+ *
+ * The SECOND slide carries a "Key Highlights" overlay (2026-09-29) — part of
+ * that slide, so it scrolls in with it and is gone again on slide 1. Built
+ * from the selected variant's real data (buildKeyHighlights); shown only
+ * when there are at least two images and at least two highlight rows.
  */
-export function ProductGallery({
-  images,
-  productId,
-  productSlug,
-  productName,
-}: {
-  images: ProductImage[];
-  productId: string;
-  productSlug: string;
-  productName: string;
-}) {
+const MIN_HIGHLIGHT_ROWS = 2;
+
+export function ProductGallery({ product }: { product: ProductDetail }) {
+  const { images, id: productId, slug: productSlug, name: productName } = product;
   const [emblaRef, emblaApi] = useEmblaCarousel({ align: "start", containScroll: "trimSnaps" });
   const [selected, setSelected] = useState(0);
   const { selectedVariantId } = useSelectedVariant();
+  const selectedVariant = product.variants.find((variant) => variant.id === selectedVariantId);
+  const highlights = buildKeyHighlights(product, selectedVariant);
+  const showHighlights = images.length > 1 && highlights.length >= MIN_HIGHLIGHT_ROWS;
 
   const onSelect = useCallback(() => {
     if (emblaApi) setSelected(emblaApi.selectedScrollSnap());
@@ -77,6 +79,7 @@ export function ProductGallery({
                       className="h-full w-full object-cover"
                     />
                   </div>
+                  {i === 1 && showHighlights ? <KeyHighlightsOverlay highlights={highlights} /> : null}
                 </div>
               ))
             ) : (
@@ -105,6 +108,29 @@ export function ProductGallery({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Editorial overlay inside the second slide: a bottom-weighted scrim keeps
+ * the upper part of the product photo visible while giving the text enough
+ * contrast; rows are label-over-value with hairline separators.
+ */
+function KeyHighlightsOverlay({ highlights }: { highlights: KeyHighlight[] }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/85 via-black/50 to-transparent p-4 sm:p-7">
+      <section aria-label="Key highlights" className="max-w-xs">
+        <h2 className="font-display text-lg leading-tight text-white sm:text-2xl">Key Highlights</h2>
+        <dl className="mt-2 divide-y divide-white/15 sm:mt-3">
+          {highlights.map((row) => (
+            <div key={row.label} className="py-1.5 first:pt-0 last:pb-0 sm:py-2">
+              <dt className="font-body text-[11px] font-medium uppercase tracking-[0.08em] text-white/70">{row.label}</dt>
+              <dd className="mt-0.5 font-body text-sm font-medium text-white">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
     </div>
   );
 }
