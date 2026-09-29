@@ -1,12 +1,14 @@
 import type { ProductSort } from "@woobe/validation";
 import { NotFoundError } from "../../../../shared/errors";
 import type { ProductSummaryEntity } from "../../domain/entities/product.entity";
+import { hasAttributes, parseSearchQuery, toMatchTerms, type ParsedSearchQuery } from "../../domain/parse-search-query";
 import type { CategoryReaderPort } from "../ports/category-reader.port";
 import type { CollectionReaderPort } from "../ports/collection-reader.port";
 import type { InventoryReaderPort } from "../ports/inventory-reader.port";
 import type { OfferReaderPort } from "../ports/offer-reader.port";
 import type { PricingReaderPort } from "../ports/pricing-reader.port";
-import type { ProductRepositoryPort, ProductSummaryProjection } from "../ports/product-repository.port";
+import type { ListProductsFilter, ProductRepositoryPort, ProductSummaryProjection } from "../ports/product-repository.port";
+import type { SearchVocabularyReaderPort } from "../ports/search-vocabulary-reader.port";
 
 export interface ListProductsInput {
   categorySlug?: string;
@@ -33,6 +35,8 @@ export interface ListProductsResult {
   page: number;
   limit: number;
   total: number;
+  /** Smart search (2026-09-29) — what the query was understood as; present only when `q` named a colour/size/fabric/fit, so the shop page can say so. */
+  searchInterpretation?: ParsedSearchQuery;
 }
 
 /**
@@ -57,6 +61,7 @@ export class ListProductsUseCase {
     private readonly inventoryReader: InventoryReaderPort,
     private readonly pricingReader: PricingReaderPort,
     private readonly offerReader: OfferReaderPort,
+    private readonly searchVocabularyReader?: SearchVocabularyReaderPort,
   ) {}
 
   async execute(input: ListProductsInput): Promise<ListProductsResult> {
@@ -92,10 +97,30 @@ export class ListProductsUseCase {
       }
     }
 
+    // Smart search (2026-09-29): "rose kurti small" → name word "kurti" +
+    // colour rose + size S. Those attributes RANK results (strict matches
+    // first) rather than hard-filter them; explicitly chosen size/colour
+    // filters below still hard-filter as before. A query with nothing
+    // searchable after parsing (only filler words) keeps the old plain
+    // name match.
+    let search: Pick<ListProductsFilter, "search" | "smartSearch"> = {};
+    let searchInterpretation: ParsedSearchQuery | undefined;
+    if (input.q) {
+      const extras = this.searchVocabularyReader ? await this.searchVocabularyReader.get() : undefined;
+      const parsed = parseSearchQuery(input.q, extras);
+      const terms = toMatchTerms(parsed);
+      if (terms.nameTerms.length > 0 || hasAttributes(parsed)) {
+        search = { smartSearch: terms };
+        if (hasAttributes(parsed)) searchInterpretation = parsed;
+      } else {
+        search = { search: input.q };
+      }
+    }
+
     const { products, total } = await this.productRepository.findMany({
       categoryId,
       collectionId,
-      search: input.q,
+      ...search,
       sizes: input.sizes,
       colors: input.colors,
       inStockVariantIds,
@@ -114,6 +139,7 @@ export class ListProductsUseCase {
       page: input.page,
       limit: input.limit,
       total,
+      ...(searchInterpretation ? { searchInterpretation } : {}),
     };
   }
 }

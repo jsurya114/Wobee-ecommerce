@@ -10,12 +10,21 @@ import type {
   ProductSummaryEntity,
   ProductVariantEntity,
 } from "../../domain/entities/product.entity";
+import type { SearchMatchTerms } from "../../domain/parse-search-query";
 
 export interface ListProductsFilter {
   categoryId?: string;
   collectionId?: string;
   /** Matched against Product.name — see ListProductsUseCase's own comment on ILIKE + the pg_trgm index. */
   search?: string;
+  /**
+   * Smart search (2026-09-29) — the parsed shopper query (see
+   * `parse-search-query.ts`). A product qualifies when it matches ANY name
+   * word or ANY mentioned attribute; products matching ALL of them rank
+   * first, ahead of the requested sort ("strict first, then widen").
+   * Used instead of `search` when present.
+   */
+  smartSearch?: SearchMatchTerms;
   /** Independent facets — OR within each, AND across (see ListProductsUseCase). */
   sizes?: string[];
   colors?: string[];
@@ -217,7 +226,7 @@ export interface ProductRepositoryPort {
    * `findMany`'s search), capped at `limit`, lean projection. Callers pass a
    * pre-trimmed non-empty query; an empty one returns `[]`.
    */
-  searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]>;
+  searchSuggestions(terms: SearchMatchTerms, limit: number): Promise<ProductSuggestionEntity[]>;
   /**
    * Related-products candidates for the PDP "Related Products" section —
    * ACTIVE products in the SAME `categoryId`, never the product itself, in

@@ -38,11 +38,21 @@ export interface AppliedOffer {
   discountPaise: number;
 }
 
+/** Smart search (2026-09-29) — how the API read `q`; sent only when it named a colour/size/fabric/fit. */
+export interface SearchInterpretation {
+  keywords: string;
+  colors: string[];
+  sizes: string[];
+  fabrics: string[];
+  fits: string[];
+}
+
 export interface ProductListResult {
   products: ProductSummary[];
   page: number;
   limit: number;
   total: number;
+  searchInterpretation?: SearchInterpretation;
 }
 
 export const PRODUCT_SORT_VALUES = ["price_asc", "price_desc", "newest"] as const;

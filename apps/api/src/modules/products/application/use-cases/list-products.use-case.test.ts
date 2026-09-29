@@ -163,7 +163,8 @@ describe("ListProductsUseCase", () => {
     });
     expect(productRepository.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        search: "silk",
+        // "silk" is a fabric word, so smart search reads it as an attribute (2026-09-29).
+        smartSearch: { nameTerms: [], colorTerms: [], sizeValues: [], fabricTerms: ["silk"], fitTerms: [] },
         sizes: ["M", "L"],
         colors: ["Red"],
         minPricePaise: 1000,
@@ -171,6 +172,34 @@ describe("ListProductsUseCase", () => {
         sort: "newest",
       }),
     );
+  });
+
+  it("parses the search into name words and ranking attributes, keeping explicit facets as hard filters, and reports what it understood", async () => {
+    const { useCase, productRepository } = buildUseCase();
+    const result = await useCase.execute({ q: "rose kurti with relaxed fit small size", sizes: ["M"], sort: "price_asc", page: 1, limit: 20 });
+    expect(productRepository.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        smartSearch: { nameTerms: ["kurti"], colorTerms: ["rose"], sizeValues: ["S"], fabricTerms: [], fitTerms: ["relaxed"] },
+        sizes: ["M"],
+      }),
+    );
+    expect(productRepository.findMany).toHaveBeenCalledWith(expect.not.objectContaining({ search: expect.anything() }));
+    expect(result.searchInterpretation).toEqual({ keywords: "kurti", colors: ["rose"], sizes: ["S"], fabrics: [], fits: ["relaxed"] });
+  });
+
+  it("keeps a plain product-word search as name words, with no interpretation to report", async () => {
+    const { useCase, productRepository } = buildUseCase();
+    const result = await useCase.execute({ q: "kurti", sort: "price_asc", page: 1, limit: 20 });
+    expect(productRepository.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ smartSearch: { nameTerms: ["kurti"], colorTerms: [], sizeValues: [], fabricTerms: [], fitTerms: [] } }),
+    );
+    expect(result.searchInterpretation).toBeUndefined();
+  });
+
+  it("falls back to the old plain name match when only filler words are left", async () => {
+    const { useCase, productRepository } = buildUseCase();
+    await useCase.execute({ q: "with the", sort: "price_asc", page: 1, limit: 20 });
+    expect(productRepository.findMany).toHaveBeenCalledWith(expect.objectContaining({ search: "with the" }));
   });
 
   it("returns the repository's total unchanged, echoing back the requested page/limit", async () => {

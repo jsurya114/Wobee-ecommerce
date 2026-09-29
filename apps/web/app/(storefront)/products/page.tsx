@@ -10,6 +10,7 @@ import { OnOfferQuickFilter } from "@/features/catalog/components/OnOfferQuickFi
 import { PlpControlBar } from "@/features/catalog/components/PlpControlBar";
 import { ProductResults } from "@/features/catalog/components/ProductResults";
 import { SizeQuickFilter } from "@/features/catalog/components/SizeQuickFilter";
+import { SearchInterpretation } from "@/features/catalog/components/SearchInterpretation";
 import { SortSelector } from "@/features/catalog/components/SortSelector";
 import { WeightQuickFilter } from "@/features/catalog/components/WeightQuickFilter";
 import { parseProductsQueryParams, type ProductsQueryParams } from "@/features/catalog/lib/build-products-href";
@@ -149,6 +150,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           <FiltersPanel currentParams={currentParams} />
           <SortSelector currentParams={currentParams} />
         </PlpControlBar>
+        <SearchInterpretation interpretation={result.searchInterpretation} />
         <ProductResults
           key={resultsKey}
           initialProducts={result.products}
