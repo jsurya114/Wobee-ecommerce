@@ -4423,3 +4423,52 @@ Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entrie
 - A COD-upfront order whose fee is never paid holds its stock reservation, the same pre-existing gap as abandoned Razorpay orders.
 - PACKED-order cancellation remains an open business decision.
 - Presets are stored comma-separated, so a single preset can't contain a comma (validated).
+
+---
+
+## 2026-09-29 — Variant form: live weight-based price preview; weight optional for fixed-price products
+
+**Branch/commit:** `feat/admin-settings-returns-cod-banners` (the PR #21 branch, reused after its merge as requested). Two commits: `feat(admin): dynamic price preview for weight-based products in variant form`, `feat(products): weight is optional for fixed-price product variants`. No schema change and no migration.
+
+**What changed:**
+- **Price preview (WEIGHT_BASED products).** In `VariantForm`, the static "Weight × the global ₹/kg rate" text is replaced by a live preview.
+  - It shows, for example, "₹720.00 (500g × ₹1,440/kg)", recalculated on every keystroke.
+  - Other states: "Enter weight to see price" (blank or 0), "Loading rate…", a whole-grams hint for input like `1.5`, and a fallback line if the rate can't load.
+  - A "Preview — actual price is always computed server-side." note sits underneath.
+  - It uses `calculateWeightBasedPricePaise` from `@woobe/utils`, the same function the server uses, so the formula isn't duplicated.
+  - The form still sends only `weightGrams`; no price is sent for weight-based products.
+- **Where the rate comes from (safer than the brief's first option).** The brief suggested `useAdminPricingSetting`, but `GET /admin/settings/pricing` needs `MANAGE_SETTINGS`, which `PRODUCT_MANAGEMENT_STAFF` (the people who edit variants) doesn't have. It would have 403'd for them, and widening that permission would weaken RBAC.
+  - Instead, `GET /api/v1/settings/config/public` now also returns `ratePerKgPaise`. That value is already public on every product page.
+  - This goes through a new `PricingRateReaderPort` in `settings`, wired to `pricing`'s `getPricingSettingUseCase`. `pricing` doesn't import `settings`, so there's no cycle.
+  - Saving a new rate in Settings invalidates the admin's cached public config, so the preview updates right away.
+- **Weight optional for FIXED products.**
+  - `weightGrams` in `createVariantSchema` is now optional, and in both create and update schemas it's `int().min(0)`.
+  - A blank weight is stored as **0 = "not tracked"**. The column stays `Int NOT NULL`, so no migration is needed.
+  - Server-side rules:
+    - **Create/update a variant:** a WEIGHT_BASED product's variant with weight 0 or missing gets a 400 with `fieldErrors.weightGrams`, because it would otherwise be priced at ₹0.
+    - **FIXED → WEIGHT_BASED switch:** refused with a 400 while *any* variant (inactive included) has no weight. Reactivating one later would otherwise sell it at ₹0.
+  - Admin UI:
+    - the label reads "Weight (grams, optional)" for FIXED products;
+    - an existing 0 is shown as blank;
+    - decimals and negatives are rejected client-side;
+    - `VariantsList` shows "No weight" instead of "0g".
+  - I checked the code that reads weight before allowing 0:
+    - nothing divides by variant weight;
+    - `calculateWeightBasedPricePaise` and the unit-cost snapshot accept 0;
+    - the storefront shows weight only for weight-priced lines;
+    - a 0g line adds nothing to cart shipping weight.
+
+**Verification:**
+- typecheck and lint clean.
+- Full `pnpm run test` green: **1,161** API tests in 139 files, plus utils (30) and validation (17), run with `SMTP_HOST=` and `GOOGLE_CLIENT_ID=` blanked.
+- New integration tests:
+  - Public config now includes `ratePerKgPaise`, matching the latest `PricingSetting`.
+  - A FIXED variant with no weight → 201 with `weightGrams` 0, priced by its fixed price.
+  - A negative weight → 400.
+  - Switching a weightless FIXED product to WEIGHT_BASED → 400.
+  - A WEIGHT_BASED variant with missing weight → 400.
+  - Editing a WEIGHT_BASED variant to weight 0 → 400.
+
+**Follow-ups / known gaps:**
+- Deploying this needs no database step. The API must deploy before or with the admin; until then, the preview shows its "couldn't load the rate" fallback.
+- The pasted brief was cut off partway through Task 2, and Task 3 never arrived. Task 2 was implemented from its visible "CURRENT STATE" and title. **Task 3 is not done** because its content is unknown.
