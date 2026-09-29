@@ -53,7 +53,6 @@ const CURATED_CLOTHING_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "One Size"];
 // the final rail still has BEST_SELLERS_LIMIT items whenever enough sales
 // history exists.
 const BEST_SELLERS_VARIANT_OVERFETCH = 60;
-const FEATURED_COLLECTIONS_LIMIT = 4;
 // 2026-08-31 (card redesign) — fixed price buckets, same values ShopByBudget
 // previously hardcoded client-side; moved here so the cover image and the
 // filter link stay in sync from one source instead of two.
@@ -373,7 +372,8 @@ export class GetHomePageUseCase {
       categoryTiles,
       newArrivals,
       bestSellers,
-      featuredCollections: featuredCollections.slice(0, FEATURED_COLLECTIONS_LIMIT),
+      // Every active collection (2026-09-29) — the admin controls what shows via `isActive`.
+      featuredCollections,
       testimonials,
       testimonialAggregate,
       budgetTiles,

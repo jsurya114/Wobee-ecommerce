@@ -169,6 +169,40 @@ describe("admin collections CRUD", () => {
     expect(updateRes.body.collection.name).toBe("Renamed");
   });
 
+  it("sets and clears an admin cover image — the listing prefers it, and clearing reverts to the derived cover", async () => {
+    const accessToken = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const slug = `collections-cover-${SUFFIX}`;
+    const coverImageUrl = "https://cdn.example.com/covers/winter.jpg";
+
+    const createRes = await request(app).post("/api/v1/admin/collections").set(auth).send({ name: "Cover Test", slug, coverImageUrl });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.collection.coverImageUrl).toBe(coverImageUrl);
+    const collectionId = createRes.body.collection.id as string;
+    createdCollectionIds.push(collectionId);
+
+    const listRes = await request(app).get("/api/v1/collections");
+    const listed = listRes.body.collections.find((c: { id: string }) => c.id === collectionId);
+    expect(listed.coverImageUrl).toBe(coverImageUrl);
+
+    const clearRes = await request(app).patch(`/api/v1/admin/collections/${collectionId}`).set(auth).send({ coverImageUrl: null });
+    expect(clearRes.status).toBe(200);
+    expect(clearRes.body.collection.coverImageUrl).toBeNull();
+
+    // No products assigned, so the derived cover is null too.
+    const listAfter = await request(app).get("/api/v1/collections");
+    expect(listAfter.body.collections.find((c: { id: string }) => c.id === collectionId).coverImageUrl).toBeNull();
+  });
+
+  it("rejects a cover image that is neither an absolute URL nor an app path", async () => {
+    const accessToken = await loginAdmin("catalog@woobe.in", "Staff@12345");
+    const res = await request(app)
+      .post("/api/v1/admin/collections")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ name: "Bad Cover", slug: `collections-bad-cover-${SUFFIX}`, coverImageUrl: "javascript:alert(1)" });
+    expect(res.status).toBe(400);
+  });
+
   it("404s updating an unknown collection", async () => {
     const accessToken = await loginAdmin("catalog@woobe.in", "Staff@12345");
     const res = await request(app)

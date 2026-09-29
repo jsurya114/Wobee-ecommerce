@@ -218,14 +218,14 @@ describe("GetHomePageUseCase", () => {
     expect(result.bestSellers.map((p) => p.id)).toEqual(["back-in-stock"]);
   });
 
-  it("caps Featured Collections at 4 even when more active collections exist", async () => {
-    const collections = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, name: `Collection ${i}`, slug: `c${i}`, description: null, isActive: true }));
+  it("returns every active collection, uncapped — the admin controls what shows via isActive", async () => {
+    const collections = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, name: `Collection ${i}`, slug: `c${i}`, description: null, isActive: true }));
     const { useCase } = makeUseCase({ collections });
 
     const result = await useCase.execute();
 
-    expect(result.featuredCollections).toHaveLength(4);
-    expect(result.featuredCollections).toEqual(collections.slice(0, 4));
+    expect(result.featuredCollections).toHaveLength(12);
+    expect(result.featuredCollections).toEqual(collections);
   });
 
   it("passes the approved testimonials list straight through — enrichment (display name, product info) already happened one layer down", async () => {

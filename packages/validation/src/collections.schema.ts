@@ -16,10 +16,22 @@ const slugSchema = z
   .max(120)
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Slug must be lowercase letters, numbers, and hyphens only");
 
+// Admin-uploaded cover (2026-09-29) — an absolute URL from the media
+// endpoint, or an app-relative path, same rule as a category image (see
+// categories.schema.ts). null clears it, reverting to the auto-derived cover.
+const coverImageUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => /^https?:\/\//.test(value) || value.startsWith("/"), "Invalid image URL")
+  .nullable()
+  .optional();
+
 export const createCollectionSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   slug: slugSchema,
   description: z.string().trim().max(2000).optional(),
+  coverImageUrl: coverImageUrlSchema,
 });
 export type CreateCollectionInput = z.infer<typeof createCollectionSchema>;
 
@@ -27,6 +39,7 @@ export const updateCollectionSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120).optional(),
   slug: slugSchema.optional(),
   description: z.string().trim().max(2000).nullable().optional(),
+  coverImageUrl: coverImageUrlSchema,
 });
 export type UpdateCollectionInput = z.infer<typeof updateCollectionSchema>;
 

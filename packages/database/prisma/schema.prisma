@@ -436,12 +436,14 @@ model Category {
 }
 
 model Collection {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  description   String?
+  /// Admin-uploaded cover image (2026-09-29). Null = derive the cover from the top-sorted assigned product's primary image, the pre-existing behaviour.
+  coverImageUrl String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
 
   products ProductCollection[]
 

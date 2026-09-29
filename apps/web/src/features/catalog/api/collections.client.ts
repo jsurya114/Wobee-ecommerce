@@ -5,7 +5,7 @@ export interface Collection {
   name: string;
   slug: string;
   description: string | null;
-  /** Only set on the homepage listing (2026-08-31) — the collection's top-sorted product's photo. */
+  /** Listing: the resolved cover (admin upload, else the top-sorted product's photo). Detail: the admin upload only. */
   coverImageUrl?: string | null;
 }
 
