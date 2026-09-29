@@ -4479,3 +4479,134 @@ Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entrie
   - **Release-age rule kept:** 10.0.12 would have needed a `minimumReleaseAgeExclude` exception, so it was not used.
   - **Result:** the audit is clean, and all 1,161 API tests still pass.
 - The pasted brief was cut off partway through Task 2, and Task 3 never arrived. Task 2 was implemented from its visible "CURRENT STATE" and title. **Task 3 is not done** because its content is unknown.
+
+---
+
+## 2026-09-29 — Admin auto-logout fix, PDP "Key Highlights" overlay, admin UX pass (PARTIALLY COMPLETED)
+
+**Branch/commit:** `feat/admin-ux-session-pdp-highlights`, created from `main` at `2a0105f` (PR #22). **Not merged, no PR, not deployed.**
+
+| Commit | What |
+|---|---|
+| `8ec6582` | `fix(auth): prevent unexpected admin session logout` |
+| `5db4458` | `feat(web): key highlights overlay on the second product image` |
+| `d81ea79` | `feat(admin): redesign login, product editing and page headers` |
+| (this entry) | `docs(journal): …` |
+
+### 1. Admin auto-logout: reproduced, root cause found, fixed
+
+**Root cause: a refresh-token rotation race in the admin app.** It was not caused by cookies, CORS, env vars or token lifetimes.
+- **Backend:** the admin refresh token (`admin_refresh_token`) is single-use and rotated on every `POST /api/v1/admin/auth/refresh` (`RefreshTokenUseCase`). Presenting an already-rotated token is treated as theft, and `revokeAllRefreshTokensForUser` signs the admin out on every device.
+- **Frontend:** the admin's `withFreshToken` (`useAdminAuth.tsx`) started its own `/refresh` for every request that got a 401.
+- **Trigger:** when the 15-minute access token expired, any page firing several requests at once sent several refreshes with the same cookie. Also:
+  - the silent refresh on page load could race the page's first requests;
+  - React StrictMode double-mounts in dev.
+- **Result:** the admin was logged out "after a few minutes".
+- **History:** the storefront fixed exactly this on 2026-08-30 (`apps/web/src/features/auth/api/refresh-coordinator.ts`). The admin app never received that fix.
+
+**Reproduced at API level:**
+- login → 3 concurrent refreshes with the same cookie → `200, 200, 401`;
+- then *every* resulting cookie → `401` (all sessions revoked).
+
+**Production config checked, and not the cause:**
+- The admin (`admin.woobe.in`) calls `NEXT_PUBLIC_ADMIN_API_URL=https://api.woobe.in` (checked via `vercel env pull`, not committed). Those are the same *site*, so the `SameSite=Strict` cookie is sent.
+- Live preflight: `Access-Control-Allow-Origin: https://admin.woobe.in` plus `Allow-Credentials: true`.
+- `/refresh` without a cookie → `401 "No admin refresh token cookie"`, with CORS headers present.
+- Cookie flags: `httpOnly`, `Secure` in production, `SameSite=Strict`, signed, path `/api/v1/admin`. `trust proxy` is configured.
+
+**The fix (frontend only; the security model is unchanged):**
+- **New `singleFlight` helper** (`packages/utils/src/single-flight.ts`, 3 unit tests): concurrent callers share one in-flight Promise.
+- **New `apps/admin/src/features/auth/api/refresh-coordinator.ts`:**
+  - all admin refreshes go through `singleFlight`;
+  - on top of that, `navigator.locks` (Web Locks) serializes refreshes across tabs where supported.
+- **`useAdminAuth.tsx`:**
+  - the mount-time refresh and `withFreshToken` both use the coordinator;
+  - a 401 whose token was already replaced by another request retries with the new token instead of rotating again;
+  - **only a 401/403 from `/refresh` ends the session.** A network error or 5xx during refresh (e.g. nginx 502 while the API restarts on deploy) is rethrown and the session is kept. Before this, it logged the admin out.
+  - **a 400/422 on the retried request no longer logs the admin out.** Before this, any error on the post-refresh retry, such as a form validation error, ended the session.
+- **Not changed:** rotation, reuse detection, TTLs (15m/30d), cookie flags and backend code. Nothing was moved to localStorage.
+
+**Verified in a browser** (local API with `JWT_ACCESS_TOKEN_TTL=20s`, admin dev server):
+- Login, then three expiry cycles (~80s) navigating Orders → Products → Dashboard: exactly **one** `/refresh` per expiry, and the retried request is 200, with no logout.
+- Reload (StrictMode double mount): **one** `/refresh`, and the admin stays signed in.
+- Logout → `/login`. A protected route afterwards gets `/refresh 401` → `/login`.
+- Simulated `502` on `/refresh` → the admin stays signed in, the page retries, and the next refresh succeeds.
+- The responsive scan (below) did **112 full page loads** in one session, each doing a refresh, with **0** bounces to `/login`.
+- **Not browser-tested:** two tabs refreshing at the same instant. That path is covered by Web Locks by design and is untested.
+
+### 2. PDP second image: "Key Highlights" overlay
+
+- **Behaviour:** the **second** slide of the product image carousel (`ProductGallery.tsx`) shows a "Key Highlights" overlay inside the image. It is part of that slide, so it swipes in on image 2 and out on image 1.
+- **Design:** a bottom-weighted dark gradient keeps the top of the photo visible; rows are label over value with hairline separators. It uses `pointer-events-none`, so swipes and controls work through it.
+- **Data:** real product data only, via `apps/web/src/features/catalog/lib/build-key-highlights.ts`. The rows are:
+  - Type (category);
+  - Brand;
+  - Fabric, Fit and Colour of the **selected variant**;
+  - Weight (weight-priced items only).
+
+  A row appears only if its value exists (values over 40 characters are skipped), and the overlay shows only with 2+ images and 2+ rows.
+- **Adapts per product and per variant.** For example, on local test data the kurta's Mustard variant showed 5 rows and its Teal variant 3.
+- **Limitation — the reference fields don't exist yet.** The schema has **no** "Work", "Blouse attached", "Saree material", "Set quantity", "Length" or similar fields. Those need a structured product-attributes field (a schema change plus an admin UI) and were deliberately **not** invented.
+- **Reference image:** the brief's reference image was **not attached** to the conversation. The design follows its written description.
+- **Verified:**
+  - 390 / 375 / 768 / 1024 / 1440px, with no horizontal overflow and the overlay inside the image;
+  - dot navigation, thumbnail navigation and a real drag swipe (overlay shows on image 2 and hides on image 1).
+- **Test data:** the local test data (an extra image row plus fabric/fit on `cotton-kurta`) was removed afterwards.
+
+### 3. Admin UX pass — **PARTIALLY COMPLETED**
+
+**Done:**
+- **Login page:**
+  - split layout (brand panel ≥lg, focused form);
+  - show/hide password button;
+  - inline error banner with icon;
+  - "Signing in…" state, autofocus and a placeholder;
+  - a note for invited staff.
+
+  Login logic, validation, error handling and redirect are unchanged. Verified: wrong password shows "Invalid email or password"; the correct password signs in.
+- **Shared `PageHeader`** (`apps/admin/src/features/shell/components/PageHeader.tsx`):
+  - used on every edit/create page — products, categories, collections, coupons, offers, banners, staff, customers, orders and returns;
+  - adds a "‹ List" back link, which these pages never had;
+  - status badges sit beside the title, and actions wrap on narrow screens.
+- **Product add/edit:**
+  - **Layout:** two columns from xl (details + variants | images + cost), so the edit page is ~1,430px tall instead of ~1,830px at 1440px.
+  - **Form sections:** Basic information / Pricing (selectable cards) / a collapsible "Search engine listing (optional)" section, which opens automatically when it has content or an error.
+  - **Save bar:** stays in view while scrolling, with a Cancel link.
+  - **Unchanged:** fields, validation and payload.
+  - **Verified:**
+    - an empty name keeps the admin on the page with "Name is required";
+    - a valid save shows "Saving…", then "Saved successfully", then returns to `/products`.
+- **Saving state:** a "Saving…" label on every entity form (categories, collections, coupons, offers, banners, products, variants).
+- **Loading:** a branded spinner replaces the bare "Loading…" text while the session is checked.
+- **Responsive fixes (these bugs were already there):**
+  - **Inventory** overflowed by 268px at 390px and by 122px at 768px. The cause: an `sr-only` "Actions" header label (absolutely positioned) escaped a scroll container that wasn't positioned. All six table scroll containers are now `relative`.
+  - **Banners:** each row overflowed by 20px at 390px; the actions now wrap.
+- **Responsive scan:**
+  - 28 admin pages (20 list/create plus 8 real detail pages) × 390/768/1024/1280px = **112 checks**;
+  - after the fixes, every re-checked page shows 0 overflow at 375, 390 and 768px.
+
+**Not done** (for the next person):
+- **List pages** (Products, Orders, Categories and so on) still hand-roll their headers; they could move to `PageHeader` with `actions`.
+- **Other forms:** the Category, Collection, Coupon, Offer, Banner and Staff forms were not regrouped into sections and have no sticky save bar or Cancel link. Only the "Saving…" label was added.
+- **Tables:** no sticky headers; the status-badge casing is still lowercase everywhere.
+- **Not reviewed:** order workflow UX (OrderStatusActions), the settings page layout, the dashboard, testimonials, and the inventory adjust flow.
+- **Required-field markers:** no consistent convention exists yet. An asterisk was tried on Category, then removed for consistency.
+
+### Tests / checks
+- `pnpm run typecheck` ✅ and `pnpm run lint` ✅ (all 8 projects).
+- `pnpm run test` ✅:
+  - utils 33 (including 3 new `singleFlight` tests);
+  - validation 17;
+  - API **1,161/1,161**, with `SMTP_HOST=` and `GOOGLE_CLIENT_ID=` blanked.
+
+  The first full run had 1 failure in `admin-offers.integration.test.ts`, a file this branch doesn't touch (the branch has no API changes). It passed 3/3 in isolation, and the full rerun was green: the known shared-`woobe_test` flake.
+- API auth and admin suites: 22 files, 188 tests ✅.
+- `pnpm run build` ✅ (api, web, admin).
+
+### Follow-ups / known gaps
+- **Deploy:** after deploying, the auto-logout fix should be watched in production. Leave the admin open for more than 15 minutes, then use a page that fires several requests (the dashboard).
+- **Optional extra hardening (not done):** a short server-side "grace window" for a just-rotated refresh token would also cover a refresh whose *response* is lost in transit (the server rotated, the browser never got the new cookie). That changes security semantics, so it needs a deliberate decision.
+- **Highlights data:** saree/jewellery-specific highlights need a structured product-attributes field; see §2.
+- **Local environment notes:**
+  - switching branches on this iCloud-synced Desktop created 11 byte-identical `… 2.tsx/.ts/.sql` duplicates. They were verified identical and deleted, never committed.
+  - `pnpm` minimum-release-age still applies to dependencies.
