@@ -343,7 +343,7 @@ describe("GetHomePageUseCase", () => {
     const result = await useCase.execute();
 
     expect(budgetProductsLister.execute).toHaveBeenCalledTimes(3);
-    expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 49_900, sort: "price_desc", page: 1, limit: 1 });
+    expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 49_900, sort: "price_desc", page: 1, limit: 1, inStockOnly: true });
     expect(result.budgetTiles[0]).toEqual({ label: "Under ₹499", maxPricePaise: 49_900, imageUrl: "https://img/under-499.jpg" });
     expect(result.budgetTiles[1]?.imageUrl).toBeNull();
   });
@@ -370,7 +370,7 @@ describe("GetHomePageUseCase", () => {
     const result = await useCase.execute();
 
     expect(budgetProductsLister.execute).toHaveBeenCalledTimes(1);
-    expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 149_900, sort: "price_desc", page: 1, limit: 1 });
+    expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 149_900, sort: "price_desc", page: 1, limit: 1, inStockOnly: true });
     expect(result.budgetTiles).toEqual([
       { label: "Under ₹299", maxPricePaise: 29_900, imageUrl: "https://img/admin-299.jpg" },
       { label: "Under ₹1,499", maxPricePaise: 149_900, imageUrl: "https://img/under-1499.jpg" },

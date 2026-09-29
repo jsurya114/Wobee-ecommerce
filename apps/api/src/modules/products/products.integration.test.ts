@@ -27,8 +27,10 @@ let collectionId: string;
 let warehouseId: string;
 const createdProductIds: string[] = [];
 
-// price_asc order (default sort): plainScarf < auroraJacket < breezeTop < auroraCoat < breezeSkirt
-const PRICE_ASC_NAMES = ["plain-scarf", "aurora-jacket", "breeze-top", "aurora-coat", "breeze-skirt"];
+// price_asc order (default sort): plainScarf < auroraJacket < auroraCoat < breezeSkirt. Breeze Top
+// (15000, between jacket and coat) has zero stock, so no listing ever includes it (2026-09-30).
+const PRICE_ASC_NAMES = ["plain-scarf", "aurora-jacket", "aurora-coat", "breeze-skirt"];
+const SOLD_OUT_NAME = `Zephyrq${SUFFIX} Breeze Top`;
 
 const productIdBySlug: Record<string, string> = {};
 
@@ -179,8 +181,9 @@ describe("GET /api/v1/products — search", () => {
   it("matches by partial, case-insensitive product name (pg_trgm-backed ILIKE)", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, q: SEARCH_TOKEN.toLowerCase() });
     expect(res.status).toBe(200);
-    expect(res.body.total).toBe(4); // every fixture except plain-scarf carries the token
+    expect(res.body.total).toBe(3); // every fixture except plain-scarf carries the token; sold-out breeze-top is never listed
     expect(namesOf(res.body).every((n) => n.includes(SEARCH_TOKEN))).toBe(true);
+    expect(namesOf(res.body)).not.toContain(SOLD_OUT_NAME);
   });
 
   it("matches a substring in the middle of the name, not just a prefix", async () => {
@@ -366,7 +369,7 @@ describe("GET /api/v1/products — filters", () => {
   it("filters by category, isolated from other categories' products", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
     expect(res.status).toBe(200);
-    expect(res.body.total).toBe(5);
+    expect(res.body.total).toBe(4); // the 5 fixtures minus sold-out breeze-top
   });
 
   it("404s for an unknown category slug", async () => {
@@ -397,18 +400,20 @@ describe("GET /api/v1/products — filters", () => {
   it("filters by variant color, with comma-separated multi-value support", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, color: "Red" });
     expect(res.status).toBe(200);
-    expect(res.body.total).toBe(2); // aurora-jacket + breeze-top are both Red
+    expect(res.body.total).toBe(1); // aurora-jacket; breeze-top is Red too but sold out
+    expect(namesOf(res.body)).toEqual([`${SEARCH_TOKEN} Aurora Jacket`]);
 
     const multi = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, color: "Red,Blue" });
-    expect(multi.body.total).toBe(3); // + aurora-coat (Blue)
+    expect(multi.body.total).toBe(2); // + aurora-coat (Blue)
   });
 
   it("smart search: strict matches first, looser matches below when the strict ones don't fill a page", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, q: "red aurora" });
     expect(res.status).toBe(200);
-    // Strict: Aurora Jacket (named aurora, has a Red variant). Then, cheapest first: Breeze Top (red), Aurora Coat (aurora).
-    expect(namesOf(res.body)).toEqual([`${SEARCH_TOKEN} Aurora Jacket`, `${SEARCH_TOKEN} Breeze Top`, `${SEARCH_TOKEN} Aurora Coat`]);
-    expect(res.body.total).toBe(3);
+    // Strict: Aurora Jacket (named aurora, has a Red variant). Then the looser match Aurora Coat (aurora);
+    // Breeze Top (red) would sit between them but is sold out.
+    expect(namesOf(res.body)).toEqual([`${SEARCH_TOKEN} Aurora Jacket`, `${SEARCH_TOKEN} Aurora Coat`]);
+    expect(res.body.total).toBe(2);
     expect(res.body.searchInterpretation).toEqual({ keywords: "aurora", colors: ["red"], sizes: [], fabrics: [], fits: [] });
   });
 
@@ -432,14 +437,14 @@ describe("GET /api/v1/products — filters", () => {
     try {
       const weighed = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, pricingMode: "WEIGHT_BASED" });
       expect(weighed.status).toBe(200);
-      expect(weighed.body.total).toBe(4);
+      expect(weighed.body.total).toBe(3); // sold-out breeze-top excluded
       expect(namesOf(weighed.body)).not.toContain(`Plain Scarf ${SUFFIX}`);
 
       const fixed = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, pricingMode: "FIXED" });
       expect(fixed.body.total).toBe(1);
 
       const both = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
-      expect(both.body.total).toBe(5);
+      expect(both.body.total).toBe(4);
 
       const bad = await request(app).get("/api/v1/products").query({ pricingMode: "BY_VIBES" });
       expect(bad.status).toBe(400);
@@ -494,7 +499,58 @@ describe("GET /api/v1/products — filters", () => {
   it("filters by inclusive price range against the display/sort cache", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, minPrice: "15000", maxPrice: "25000" });
     expect(res.status).toBe(200);
-    expect(res.body.total).toBe(2); // breeze-top (15000) + aurora-coat (20000)
+    expect(res.body.total).toBe(1); // aurora-coat (20000); breeze-top (15000) is in range but sold out
+    expect(namesOf(res.body)).toEqual([`${SEARCH_TOKEN} Aurora Coat`]);
+  });
+
+  it("never lists a sold-out product, with or without inStock — and lists it again once restocked (2026-09-30)", async () => {
+    const soldOutVariant = await prisma.productVariant.findFirstOrThrow({ where: { product: { slug: `breeze-top-${SUFFIX}` } } });
+
+    const withoutFlag = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, limit: 50 });
+    expect(namesOf(withoutFlag.body)).not.toContain(SOLD_OUT_NAME);
+    expect(withoutFlag.body.total).toBe(4);
+
+    // Its PDP is unaffected — still reachable, just not purchasable.
+    const pdp = await request(app).get(`/api/v1/products/breeze-top-${SUFFIX}`);
+    expect(pdp.status).toBe(200);
+    expect(pdp.body.product.variants.every((v: { inStock: boolean }) => !v.inStock)).toBe(true);
+
+    await prisma.inventory.updateMany({ where: { variantId: soldOutVariant.id }, data: { quantityAvailable: 2 } });
+    try {
+      const restocked = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, limit: 50 });
+      expect(namesOf(restocked.body)).toContain(SOLD_OUT_NAME);
+      expect(restocked.body.total).toBe(5);
+
+      // Stock fully reserved (e.g. mid-checkout) is not available stock.
+      await prisma.inventory.updateMany({ where: { variantId: soldOutVariant.id }, data: { quantityReserved: 2 } });
+      const reserved = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, limit: 50 });
+      expect(namesOf(reserved.body)).not.toContain(SOLD_OUT_NAME);
+    } finally {
+      await prisma.inventory.updateMany({ where: { variantId: soldOutVariant.id }, data: { quantityAvailable: 0, quantityReserved: 0 } });
+    }
+
+    const soldOutAgain = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, limit: 50 });
+    expect(namesOf(soldOutAgain.body)).not.toContain(SOLD_OUT_NAME);
+  });
+
+  it("a product stays listed while ANY active variant has stock, and drops out once none do", async () => {
+    // aurora-jacket: Red/L (10) + Black/M (6).
+    const jacketVariants = await prisma.productVariant.findMany({ where: { product: { slug: `aurora-jacket-${SUFFIX}` } }, orderBy: { size: "asc" } });
+    const [large, medium] = jacketVariants; // L, M
+    const jacketName = `${SEARCH_TOKEN} Aurora Jacket`;
+    try {
+      await prisma.inventory.updateMany({ where: { variantId: large!.id }, data: { quantityAvailable: 0 } });
+      const oneLeft = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
+      expect(namesOf(oneLeft.body)).toContain(jacketName);
+
+      // The only variant with stock is deactivated → nothing purchasable → sold out.
+      await prisma.productVariant.update({ where: { id: medium!.id }, data: { isActive: false } });
+      const inactive = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
+      expect(namesOf(inactive.body)).not.toContain(jacketName);
+    } finally {
+      await prisma.productVariant.update({ where: { id: medium!.id }, data: { isActive: true } });
+      await prisma.inventory.updateMany({ where: { variantId: large!.id }, data: { quantityAvailable: 10 } });
+    }
   });
 });
 
@@ -530,8 +586,8 @@ describe("GET /api/v1/products — sorting", () => {
 
   it("sorts by newest (createdAt descending)", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, sort: "newest", limit: 10 });
-    // Fixtures were created oldest→newest as: aurora-jacket, aurora-coat, breeze-top, breeze-skirt, plain-scarf.
-    const expectedNewestFirst = ["plain-scarf", "breeze-skirt", "breeze-top", "aurora-coat", "aurora-jacket"];
+    // Fixtures were created oldest→newest as: aurora-jacket, aurora-coat, breeze-top, breeze-skirt, plain-scarf (breeze-top sold out).
+    const expectedNewestFirst = ["plain-scarf", "breeze-skirt", "aurora-coat", "aurora-jacket"];
     expect(res.body.products.map((p: { id: string }) => p.id)).toEqual(
       expectedNewestFirst.map((slug) => productIdBySlug[`${slug}-${SUFFIX}`]),
     );
@@ -544,15 +600,16 @@ describe("GET /api/v1/products — pagination", () => {
     const page2 = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, limit: 2, page: 2 });
     const page3 = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, limit: 2, page: 3 });
 
-    expect(page1.body.total).toBe(5);
-    expect(page2.body.total).toBe(5);
-    expect(page3.body.total).toBe(5);
+    // 4 listable fixtures (sold-out breeze-top excluded).
+    expect(page1.body.total).toBe(4);
+    expect(page2.body.total).toBe(4);
+    expect(page3.body.total).toBe(4);
     expect(page1.body.products).toHaveLength(2);
     expect(page2.body.products).toHaveLength(2);
-    expect(page3.body.products).toHaveLength(1);
+    expect(page3.body.products).toHaveLength(0);
 
-    const allIds = [...page1.body.products, ...page2.body.products, ...page3.body.products].map((p: { id: string }) => p.id);
-    expect(new Set(allIds).size).toBe(5); // no duplicate, no skipped row across pages
+    const allIds = [...page1.body.products, ...page2.body.products].map((p: { id: string }) => p.id);
+    expect(new Set(allIds).size).toBe(4); // no duplicate, no skipped row across pages
   });
 
   it("is stable — repeating the same page returns the identical order", async () => {
@@ -564,7 +621,7 @@ describe("GET /api/v1/products — pagination", () => {
   it("caps limit at 50 by default and returns an empty page past the last one", async () => {
     const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, page: 99, limit: 10 });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ products: [], total: 5, page: 99, limit: 10 });
+    expect(res.body).toMatchObject({ products: [], total: 4, page: 99, limit: 10 });
   });
 });
 

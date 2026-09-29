@@ -41,6 +41,8 @@ import { ValidateOfferDiscountUseCase } from "./application/use-cases/admin/vali
 import { CountActiveProductsBySizeUseCase } from "./application/use-cases/count-active-products-by-size.use-case";
 import { GetCategoryImagesUseCase } from "./application/use-cases/get-category-images.use-case";
 import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-slug.use-case";
+import { RefreshWeightBasedPriceCachesUseCase } from "./application/use-cases/admin/refresh-weight-based-price-caches.use-case";
+import { FindInStockProductIdsUseCase } from "./application/use-cases/find-in-stock-product-ids.use-case";
 import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
 import { GetRelatedProductsUseCase } from "./application/use-cases/get-related-products.use-case";
 import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-for-cart.use-case";
@@ -124,6 +126,10 @@ export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRe
 export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productRepository, pricingReader, offerReader);
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const resolveProductIdsForVariantsUseCase = new ResolveProductIdsForVariantsUseCase(productRepository);
+/** Exported for cross-module use (2026-09-30) — `wishlist`'s SOLD OUT flag and `home`'s "Loved by Customers" rail; see the use-case's own doc comment. */
+export const findInStockProductIdsUseCase = new FindInStockProductIdsUseCase(inventoryReader, productRepository);
+/** Exported for `admin`'s pricing-rate change (2026-09-30) — see the use-case's own doc comment. */
+export const refreshWeightBasedPriceCachesUseCase = new RefreshWeightBasedPriceCachesUseCase(productRepository, pricingReader);
 /** Exported for cross-module use (redesign O-3) — `home` composes this into the category-rail payload. */
 export const getCategoryImagesUseCase = new GetCategoryImagesUseCase(productRepository);
 /** Exported for cross-module use (merchandising logic corrections, 2026-09-06) — `home`'s "Shop your size" rail. */

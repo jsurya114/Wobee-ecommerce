@@ -282,6 +282,13 @@ export interface ProductRepositoryPort {
   /** Week 2 Day 8 Part 2 (week2 (1).md §12) — batched variantId→productId lookup for `home`'s Best Sellers rail (orders' OrderItem only has variantId; resolving to the product it belongs to is `products`' own data). Missing/unknown variant ids are simply absent from the returned map, never an error — a variant sold in the past can be deleted or reassigned since. */
   findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>>;
   /**
+   * 2026-09-30 — the ids of products that have at least one ACTIVE variant
+   * among `variantIds` (the live in-stock variant set). The same "an active
+   * variant with stock" rule `findMany`'s in-stock filter applies in SQL, for
+   * callers that need a product-level sold-out answer (wishlist, home).
+   */
+  findProductIdsWithActiveVariants(variantIds: string[]): Promise<Set<string>>;
+  /**
    * Redesign O-3 — one representative product image per category id, for
    * the homepage's compact category rail (the schema has no `Category`
    * image field). Cheapest active product with at least one image wins per
@@ -322,6 +329,20 @@ export interface ProductRepositoryPort {
   findVariantForAdmin(variantId: string): Promise<(AdminProductVariantEntity & { productId: string }) | null>;
   /** Recomputes `Product.minPricePaiseCache` from its currently-active variants (or 0 if none) — called after any variant create/update/activation-change, since that cache drives the customer-facing listing's price display and sort. */
   recomputeMinPrice(productId: string): Promise<void>;
+  /**
+   * 2026-09-30 — every variant (active or not) of every WEIGHT_BASED product,
+   * with what its price depends on and its current `effectivePricePaiseCache`,
+   * for RefreshWeightBasedPriceCachesUseCase after the global ₹/kg rate changes.
+   */
+  findWeightBasedVariantsForRepricing(): Promise<
+    { id: string; productId: string; weightGrams: number; ratePerKgOverridePaise: number | null; effectivePricePaiseCache: number }[]
+  >;
+  /**
+   * 2026-09-30 — writes new `effectivePricePaiseCache` values and recomputes
+   * `minPricePaiseCache` for each product they belong to, in one transaction,
+   * so the listing's price filter/sort never sees half a repricing.
+   */
+  updateVariantPriceCaches(updates: { id: string; productId: string; effectivePricePaiseCache: number }[]): Promise<void>;
   /**
    * Admin offer-discount validation support (fix: admin offer discount
    * validation) — the lowest `minPricePaiseCache` among the products an

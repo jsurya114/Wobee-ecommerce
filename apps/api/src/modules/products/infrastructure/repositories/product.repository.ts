@@ -529,6 +529,16 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
     return new Map(rows.map((row) => [row.id, row.productId]));
   }
 
+  async findProductIdsWithActiveVariants(variantIds: string[]): Promise<Set<string>> {
+    if (variantIds.length === 0) return new Set();
+    const rows = await prisma.productVariant.findMany({
+      where: { id: { in: variantIds }, isActive: true },
+      select: { productId: true },
+      distinct: ["productId"],
+    });
+    return new Set(rows.map((row) => row.productId));
+  }
+
   async findPrimaryImageUrlByCategoryIds(categoryIds: string[]): Promise<Map<string, string>> {
     if (categoryIds.length === 0) return new Map();
     // One row per category: the cheapest active product that has an image.
@@ -809,6 +819,35 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
     await prisma.product.update({
       where: { id: productId },
       data: { minPricePaiseCache: result._min.effectivePricePaiseCache ?? 0 },
+    });
+  }
+
+  async findWeightBasedVariantsForRepricing(): Promise<
+    { id: string; productId: string; weightGrams: number; ratePerKgOverridePaise: number | null; effectivePricePaiseCache: number }[]
+  > {
+    return prisma.productVariant.findMany({
+      where: { product: { pricingMode: "WEIGHT_BASED" } },
+      select: { id: true, productId: true, weightGrams: true, ratePerKgOverridePaise: true, effectivePricePaiseCache: true },
+    });
+  }
+
+  async updateVariantPriceCaches(updates: { id: string; productId: string; effectivePricePaiseCache: number }[]): Promise<void> {
+    if (updates.length === 0) return;
+    const productIds = [...new Set(updates.map((update) => update.productId))];
+    await prisma.$transaction(async (tx) => {
+      for (const update of updates) {
+        await tx.productVariant.update({ where: { id: update.id }, data: { effectivePricePaiseCache: update.effectivePricePaiseCache } });
+      }
+      // Same rule as recomputeMinPrice: the cheapest ACTIVE variant, 0 when none.
+      const minimums = await tx.productVariant.groupBy({
+        by: ["productId"],
+        where: { productId: { in: productIds }, isActive: true },
+        _min: { effectivePricePaiseCache: true },
+      });
+      const minByProduct = new Map(minimums.map((row) => [row.productId, row._min.effectivePricePaiseCache ?? 0]));
+      for (const productId of productIds) {
+        await tx.product.update({ where: { id: productId }, data: { minPricePaiseCache: minByProduct.get(productId) ?? 0 } });
+      }
     });
   }
 

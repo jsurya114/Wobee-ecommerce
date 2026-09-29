@@ -33,6 +33,12 @@ async function createTestProduct(name: string): Promise<string> {
     data: { name, slug: `collections-test-${suffix}`, categoryId, isActive: true },
   });
   createdProductIds.push(product.id);
+  // In stock — the storefront listing (the collection's product rail) never lists a sold-out product (2026-09-30).
+  const variant = await prisma.productVariant.create({
+    data: { productId: product.id, sku: `COLLECTIONS-TEST-${suffix}`.toUpperCase(), color: "Black", size: "M", weightGrams: 200, isActive: true },
+  });
+  const warehouse = await prisma.warehouse.findFirstOrThrow({ where: { isActive: true } });
+  await prisma.inventory.create({ data: { variantId: variant.id, warehouseId: warehouse.id, quantityAvailable: 3, quantityReserved: 0 } });
   return product.id;
 }
 
