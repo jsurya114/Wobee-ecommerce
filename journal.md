@@ -4471,4 +4471,11 @@ Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entrie
 
 **Follow-ups / known gaps:**
 - Deploying this needs no database step. The API must deploy before or with the admin; until then, the preview shows its "couldn't load the rate" fallback.
+- **Security dependency bumps (same PR, #22):**
+  - **Why:** CI's `pnpm audit --prod` step started failing on two newly published moderate advisories, unrelated to this change:
+    - `nodemailer` below 10.0.2, GHSA-6vj9-mwq6-2f5v;
+    - `multer` below 2.4.0, GHSA-3pph-fpjx-jg34.
+  - **What changed:** `multer` went to ^2.4.0 and `nodemailer` to ^10.0.11. Nodemailer 10's only breaking change is requiring Node ≥20, and the API Docker image, CI and the root `engines` field are all Node 22.
+  - **Release-age rule kept:** 10.0.12 would have needed a `minimumReleaseAgeExclude` exception, so it was not used.
+  - **Result:** the audit is clean, and all 1,161 API tests still pass.
 - The pasted brief was cut off partway through Task 2, and Task 3 never arrived. Task 2 was implemented from its visible "CURRENT STATE" and title. **Task 3 is not done** because its content is unknown.
