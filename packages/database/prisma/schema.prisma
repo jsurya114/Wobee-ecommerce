@@ -226,6 +226,13 @@ model RefreshToken {
   tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
+  /// Set only when this token was ROTATED (not on logout / revoke-all): the id
+  /// of the token that replaced it. Lets RefreshTokenUseCase tell a client that
+  /// never received its rotation response (retries within the grace window
+  /// while the replacement is still unused) from a replayed/stolen token
+  /// (2026-09-29, admin auto-logout fix). Plain column, no FK: rows are
+  /// append-only per session and deleted with their user.
+  replacedByTokenId String?
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

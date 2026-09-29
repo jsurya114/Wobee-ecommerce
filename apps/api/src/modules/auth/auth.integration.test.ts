@@ -474,13 +474,101 @@ describe("auth: refresh + logout (full session lifecycle)", () => {
     expect(firstRefresh.status).toBe(200);
     const rotatedCookie = extractCookieHeader(firstRefresh.headers["set-cookie"]);
 
+    // The legitimate client keeps going with its new token (2026-09-29: this
+    // step matters — a replay while the replacement is still UNUSED and inside
+    // the grace window is treated as a lost rotation response, see the next test).
+    const secondRefresh = await request(app).post("/api/v1/auth/refresh").set("Cookie", rotatedCookie).send();
+    expect(secondRefresh.status).toBe(200);
+    const latestCookie = extractCookieHeader(secondRefresh.headers["set-cookie"]);
+
     // Replay the original, now-revoked cookie — reuse detection should fire.
     const replay = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
     expect(replay.status).toBe(401);
 
     // Reuse detection revoked ALL sessions — even the legitimately-rotated one is now dead.
-    const afterReuseDetected = await request(app).post("/api/v1/auth/refresh").set("Cookie", rotatedCookie).send();
+    const afterReuseDetected = await request(app).post("/api/v1/auth/refresh").set("Cookie", latestCookie).send();
     expect(afterReuseDetected.status).toBe(401);
+  });
+
+  it("recovers a lost rotation response inside the grace window without revoking the session", async () => {
+    const registerRes = await registerViaOtp({ name: "Lost Response", email: uniqueEmail(), password: "Passw0rd" });
+    const originalCookie = extractCookieHeader(registerRes.headers["set-cookie"]);
+
+    // The server rotates, but the client never receives this response (tab
+    // reloaded / connection dropped mid-refresh) — it still holds the original.
+    const lost = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
+    expect(lost.status).toBe(200);
+    const neverReceivedCookie = extractCookieHeader(lost.headers["set-cookie"]);
+
+    // Retrying with the original is recognised as that lost response, not theft.
+    const retry = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
+    expect(retry.status).toBe(200);
+    const recoveredCookie = extractCookieHeader(retry.headers["set-cookie"]);
+
+    const next = await request(app).post("/api/v1/auth/refresh").set("Cookie", recoveredCookie).send();
+    expect(next.status).toBe(200);
+
+    // The replacement the client never received was retired — presenting it
+    // now is a replay, and reuse detection still applies.
+    const replayOfRetired = await request(app).post("/api/v1/auth/refresh").set("Cookie", neverReceivedCookie).send();
+    expect(replayOfRetired.status).toBe(401);
+  });
+
+  it("never lets concurrent refreshes with the same token fork the session", async () => {
+    const registerRes = await registerViaOtp({ name: "Concurrent Refresh", email: uniqueEmail(), password: "Passw0rd" });
+    const userId = registerRes.body.user.id as string;
+    const cookie = extractCookieHeader(registerRes.headers["set-cookie"]);
+
+    const results = await Promise.all([1, 2, 3, 4].map(() => request(app).post("/api/v1/auth/refresh").set("Cookie", cookie).send()));
+    expect(results.some((r) => r.status === 200)).toBe(true);
+
+    // However the race resolves, exactly one refresh token is left active.
+    const active = await prisma.refreshToken.count({ where: { userId, revokedAt: null } });
+    expect(active).toBeLessThanOrEqual(1);
+  });
+
+  it("a stale, already-dead cookie from another device does not log out the user's current session", async () => {
+    const email = uniqueEmail();
+    const registerRes = await registerViaOtp({ name: "Stale Device", email, password: "Passw0rd" });
+    const oldDeviceCookie = extractCookieHeader(registerRes.headers["set-cookie"]);
+
+    // The old device's session ends (logout) — its cookie is now dead but may still be presented later.
+    const logout = await request(app).post("/api/v1/auth/logout").set("Cookie", oldDeviceCookie).send();
+    expect(logout.status).toBe(204);
+
+    // The user signs in fresh elsewhere.
+    const login = await request(app).post("/api/v1/auth/login").send({ email, password: "Passw0rd" });
+    expect(login.status).toBe(200);
+    const currentCookie = extractCookieHeader(login.headers["set-cookie"]);
+
+    // The old device wakes up and tries to refresh with its dead cookie — rejected…
+    const stale = await request(app).post("/api/v1/auth/refresh").set("Cookie", oldDeviceCookie).send();
+    expect(stale.status).toBe(401);
+
+    // …but that is not evidence of theft (the token was never rotated), so the current session survives.
+    const current = await request(app).post("/api/v1/auth/refresh").set("Cookie", currentCookie).send();
+    expect(current.status).toBe(200);
+  });
+
+  it("still treats a replay AFTER the grace window as theft", async () => {
+    const registerRes = await registerViaOtp({ name: "Late Replay", email: uniqueEmail(), password: "Passw0rd" });
+    const userId = registerRes.body.user.id as string;
+    const originalCookie = extractCookieHeader(registerRes.headers["set-cookie"]);
+
+    const rotated = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
+    expect(rotated.status).toBe(200);
+    const rotatedCookie = extractCookieHeader(rotated.headers["set-cookie"]);
+
+    // Age the rotation past any grace window.
+    await prisma.refreshToken.updateMany({
+      where: { userId, replacedByTokenId: { not: null } },
+      data: { revokedAt: new Date(Date.now() - 10 * 60 * 1000) },
+    });
+
+    const replay = await request(app).post("/api/v1/auth/refresh").set("Cookie", originalCookie).send();
+    expect(replay.status).toBe(401);
+    const afterTheft = await request(app).post("/api/v1/auth/refresh").set("Cookie", rotatedCookie).send();
+    expect(afterTheft.status).toBe(401);
   });
 });
 
