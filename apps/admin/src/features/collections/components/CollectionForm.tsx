@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useFormError } from "@/lib/use-form-error";
 import type { CollectionPayload } from "../api/admin-collections.client";
 import { FormActions } from "@/features/shell/components/FormActions";
+import { ImageUploadField } from "@/features/shell/components/ImageUploadField";
 
 export function CollectionForm({
   initialValues,
@@ -18,6 +19,7 @@ export function CollectionForm({
   const [name, setName] = useState(initialValues?.name ?? "");
   const [slug, setSlug] = useState(initialValues?.slug ?? "");
   const [description, setDescription] = useState(initialValues?.description ?? "");
+  const [coverImageUrl, setCoverImageUrl] = useState(initialValues?.coverImageUrl ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { fieldErrors, formError, handle, clear } = useFormError();
 
@@ -26,7 +28,7 @@ export function CollectionForm({
     clear();
     setIsSubmitting(true);
     try {
-      await onSubmit({ name, slug, description: description || undefined });
+      await onSubmit({ name, slug, description: description || undefined, coverImageUrl: coverImageUrl || null });
     } catch (error) {
       handle(error);
     } finally {
@@ -54,6 +56,14 @@ export function CollectionForm({
           </p>
         ) : null}
       </div>
+      <ImageUploadField
+        label="Cover image (optional)"
+        value={coverImageUrl}
+        onChange={setCoverImageUrl}
+        altText={name || "Collection cover"}
+        emptyHint="Uses the first product's photo"
+        error={fieldErrors.coverImageUrl}
+      />
       {formError ? (
         <p role="alert" className="font-body text-sm text-error">
           {formError}

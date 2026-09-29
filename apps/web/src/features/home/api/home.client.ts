@@ -76,6 +76,8 @@ export interface HomePageData {
   activeOffers: HomeOffer[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummary[];
+  /** "Fashion by Weight" (2026-09-29) — newest in-stock weight-priced products. Optional so a cached pre-deploy payload can't crash the page. */
+  fashionByWeight?: ProductSummary[];
   /** Rendered as "Loved by Customers" (merchandising logic corrections, 2026-09-06) — see GetHomePageUseCase's own doc comment for what now counts toward this. */
   bestSellers: ProductSummary[];
   /** Rendered as "Curated Collections" (2026-09-06 — the "Featured"/"New Drops" labels implied a lifecycle this data never had). */

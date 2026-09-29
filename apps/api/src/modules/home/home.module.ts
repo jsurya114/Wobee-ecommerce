@@ -19,6 +19,7 @@ import {
   listProductsUseCase,
   resolveProductIdsForVariantsUseCase,
 } from "../products/products.module";
+import { getAppConfigUseCase } from "../settings/settings.module";
 import { getAggregateTestimonialRatingUseCase, listApprovedTestimonialsUseCase } from "../testimonials/testimonials.module";
 import { cacheAside } from "../../shared/cache/catalog-cache";
 import { env } from "../../config/env";
@@ -53,6 +54,11 @@ const inStockProductIdsProvider = {
   },
 };
 
+/** Admin-configured Shop by Budget tiles (2026-09-29) — AppConfig.budgetTiles, read through `settings`' exported use-case, never its Prisma model (ADR-010). */
+const budgetTilesReader = {
+  execute: async () => (await getAppConfigUseCase.execute()).budgetTiles,
+};
+
 const realGetHomePageUseCase = new GetHomePageUseCase(
   listProductsUseCase,
   deliveredOnlyBestSellingVariantsReader,
@@ -69,6 +75,8 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   inStockProductIdsProvider,
   countActiveProductsBySizeUseCase,
   groupProductsByOfferUseCase,
+  budgetTilesReader,
+  listProductsUseCase,
 );
 
 const HOME_TTL_SECONDS = 60;
@@ -99,7 +107,7 @@ const HOME_TTL_SECONDS = 60;
  * `offerCampaigns` — a stale cache entry from the previous shape would
  * otherwise still validate as JSON and get served with neither field intact.
  */
-const HOME_PAGE_SCHEMA_VERSION = 6; // 6: banners carry resolvedCtaUrl (2026-09-28)
+const HOME_PAGE_SCHEMA_VERSION = 7; // 6: banners carry resolvedCtaUrl (2026-09-28); 7: fashionByWeight added (2026-09-29)
 
 /**
  * ADR-017 (Caching Strategy) — the whole aggregate cached as one unit,

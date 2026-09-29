@@ -1,3 +1,4 @@
+import { BudgetTilesForm } from "@/features/settings/components/BudgetTilesForm";
 import { CartShippingSettingsForm } from "@/features/settings/components/CartShippingSettingsForm";
 import { PricingSettingsForm } from "@/features/settings/components/PricingSettingsForm";
 import { ProductPresetsForm } from "@/features/settings/components/ProductPresetsForm";
@@ -8,6 +9,7 @@ const SECTIONS = [
   { id: "settings-pricing", label: "Pricing" },
   { id: "settings-cart-shipping", label: "Cart & shipping" },
   { id: "settings-presets", label: "Product presets" },
+  { id: "settings-budget", label: "Shop by budget" },
   { id: "settings-policies", label: "Store policies" },
 ] as const;
 
@@ -28,7 +30,7 @@ export default function SettingsPage() {
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <div className="flex flex-col gap-4">
-        <PageHeader title="Settings" description="Store-wide pricing, shipping rules, product presets and policies." />
+        <PageHeader title="Settings" description="Store-wide pricing, shipping rules, product presets, homepage budget tiles and policies." />
         <nav aria-label="Settings sections" className="flex flex-wrap gap-2">
           {SECTIONS.map((section) => (
             <a
@@ -49,6 +51,9 @@ export default function SettingsPage() {
       </Section>
       <Section id="settings-presets">
         <ProductPresetsForm />
+      </Section>
+      <Section id="settings-budget">
+        <BudgetTilesForm />
       </Section>
       <Section id="settings-policies">
         <StorePoliciesForm />

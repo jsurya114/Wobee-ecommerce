@@ -5,12 +5,12 @@ export interface CollectionEntity {
   description: string | null;
   isActive: boolean;
   /**
-   * 2026-08-31 (card redesign) — the collection's own top-sorted assigned
-   * product's primary image, or null if it has none assigned. There is no
-   * `Collection` media field (checked before adding this) — real product
-   * photography only, never invented art. Only populated by
-   * `findActiveCollections`; every other repository method omits it
-   * (`undefined`), since a text-only admin list/edit view has no use for it.
+   * `findActiveCollections` (the homepage/listing) returns the RESOLVED
+   * cover: the admin-uploaded `Collection.coverImageUrl` when set
+   * (2026-09-29), otherwise the collection's top-sorted assigned product's
+   * primary image (2026-08-31 card redesign), otherwise null. Every other
+   * repository method returns the stored admin-uploaded value only (null =
+   * none uploaded), which is what the admin form needs to show and clear.
    */
   coverImageUrl?: string | null;
 }

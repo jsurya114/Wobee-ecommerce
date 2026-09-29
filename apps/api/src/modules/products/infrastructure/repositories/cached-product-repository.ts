@@ -14,6 +14,7 @@ import type {
   UpdateProductInput,
   UpdateVariantInput,
 } from "../../application/ports/product-repository.port";
+import type { SearchMatchTerms } from "../../domain/parse-search-query";
 import type {
   AdminProductDetailEntity,
   AdminProductImageEntity,
@@ -38,12 +39,14 @@ function buildListKey(filter: ListProductsFilter): string {
     filter.categoryId ?? "_",
     filter.collectionId ?? "_",
     filter.search ?? "_",
+    filter.smartSearch ? JSON.stringify(filter.smartSearch) : "_",
     joinSorted(filter.sizes),
     joinSorted(filter.colors),
     filter.minPricePaise ?? "_",
     filter.maxPricePaise ?? "_",
     filter.onOffer ? "onOffer" : "_",
     filter.offerId ?? "_",
+    filter.pricingMode ?? "_",
     filter.sort,
     filter.page,
     filter.limit,
@@ -91,8 +94,8 @@ export class CachedProductRepository implements ProductRepositoryPort {
   findTopProductsPerOffer(params: { limit: number; inStockVariantIds?: string[] }): Promise<{ offerId: string; productId: string }[]> {
     return this.inner.findTopProductsPerOffer(params);
   }
-  searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]> {
-    return this.inner.searchSuggestions(query, limit);
+  searchSuggestions(terms: SearchMatchTerms, limit: number): Promise<ProductSuggestionEntity[]> {
+    return this.inner.searchSuggestions(terms, limit);
   }
   findVariantsByIds(variantIds: string[]): ReturnType<ProductRepositoryPort["findVariantsByIds"]> {
     return this.inner.findVariantsByIds(variantIds);

@@ -10,7 +10,9 @@ import { OnOfferQuickFilter } from "@/features/catalog/components/OnOfferQuickFi
 import { PlpControlBar } from "@/features/catalog/components/PlpControlBar";
 import { ProductResults } from "@/features/catalog/components/ProductResults";
 import { SizeQuickFilter } from "@/features/catalog/components/SizeQuickFilter";
+import { SearchInterpretation } from "@/features/catalog/components/SearchInterpretation";
 import { SortSelector } from "@/features/catalog/components/SortSelector";
+import { WeightQuickFilter } from "@/features/catalog/components/WeightQuickFilter";
 import { parseProductsQueryParams, type ProductsQueryParams } from "@/features/catalog/lib/build-products-href";
 import { ApiError } from "@/lib/api-client";
 
@@ -94,6 +96,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     maxPrice: first(raw.maxPrice),
     onOffer: first(raw.onOffer) === "true" ? "true" : undefined,
     offerId: first(raw.offerId),
+    pricingMode: first(raw.pricingMode) === "WEIGHT_BASED" ? "WEIGHT_BASED" : undefined,
     sort: parseExplicitSort(first(raw.sort)),
   };
 
@@ -123,7 +126,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       currentParams.minPrice ||
       currentParams.maxPrice ||
       currentParams.onOffer ||
-      currentParams.offerId,
+      currentParams.offerId ||
+      currentParams.pricingMode,
   );
 
   // Remounts ProductResults (and its accumulated "load more" pages) fresh
@@ -140,11 +144,13 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         <CategoryFilter categories={categories} activeSlug={currentParams.category} currentParams={currentParams} />
         <CollectionFilter collections={collections} activeSlug={currentParams.collection} currentParams={currentParams} />
         <PlpControlBar>
+          <WeightQuickFilter currentParams={currentParams} />
           <OnOfferQuickFilter currentParams={currentParams} />
           <SizeQuickFilter currentParams={currentParams} />
           <FiltersPanel currentParams={currentParams} />
           <SortSelector currentParams={currentParams} />
         </PlpControlBar>
+        <SearchInterpretation interpretation={result.searchInterpretation} />
         <ProductResults
           key={resultsKey}
           initialProducts={result.products}

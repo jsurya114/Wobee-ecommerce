@@ -11,6 +11,7 @@ import type {
   ProductVariantEntity,
 } from "../../domain/entities/product.entity";
 import { parseProductHighlights } from "../../domain/entities/product.entity";
+import type { SearchMatchTerms } from "../../domain/parse-search-query";
 import type {
   AddProductImageInput,
   CreateProductInput,
@@ -196,15 +197,33 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
    * well-tested row shape as before.
    */
   async findMany(filter: ListProductsFilter): Promise<ListProductsResult> {
-    const where = buildOfferAwareWhere(filter);
-    const orderBy = buildOfferAwareOrderBy(filter.sort);
-    // One instant shared by both queries below — so the id page and its
+    // One instant shared by every query below — so the id page and its
     // count can never disagree about which offers were "live" (see
     // `offerLateralJoin`'s own doc comment for why this is a JS `Date`
     // parameter, never Postgres's own `now()`).
     const offerJoin = offerLateralJoin(new Date());
+    const needsOfferJoin = Boolean(filter.onOffer || filter.offerId);
+    const countWhere = async (where: Prisma.Sql) => {
+      const rows = needsOfferJoin
+        ? await prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count FROM "products" p ${offerJoin} WHERE ${where}`)
+        : await prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count FROM "products" p WHERE ${where}`);
+      return Number(rows[0]?.count ?? 0n);
+    };
 
-    const [idRows, countRows] = await Promise.all([
+    // Smart search, "strict first, then widen" (2026-09-29): when the strict
+    // matches alone fill at least one page, only they are listed; otherwise
+    // looser matches are added, ranked below the strict ones. Either way the
+    // requested sort applies within each group.
+    const smart = filter.smartSearch ? buildSmartSearchSql(filter.smartSearch) : null;
+    let smartCondition = smart?.matchesAny;
+    if (smart && smart.canWiden) {
+      const strictTotal = await countWhere(buildOfferAwareWhere(filter, smart.matchesAll));
+      if (strictTotal >= filter.limit) smartCondition = smart.matchesAll;
+    }
+    const where = buildOfferAwareWhere(filter, smartCondition);
+    const orderBy = smart ? Prisma.sql`${smart.matchesAll} DESC, ${buildOfferAwareOrderBy(filter.sort)}` : buildOfferAwareOrderBy(filter.sort);
+
+    const [idRows, total] = await Promise.all([
       prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
         SELECT p."id"
         FROM "products" p
@@ -216,24 +235,12 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
       `),
       // The count never depends on sort, and only needs the offer lateral
       // join when `onOffer`/`offerId` actually filter on it — skipped
-      // otherwise so a plain listing/category/search count isn't paying for
-      // a per-row offer resolution it doesn't use.
-      filter.onOffer || filter.offerId
-        ? prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-            SELECT COUNT(*)::bigint AS count
-            FROM "products" p
-            ${offerJoin}
-            WHERE ${where}
-          `)
-        : prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-            SELECT COUNT(*)::bigint AS count
-            FROM "products" p
-            WHERE ${where}
-          `),
+      // otherwise (see `countWhere`) so a plain listing/category/search count
+      // isn't paying for a per-row offer resolution it doesn't use.
+      countWhere(where),
     ]);
 
     const ids = idRows.map((row) => row.id);
-    const total = Number(countRows[0]?.count ?? 0n);
     if (ids.length === 0) return { products: [], total };
 
     const rows = await prisma.product.findMany({ where: { id: { in: ids } }, select: SUMMARY_SELECT });
@@ -383,14 +390,23 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
     }));
   }
 
-  async searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]> {
-    const trimmed = query.trim();
-    if (!trimmed) return [];
-    const rows = await prisma.product.findMany({
-      where: { isActive: true, name: { contains: trimmed, mode: "insensitive" } },
-      // Cheapest first, `id` tiebreaker — deterministic, same as findMany's price_asc.
-      orderBy: [{ minPricePaiseCache: "asc" }, { id: "asc" }],
-      take: limit,
+  async searchSuggestions(terms: SearchMatchTerms, limit: number): Promise<ProductSuggestionEntity[]> {
+    const smart = buildSmartSearchSql(terms);
+    if (!smart) return [];
+    // Strict matches first (every name word + every mentioned attribute),
+    // then looser ones; cheapest first within each, `id` tiebreaker —
+    // deterministic, same as findMany's price_asc.
+    const idRows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT p."id"
+      FROM "products" p
+      WHERE p."isActive" = true AND ${smart.matchesAny}
+      ORDER BY ${smart.matchesAll} DESC, p."minPricePaiseCache" ASC, p."id" ASC
+      LIMIT ${limit}
+    `);
+    const ids = idRows.map((row) => row.id);
+    if (ids.length === 0) return [];
+    const unordered = await prisma.product.findMany({
+      where: { id: { in: ids } },
       select: {
         id: true,
         slug: true,
@@ -399,13 +415,11 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
         images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true, altText: true, sortOrder: true } },
       },
     });
-    return rows.map((row) => ({
-      id: row.id,
-      slug: row.slug,
-      name: row.name,
-      minPricePaiseCache: row.minPricePaiseCache,
-      primaryImage: row.images[0] ?? null,
-    }));
+    const rowById = new Map(unordered.map((row) => [row.id, row]));
+    return ids.flatMap((id) => {
+      const row = rowById.get(id);
+      return row ? [{ id: row.id, slug: row.slug, name: row.name, minPricePaiseCache: row.minPricePaiseCache, primaryImage: row.images[0] ?? null }] : [];
+    });
   }
 
   async findVariantsByIds(
@@ -859,6 +873,55 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
   }
 }
 
+/** `%term%` with LIKE wildcards in the term itself escaped, so a shopper typing "50%" searches for a literal percent sign. */
+function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
+/**
+ * Smart search SQL (2026-09-29) — see `ListProductsFilter.smartSearch`.
+ * Colour / fabric / fit match a live variant's field OR the product name
+ * (fabric and fit are optional free text on variants, and "Rose Kurti" is
+ * rose whatever its variants say); sizes match a live variant only. Returns
+ * null when there is nothing to match on. `p` is the `"products"` alias.
+ *
+ * - `matchesAny`: any name word (2+ characters) or any attribute group.
+ * - `matchesAll`: every name word AND every attribute group — the strict tier.
+ *
+ * No new index: the variant subqueries are keyed by `productId`, which
+ * `product_variants_productId_idx` and the (productId, color, size) unique
+ * index already cover; an ILIKE substring can't use a btree index anyway.
+ */
+function buildSmartSearchSql(terms: SearchMatchTerms): { matchesAny: Prisma.Sql; matchesAll: Prisma.Sql; canWiden: boolean } | null {
+  const nameMatches = (term: string) => Prisma.sql`p."name" ILIKE ${likePattern(term)}`;
+  const variantOrNameMatches = (column: "color" | "fabric" | "fit", values: string[]) => {
+    const patterns = values.map(likePattern);
+    return Prisma.sql`(EXISTS (SELECT 1 FROM "product_variants" v WHERE v."productId" = p."id" AND v."isActive" = true AND v.${Prisma.raw(`"${column}"`)} ILIKE ANY(${patterns}::text[])) OR p."name" ILIKE ANY(${patterns}::text[]))`;
+  };
+
+  const groups: Prisma.Sql[] = [];
+  if (terms.colorTerms.length) groups.push(variantOrNameMatches("color", terms.colorTerms));
+  if (terms.fabricTerms.length) groups.push(variantOrNameMatches("fabric", terms.fabricTerms));
+  if (terms.fitTerms.length) groups.push(variantOrNameMatches("fit", terms.fitTerms));
+  if (terms.sizeValues.length) {
+    const sizes = terms.sizeValues.map((size) => size.toLowerCase());
+    groups.push(Prisma.sql`EXISTS (SELECT 1 FROM "product_variants" v WHERE v."productId" = p."id" AND v."isActive" = true AND lower(v."size") = ANY(${sizes}::text[]))`);
+  }
+
+  const allNameConditions = terms.nameTerms.map(nameMatches);
+  // A lone letter ("t" left over from a typo) would match nearly every name; it still counts toward the strict tier, but never widens results on its own.
+  const wideningNameConditions = terms.nameTerms.filter((term) => term.length >= 2).map(nameMatches);
+  const any = [...wideningNameConditions, ...groups];
+  const all = [...allNameConditions, ...groups];
+  if (any.length === 0) return null;
+  return {
+    matchesAny: Prisma.sql`(${Prisma.join(any, " OR ")})`,
+    matchesAll: Prisma.sql`(${Prisma.join(all, " AND ")})`,
+    // One condition in each list means "any" and "all" are the same set — no wider tier exists.
+    canWiden: any.length > 1 || all.length > 1,
+  };
+}
+
 /**
  * Every filter is AND'd together; size/color are each OR'd within
  * themselves (independent facets — see ListProductsUseCase's own comment
@@ -868,16 +931,22 @@ export class ProductRepository implements ProductRepositoryPort, ProductCostsRep
  * `products_name_trgm_idx` GIN index (pg_trgm, ADR-012) for it here too.
  * `p` is the alias `findMany`'s raw query binds to `"products"`.
  */
-function buildOfferAwareWhere(filter: ListProductsFilter): Prisma.Sql {
+function buildOfferAwareWhere(filter: ListProductsFilter, smartSearchCondition?: Prisma.Sql): Prisma.Sql {
   const conditions: Prisma.Sql[] = [Prisma.sql`p."isActive" = true`];
 
   if (filter.categoryId) conditions.push(Prisma.sql`p."categoryId" = ${filter.categoryId}`);
+  if (filter.pricingMode) conditions.push(Prisma.sql`p."pricingMode" = ${filter.pricingMode}::"PricingMode"`);
   if (filter.collectionId) {
     conditions.push(
       Prisma.sql`EXISTS (SELECT 1 FROM "product_collections" pc WHERE pc."productId" = p."id" AND pc."collectionId" = ${filter.collectionId})`,
     );
   }
-  if (filter.search) conditions.push(Prisma.sql`p."name" ILIKE ${`%${filter.search}%`}`);
+  if (filter.smartSearch) {
+    // Chosen by findMany (strict-only or widened); nothing searchable left matches nothing, same as a term that matches no name.
+    conditions.push(smartSearchCondition ?? Prisma.sql`false`);
+  } else if (filter.search) {
+    conditions.push(Prisma.sql`p."name" ILIKE ${`%${filter.search}%`}`);
+  }
   if (filter.sizes?.length) {
     conditions.push(
       Prisma.sql`EXISTS (SELECT 1 FROM "product_variants" v WHERE v."productId" = p."id" AND v."isActive" = true AND v."size" = ANY(${filter.sizes}::text[]))`,

@@ -11,6 +11,7 @@ import { findCollectionBySlugUseCase } from "../collections/collections.module";
 import { findInStockVariantIdsUseCase, getAvailableQuantitiesUseCase, initializeInventoryForVariantUseCase } from "../inventory/inventory.module";
 import { createOfferUseCase, getOfferAdminUseCase, resolveApplicableOffersUseCase, updateOfferUseCase } from "../offers/offers.module";
 import { calculateEffectivePriceUseCase } from "../pricing/pricing.module";
+import { getAppConfigUseCase } from "../settings/settings.module";
 import { env } from "../../config/env";
 import type { CategoryReaderPort } from "./application/ports/category-reader.port";
 import type { CollectionReaderPort } from "./application/ports/collection-reader.port";
@@ -19,6 +20,8 @@ import type { InventoryReaderPort } from "./application/ports/inventory-reader.p
 import type { OfferReaderPort } from "./application/ports/offer-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
 import type { ProductRepositoryPort } from "./application/ports/product-repository.port";
+import type { SearchVocabularyReaderPort } from "./application/ports/search-vocabulary-reader.port";
+import type { SearchVocabularyExtras } from "./domain/parse-search-query";
 import { AddProductImageUseCase } from "./application/use-cases/admin/add-product-image.use-case";
 import { CreateOfferWithPriceValidationUseCase } from "./application/use-cases/admin/create-offer-with-price-validation.use-case";
 import { CreateProductUseCase } from "./application/use-cases/admin/create-product.use-case";
@@ -78,7 +81,31 @@ const inventoryInitializer: InventoryInitializerPort = {
 const offerReader: OfferReaderPort = { resolveMany: (inputs) => resolveApplicableOffersUseCase.executeMany(inputs) };
 
 const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, pricingReader, inventoryReader, offerReader);
-const searchProductSuggestionsUseCase = new SearchProductSuggestionsUseCase(productRepository);
+/**
+ * Smart search vocabulary (2026-09-29) — the admin's size / fabric / fit
+ * presets on top of the built-in dictionary. Memoised in-process for a
+ * minute: the typeahead fires on every debounced keystroke, and a preset
+ * edit showing up in search a minute later is harmless. A failed read
+ * falls back to the built-in dictionary rather than failing the search.
+ */
+const SEARCH_VOCABULARY_TTL_MS = 60_000;
+let cachedSearchVocabulary: { value: SearchVocabularyExtras; expiresAt: number } | null = null;
+const searchVocabularyReader: SearchVocabularyReaderPort = {
+  get: async () => {
+    const now = Date.now();
+    if (cachedSearchVocabulary && cachedSearchVocabulary.expiresAt > now) return cachedSearchVocabulary.value;
+    try {
+      const config = await getAppConfigUseCase.execute();
+      const value = { sizes: config.presetSizes, fabrics: config.presetFabrics, fits: config.presetFits };
+      cachedSearchVocabulary = { value, expiresAt: now + SEARCH_VOCABULARY_TTL_MS };
+      return value;
+    } catch {
+      return {};
+    }
+  },
+};
+
+const searchProductSuggestionsUseCase = new SearchProductSuggestionsUseCase(productRepository, searchVocabularyReader);
 const getRelatedProductsUseCase = new GetRelatedProductsUseCase(productRepository, pricingReader, offerReader);
 
 /** Exported for cross-module use — `home`'s New Arrivals rail (Week 2 Day 8 Part 2) calls this with `sort: "newest"` instead of duplicating catalogue-listing logic. */
@@ -89,6 +116,7 @@ export const listProductsUseCase = new ListProductsUseCase(
   inventoryReader,
   pricingReader,
   offerReader,
+  searchVocabularyReader,
 );
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRepository);

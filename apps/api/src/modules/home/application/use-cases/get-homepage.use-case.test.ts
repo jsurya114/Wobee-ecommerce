@@ -32,6 +32,9 @@ function makeUseCase(overrides: {
   sizeCounts?: Map<string, number>;
   /** offerId -> its products, as `ProductsByOfferGrouper` would return. */
   groupedOfferProducts?: Map<string, unknown[]>;
+  /** Admin-configured Shop by Budget tiles; defaults to the three shipped defaults. */
+  budgetTileDefs?: { label: string; maxPricePaise: number; coverImageUrl: string | null }[];
+  weightBasedProducts?: unknown[];
 }) {
   const newArrivalsLister = { execute: vi.fn().mockResolvedValue({ products: overrides.newArrivals ?? [], page: 1, limit: 8, total: 0 }) };
   const bestSellingVariantsReader = { execute: vi.fn().mockResolvedValue(overrides.variantSales ?? []) };
@@ -52,6 +55,18 @@ function makeUseCase(overrides: {
   };
   const sizeAvailabilityReader = { execute: vi.fn().mockResolvedValue(overrides.sizeCounts ?? new Map()) };
   const productsByOfferGrouper = { execute: vi.fn().mockResolvedValue(overrides.groupedOfferProducts ?? new Map()) };
+  const weightBasedProductsLister = {
+    execute: vi.fn().mockResolvedValue({ products: overrides.weightBasedProducts ?? [], page: 1, limit: 8, total: 0 }),
+  };
+  const budgetTilesReader = {
+    execute: vi.fn().mockResolvedValue(
+      overrides.budgetTileDefs ?? [
+        { label: "Under ₹499", maxPricePaise: 49_900, coverImageUrl: null },
+        { label: "Under ₹799", maxPricePaise: 79_900, coverImageUrl: null },
+        { label: "Under ₹999", maxPricePaise: 99_900, coverImageUrl: null },
+      ],
+    ),
+  };
 
   const useCase = new GetHomePageUseCase(
     newArrivalsLister,
@@ -69,6 +84,8 @@ function makeUseCase(overrides: {
     inStockProductIdsProvider,
     sizeAvailabilityReader,
     productsByOfferGrouper,
+    budgetTilesReader,
+    weightBasedProductsLister,
   );
 
   return {
@@ -88,6 +105,8 @@ function makeUseCase(overrides: {
     inStockProductIdsProvider,
     sizeAvailabilityReader,
     productsByOfferGrouper,
+    budgetTilesReader,
+    weightBasedProductsLister,
   };
 }
 
@@ -218,14 +237,14 @@ describe("GetHomePageUseCase", () => {
     expect(result.bestSellers.map((p) => p.id)).toEqual(["back-in-stock"]);
   });
 
-  it("caps Featured Collections at 4 even when more active collections exist", async () => {
-    const collections = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, name: `Collection ${i}`, slug: `c${i}`, description: null, isActive: true }));
+  it("returns every active collection, uncapped — the admin controls what shows via isActive", async () => {
+    const collections = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, name: `Collection ${i}`, slug: `c${i}`, description: null, isActive: true }));
     const { useCase } = makeUseCase({ collections });
 
     const result = await useCase.execute();
 
-    expect(result.featuredCollections).toHaveLength(4);
-    expect(result.featuredCollections).toEqual(collections.slice(0, 4));
+    expect(result.featuredCollections).toHaveLength(12);
+    expect(result.featuredCollections).toEqual(collections);
   });
 
   it("passes the approved testimonials list straight through — enrichment (display name, product info) already happened one layer down", async () => {
@@ -266,6 +285,7 @@ describe("GetHomePageUseCase", () => {
       activeOffers: [],
       categoryTiles: [],
       newArrivals: arrivals,
+      fashionByWeight: [],
       bestSellers: [],
       featuredCollections: [],
       testimonials: [],
@@ -326,6 +346,35 @@ describe("GetHomePageUseCase", () => {
     expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 49_900, sort: "price_desc", page: 1, limit: 1 });
     expect(result.budgetTiles[0]).toEqual({ label: "Under ₹499", maxPricePaise: 49_900, imageUrl: "https://img/under-499.jpg" });
     expect(result.budgetTiles[1]?.imageUrl).toBeNull();
+  });
+
+  it("fills Fashion by Weight with the newest in-stock weight-based products", async () => {
+    const weighed = [{ id: "w1" }, { id: "w2" }];
+    const { useCase, weightBasedProductsLister } = makeUseCase({ weightBasedProducts: weighed });
+
+    const result = await useCase.execute();
+
+    expect(weightBasedProductsLister.execute).toHaveBeenCalledWith({ pricingMode: "WEIGHT_BASED", sort: "newest", page: 1, limit: 8, inStockOnly: true });
+    expect(result.fashionByWeight).toEqual(weighed);
+  });
+
+  it("uses the admin-configured budget tiles in order, and an admin cover skips the product lookup", async () => {
+    const { useCase, budgetProductsLister } = makeUseCase({
+      budgetTileDefs: [
+        { label: "Under ₹299", maxPricePaise: 29_900, coverImageUrl: "https://img/admin-299.jpg" },
+        { label: "Under ₹1,499", maxPricePaise: 149_900, coverImageUrl: null },
+      ],
+    });
+    budgetProductsLister.execute.mockResolvedValueOnce({ products: [{ primaryImage: { url: "https://img/under-1499.jpg" } }], page: 1, limit: 1, total: 1 });
+
+    const result = await useCase.execute();
+
+    expect(budgetProductsLister.execute).toHaveBeenCalledTimes(1);
+    expect(budgetProductsLister.execute).toHaveBeenCalledWith({ maxPricePaise: 149_900, sort: "price_desc", page: 1, limit: 1 });
+    expect(result.budgetTiles).toEqual([
+      { label: "Under ₹299", maxPricePaise: 29_900, imageUrl: "https://img/admin-299.jpg" },
+      { label: "Under ₹1,499", maxPricePaise: 149_900, imageUrl: "https://img/under-1499.jpg" },
+    ]);
   });
 
   it("asks the offer grouper for OFFER_CAMPAIGN_PRODUCTS_LIMIT in-stock products per offer (offer merchandising pass, 2026-09-15)", async () => {

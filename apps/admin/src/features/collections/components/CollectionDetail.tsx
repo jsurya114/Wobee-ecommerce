@@ -69,7 +69,12 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
           // would stay frozen at its pre-save values even though
           // `collection` (and the listing) already reflect the fresh save.
           key={`${collectionId}:${saveGen}`}
-          initialValues={{ name: collection.name, slug: collection.slug, description: collection.description ?? undefined }}
+          initialValues={{
+            name: collection.name,
+            slug: collection.slug,
+            description: collection.description ?? undefined,
+            coverImageUrl: collection.coverImageUrl,
+          }}
           submitLabel="Save changes"
           onSubmit={(payload) =>
             saveAndRedirect(async () => {

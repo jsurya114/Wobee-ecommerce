@@ -66,6 +66,9 @@ export const productListQuerySchema = z
     // isn't sensitive, and an id that doesn't match any active offer simply
     // yields zero results, never a 400/404.
     offerId: z.string().uuid().optional(),
+    // "Fashion by Weight" (2026-09-29) — restrict to one pricing mode
+    // (`/products?pricingMode=WEIGHT_BASED`). Absent = both modes, as before.
+    pricingMode: z.enum(["WEIGHT_BASED", "FIXED"]).optional(),
     // Paise, inclusive bounds. Filters against Product.minPricePaiseCache —
     // the same display/sort cache Week 1 already uses for listing sort
     // (see product.repository.ts's own comment for why that's fine for a

@@ -36,6 +36,25 @@ const presetListSchema = z
   .max(50, "At most 50 options")
   .refine((values) => new Set(values.map((v) => v.toLowerCase())).size === values.length, "Each option must be unique");
 
+/**
+ * Homepage "Shop by Budget" tiles (2026-09-29). Price is integer paise; the
+ * admin form converts from rupees. coverImageUrl: an absolute URL from the
+ * media endpoint or an app-relative path; null = auto (top in-budget
+ * product's photo).
+ */
+export const budgetTileSchema = z.object({
+  label: z.string().trim().min(1, "Label is required").max(40, "Keep the label to 40 characters or fewer"),
+  maxPricePaise: z.number().int().positive("Max price must be more than ₹0").max(100_000_000, "That's more than ₹10,00,000"),
+  coverImageUrl: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((value) => /^https?:\/\//.test(value) || value.startsWith("/"), "Invalid image URL")
+    .nullable()
+    .default(null),
+});
+export type BudgetTileInput = z.infer<typeof budgetTileSchema>;
+
 /** Store settings (AppConfig singleton) — partial update. */
 export const updateAppConfigSchema = z
   .object({
@@ -45,6 +64,12 @@ export const updateAppConfigSchema = z
     presetFits: presetListSchema,
     returnsEnabled: z.boolean(),
     codShippingUpfront: z.boolean(),
+    budgetTiles: z
+      .array(budgetTileSchema)
+      .min(1, "Keep at least one tile")
+      .max(6, "At most 6 tiles")
+      // Two tiles with the same cap would link to the same filtered page (and collide as React keys on the storefront).
+      .refine((tiles) => new Set(tiles.map((tile) => tile.maxPricePaise)).size === tiles.length, "Each tile needs a different max price"),
   })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, { message: "Nothing to update" });

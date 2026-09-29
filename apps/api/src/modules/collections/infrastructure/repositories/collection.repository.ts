@@ -7,7 +7,7 @@ import type {
 } from "../../application/ports/collection-repository.port";
 import type { CollectionEntity } from "../../domain/entities/collection.entity";
 
-const SELECT_FIELDS = { id: true, name: true, slug: true, description: true, isActive: true } as const;
+const SELECT_FIELDS = { id: true, name: true, slug: true, description: true, isActive: true, coverImageUrl: true } as const;
 
 /**
  * ADR-010: the ONLY file in the collections module allowed to import
@@ -39,7 +39,8 @@ export class CollectionRepository implements CollectionRepositoryPort {
       slug: row.slug,
       description: row.description,
       isActive: row.isActive,
-      coverImageUrl: row.products[0]?.product.images[0]?.url ?? null,
+      // Admin-uploaded cover wins (2026-09-29); otherwise the derived product image.
+      coverImageUrl: row.coverImageUrl ?? row.products[0]?.product.images[0]?.url ?? null,
     }));
   }
 
@@ -63,7 +64,7 @@ export class CollectionRepository implements CollectionRepositoryPort {
   async create(input: CreateCollectionInput): Promise<CollectionEntity> {
     try {
       return await prisma.collection.create({
-        data: { name: input.name, slug: input.slug, description: input.description ?? null },
+        data: { name: input.name, slug: input.slug, description: input.description ?? null, coverImageUrl: input.coverImageUrl ?? null },
         select: SELECT_FIELDS,
       });
     } catch (error) {
@@ -78,7 +79,7 @@ export class CollectionRepository implements CollectionRepositoryPort {
     try {
       return await prisma.collection.update({
         where: { id },
-        data: { name: input.name, slug: input.slug, description: input.description },
+        data: { name: input.name, slug: input.slug, description: input.description, coverImageUrl: input.coverImageUrl },
         select: SELECT_FIELDS,
       });
     } catch (error) {

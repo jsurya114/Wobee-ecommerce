@@ -224,6 +224,20 @@ describe("GET /api/v1/products/suggestions — search typeahead", () => {
     expect(res.body.suggestions).toEqual([]);
   });
 
+  it("smart search: ranks the product matching every word and the colour first", async () => {
+    const res = await request(app)
+      .get("/api/v1/products/suggestions")
+      .query({ q: `${SEARCH_TOKEN} red color jacket` });
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions[0].name).toBe(`${SEARCH_TOKEN} Aurora Jacket`);
+  });
+
+  it("smart search: treats % and _ as literal characters, not wildcards", async () => {
+    const res = await request(app).get("/api/v1/products/suggestions").query({ q: "%%" });
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions).toEqual([]);
+  });
+
   it("does not shadow GET /api/v1/products/:slug", async () => {
     const slug = `aurora-jacket-${SUFFIX}`;
     const res = await request(app).get(`/api/v1/products/${slug}`);
@@ -389,6 +403,51 @@ describe("GET /api/v1/products — filters", () => {
     expect(multi.body.total).toBe(3); // + aurora-coat (Blue)
   });
 
+  it("smart search: strict matches first, looser matches below when the strict ones don't fill a page", async () => {
+    const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, q: "red aurora" });
+    expect(res.status).toBe(200);
+    // Strict: Aurora Jacket (named aurora, has a Red variant). Then, cheapest first: Breeze Top (red), Aurora Coat (aurora).
+    expect(namesOf(res.body)).toEqual([`${SEARCH_TOKEN} Aurora Jacket`, `${SEARCH_TOKEN} Breeze Top`, `${SEARCH_TOKEN} Aurora Coat`]);
+    expect(res.body.total).toBe(3);
+    expect(res.body.searchInterpretation).toEqual({ keywords: "aurora", colors: ["red"], sizes: [], fabrics: [], fits: [] });
+  });
+
+  it("smart search: lists only strict matches once they fill the page", async () => {
+    const res = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, q: "red aurora", limit: 1 });
+    expect(namesOf(res.body)).toEqual([`${SEARCH_TOKEN} Aurora Jacket`]);
+    expect(res.body.total).toBe(1);
+  });
+
+  it("smart search: a size word matches variants, and explicit facets still hard-filter", async () => {
+    const bySize = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, q: "large" });
+    expect(namesOf(bySize.body).sort()).toEqual([`${SEARCH_TOKEN} Aurora Coat`, `${SEARCH_TOKEN} Aurora Jacket`].sort());
+
+    const withFacet = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, q: "red aurora", color: "Blue" });
+    expect(namesOf(withFacet.body)).toEqual([`${SEARCH_TOKEN} Aurora Coat`]);
+  });
+
+  it("filters by pricing mode (Fashion by Weight), and 400s an unknown mode", async () => {
+    const scarfId = productIdBySlug[`plain-scarf-${SUFFIX}`]!;
+    await prisma.product.update({ where: { id: scarfId }, data: { pricingMode: "FIXED" } });
+    try {
+      const weighed = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, pricingMode: "WEIGHT_BASED" });
+      expect(weighed.status).toBe(200);
+      expect(weighed.body.total).toBe(4);
+      expect(namesOf(weighed.body)).not.toContain(`Plain Scarf ${SUFFIX}`);
+
+      const fixed = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG, pricingMode: "FIXED" });
+      expect(fixed.body.total).toBe(1);
+
+      const both = await request(app).get("/api/v1/products").query({ category: CATEGORY_SLUG });
+      expect(both.body.total).toBe(5);
+
+      const bad = await request(app).get("/api/v1/products").query({ pricingMode: "BY_VIBES" });
+      expect(bad.status).toBe(400);
+    } finally {
+      await prisma.product.update({ where: { id: scarfId }, data: { pricingMode: "WEIGHT_BASED" } });
+    }
+  });
+
   it("treats size and color as independent facets — matches across two different variants of the same product", async () => {
     // aurora-jacket's variants are Red+L and Black+M — NO single variant is
     // both Red and M. If the filter required one variant to match both
@@ -414,17 +473,18 @@ describe("GET /api/v1/products — filters", () => {
       where: { product: { slug: `breeze-top-${SUFFIX}` } },
     });
 
+    // Smart search (2026-09-29) widens "Breeze Top" to the in-stock Breeze Skirt when there is no exact match, so assert on the Top itself.
     const before = await request(app)
       .get("/api/v1/products")
       .query({ category: CATEGORY_SLUG, inStock: "true", q: "Breeze Top" });
-    expect(before.body.total).toBe(0);
+    expect(namesOf(before.body)).not.toContain(`${SEARCH_TOKEN} Breeze Top`);
 
     await prisma.inventory.updateMany({ where: { variantId: outOfStockVariant.id }, data: { quantityAvailable: 4 } });
     try {
       const after = await request(app)
         .get("/api/v1/products")
         .query({ category: CATEGORY_SLUG, inStock: "true", q: "Breeze Top" });
-      expect(after.body.total).toBe(1);
+      expect(namesOf(after.body)[0]).toBe(`${SEARCH_TOKEN} Breeze Top`);
     } finally {
       // Restore, so later tests in this file (and re-runs) see the original zero-stock fixture.
       await prisma.inventory.updateMany({ where: { variantId: outOfStockVariant.id }, data: { quantityAvailable: 0 } });

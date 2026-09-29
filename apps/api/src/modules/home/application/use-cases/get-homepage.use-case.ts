@@ -11,6 +11,8 @@ import type { PublicTestimonialView } from "../../../testimonials/application/us
 
 const NEW_ARRIVALS_LIMIT = 8;
 const BEST_SELLERS_LIMIT = 8;
+/** "Fashion by Weight" rail (2026-09-29) — same size as every other product rail. */
+const FASHION_BY_WEIGHT_LIMIT = 8;
 /**
  * Per-campaign product cap (offer merchandising pass, 2026-09-15) — same
  * size as every other homepage rail (New Arrivals, Best Sellers), so a
@@ -53,15 +55,6 @@ const CURATED_CLOTHING_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "One Size"];
 // the final rail still has BEST_SELLERS_LIMIT items whenever enough sales
 // history exists.
 const BEST_SELLERS_VARIANT_OVERFETCH = 60;
-const FEATURED_COLLECTIONS_LIMIT = 4;
-// 2026-08-31 (card redesign) — fixed price buckets, same values ShopByBudget
-// previously hardcoded client-side; moved here so the cover image and the
-// filter link stay in sync from one source instead of two.
-const BUDGET_TILE_DEFS = [
-  { label: "Under ₹499", maxPricePaise: 49_900 },
-  { label: "Under ₹799", maxPricePaise: 79_900 },
-  { label: "Under ₹999", maxPricePaise: 99_900 },
-];
 /** "Loved by Our Customers" rail (2026-09-11, replaces the old per-product Customer Reviews rail) — up to this many APPROVED testimonials, newest/highest-rated first. */
 const TESTIMONIALS_LIMIT = 6;
 
@@ -74,6 +67,16 @@ const TESTIMONIALS_LIMIT = 6;
  */
 interface NewArrivalsLister {
   execute(input: { sort: "newest"; page: number; limit: number; inStockOnly?: boolean }): Promise<ListProductsResult>;
+}
+
+/**
+ * "Fashion by Weight" rail (2026-09-29) — matches `ListProductsUseCase`'s own
+ * `execute` signature; the rail always passes `pricingMode: "WEIGHT_BASED"`,
+ * `sort: "newest"` and `inStockOnly: true` (same "what can I buy now" rule
+ * as New Arrivals).
+ */
+interface WeightBasedProductsLister {
+  execute(input: { pricingMode: "WEIGHT_BASED"; sort: "newest"; page: number; limit: number; inStockOnly: boolean }): Promise<ListProductsResult>;
 }
 
 /**
@@ -166,6 +169,16 @@ interface BudgetProductsLister {
   execute(input: { maxPricePaise: number; sort: "price_desc"; page: number; limit: number }): Promise<ListProductsResult>;
 }
 
+/**
+ * Admin-configured "Shop by Budget" tiles (2026-09-29), in display order —
+ * bound in home.module.ts to `settings`' AppConfig.budgetTiles (whose column
+ * default is the three tiles this use-case used to hardcode). Replaces the
+ * old `BUDGET_TILE_DEFS` constant.
+ */
+interface BudgetTilesReader {
+  execute(): Promise<{ label: string; maxPricePaise: number; coverImageUrl: string | null }[]>;
+}
+
 export interface HomeCategoryTile {
   id: string;
   name: string;
@@ -177,7 +190,7 @@ export interface HomeCategoryTile {
 export interface HomeBudgetTile {
   label: string;
   maxPricePaise: number;
-  /** The cheapest active product at/under this cap's own image, or null if nothing qualifies yet. */
+  /** The admin-uploaded cover when set (2026-09-29); otherwise the top active product at/under this cap's own image, or null if nothing qualifies yet. */
   imageUrl: string | null;
 }
 
@@ -229,6 +242,8 @@ export interface HomePageView {
   activeOffers: OfferStripEntity[];
   categoryTiles: HomeCategoryTile[];
   newArrivals: ProductSummaryEntity[];
+  /** "Fashion by Weight" (2026-09-29) — newest in-stock WEIGHT_BASED products, priced by weight. `[]` hides the section. */
+  fashionByWeight: ProductSummaryEntity[];
   /**
    * Dynamic per-Offer campaign sections (offer merchandising pass,
    * 2026-09-15) — replaces the earlier generic "Shop our offers" single
@@ -336,6 +351,8 @@ export class GetHomePageUseCase {
     private readonly inStockProductIdsProvider: InStockProductIdsProvider,
     private readonly sizeAvailabilityReader: SizeAvailabilityReader,
     private readonly productsByOfferGrouper: ProductsByOfferGrouper,
+    private readonly budgetTilesReader: BudgetTilesReader,
+    private readonly weightBasedProductsLister: WeightBasedProductsLister,
   ) {}
 
   async execute(): Promise<HomePageView> {
@@ -351,6 +368,7 @@ export class GetHomePageUseCase {
       budgetTiles,
       sizeAvailability,
       groupedOfferProducts,
+      fashionByWeight,
     ] = await Promise.all([
       this.visibleBannersLister.execute(),
       this.activeOffersLister.execute(),
@@ -365,6 +383,9 @@ export class GetHomePageUseCase {
       this.resolveBudgetTiles(),
       this.resolveSizeAvailability(),
       this.productsByOfferGrouper.execute({ limitPerOffer: OFFER_CAMPAIGN_PRODUCTS_LIMIT, inStockOnly: true }),
+      this.weightBasedProductsLister
+        .execute({ pricingMode: "WEIGHT_BASED", sort: "newest", page: 1, limit: FASHION_BY_WEIGHT_LIMIT, inStockOnly: true })
+        .then((result) => result.products),
     ]);
 
     return {
@@ -372,8 +393,10 @@ export class GetHomePageUseCase {
       activeOffers,
       categoryTiles,
       newArrivals,
+      fashionByWeight,
       bestSellers,
-      featuredCollections: featuredCollections.slice(0, FEATURED_COLLECTIONS_LIMIT),
+      // Every active collection (2026-09-29) — the admin controls what shows via `isActive`.
+      featuredCollections,
       testimonials,
       testimonialAggregate,
       budgetTiles,
@@ -457,10 +480,13 @@ export class GetHomePageUseCase {
   }
 
   private async resolveBudgetTiles(): Promise<HomeBudgetTile[]> {
+    const tiles = await this.budgetTilesReader.execute();
     return Promise.all(
-      BUDGET_TILE_DEFS.map(async (def) => {
-        const result = await this.budgetProductsLister.execute({ maxPricePaise: def.maxPricePaise, sort: "price_desc", page: 1, limit: 1 });
-        return { label: def.label, maxPricePaise: def.maxPricePaise, imageUrl: result.products[0]?.primaryImage?.url ?? null };
+      tiles.map(async (tile) => {
+        // An admin-uploaded cover skips the product lookup entirely.
+        if (tile.coverImageUrl) return { label: tile.label, maxPricePaise: tile.maxPricePaise, imageUrl: tile.coverImageUrl };
+        const result = await this.budgetProductsLister.execute({ maxPricePaise: tile.maxPricePaise, sort: "price_desc", page: 1, limit: 1 });
+        return { label: tile.label, maxPricePaise: tile.maxPricePaise, imageUrl: result.products[0]?.primaryImage?.url ?? null };
       }),
     );
   }
