@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminCategory } from "../hooks/useAdminCategory";
 import { CategoryForm } from "./CategoryForm";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function CategoryDetail({ categoryId }: { categoryId: string }) {
   const saveAndRedirect = useSaveAndRedirect("/categories");
@@ -39,15 +40,18 @@ export function CategoryDetail({ categoryId }: { categoryId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-xl">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl text-text-primary">{category.name}</h1>
-        <div className="flex items-center gap-2">
-          <Badge variant={category.isActive ? "success" : "neutral"}>{category.isActive ? "active" : "inactive"}</Badge>
-          <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
-            {category.isActive ? "Deactivate" : "Activate"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/categories", label: "Categories" }}
+        title={category.name}
+        meta={<Badge variant={category.isActive ? "success" : "neutral"}>{category.isActive ? "active" : "inactive"}</Badge>}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
+              {category.isActive ? "Deactivate" : "Activate"}
+            </Button>
+          </>
+        }
+      />
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>

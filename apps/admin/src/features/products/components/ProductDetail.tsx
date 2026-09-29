@@ -12,11 +12,23 @@ import { ProductForm } from "./ProductForm";
 import { ProductCostsPanel } from "./ProductCostsPanel";
 import { ProductImages } from "./ProductImages";
 import { VariantsList } from "./VariantsList";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function ProductDetail({ productId }: { productId: string }) {
   const saveAndRedirect = useSaveAndRedirect("/products");
-  const { product, loading, error, update, setActive, createVariant, updateVariant, setVariantActive, addImage, removeImage, reorderImages } =
-    useAdminProduct(productId);
+  const {
+    product,
+    loading,
+    error,
+    update,
+    setActive,
+    createVariant,
+    updateVariant,
+    setVariantActive,
+    addImage,
+    removeImage,
+    reorderImages,
+  } = useAdminProduct(productId);
   const { categories } = useAdminCategories();
   const [isTogglingActive, setIsTogglingActive] = useState(false);
   // Bumped after every successful save — see the `key` comment on ProductForm
@@ -46,69 +58,80 @@ export function ProductDetail({ productId }: { productId: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-6 md:max-w-3xl">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl text-text-primary">{product.name}</h1>
-        <div className="flex items-center gap-2">
-          <Badge variant={product.isActive ? "success" : "neutral"}>{product.isActive ? "active" : "inactive"}</Badge>
-          <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
-            {product.isActive ? "Deactivate" : "Activate"}
-          </Button>
+    <div className="flex max-w-6xl flex-col gap-6">
+      <PageHeader
+        back={{ href: "/products", label: "Products" }}
+        title={product.name}
+        meta={<Badge variant={product.isActive ? "success" : "neutral"}>{product.isActive ? "active" : "inactive"}</Badge>}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
+              {product.isActive ? "Deactivate" : "Activate"}
+            </Button>
+          </>
+        }
+      />
+
+      {/* Two columns from xl (2026-09-29 admin UX pass): the things edited most — details and
+          variants — on the left; images and cost alongside instead of below, so a typical edit
+          no longer needs a long scroll. Single column (same order) below xl. */}
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <Card className="p-4">
+            <ProductForm
+              // Next's App Router reuses this component instance across
+              // /products/[id1] -> /products/[id2] navigation — without a key
+              // tied to the id, ProductForm's internal useState(values) would
+              // keep showing the previous product's values after `product` has
+              // already updated underneath it (same bug class as BannerForm).
+              // `saveGen` is folded in too: saving an edit to the SAME product
+              // doesn't change `productId`, so without it the form's local
+              // state would stay frozen at its pre-save values even though
+              // `product` (and the listing) already reflect the fresh save.
+              key={`${productId}:${saveGen}`}
+              categories={categories}
+              initialValues={{
+                name: product.name,
+                slug: product.slug,
+                categoryId: product.categoryId,
+                pricingMode: product.pricingMode,
+                description: product.description ?? "",
+                brand: product.brand ?? "",
+                metaTitle: product.metaTitle ?? "",
+                metaDescription: product.metaDescription ?? "",
+              }}
+              submitLabel="Save changes"
+              cancelHref="/products"
+              onSubmit={(payload) =>
+                saveAndRedirect(async () => {
+                  await update(payload);
+                  setSaveGen((g) => g + 1);
+                })
+              }
+            />
+          </Card>
+
+          <Card className="p-4">
+            <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Variants</h2>
+            <VariantsList
+              variants={product.variants}
+              pricingMode={product.pricingMode}
+              onCreate={createVariant}
+              onUpdate={updateVariant}
+              onSetActive={setVariantActive}
+            />
+          </Card>
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-6">
+          <Card className="p-4">
+            <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Images</h2>
+            <ProductImages images={product.images} onAdd={addImage} onRemove={removeImage} onReorder={reorderImages} />
+          </Card>
+          {/* Renders nothing unless the signed-in role has the analytics permission (super_admin) — cost is confidential. Keyed so a variant added above is picked up. */}
+          <ProductCostsPanel key={`costs-${product.variants.length}`} productId={productId} />
         </div>
       </div>
-
-      <Card className="p-4">
-        <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>
-        <ProductForm
-          // Next's App Router reuses this component instance across
-          // /products/[id1] -> /products/[id2] navigation — without a key
-          // tied to the id, ProductForm's internal useState(values) would
-          // keep showing the previous product's values after `product` has
-          // already updated underneath it (same bug class as BannerForm).
-          // `saveGen` is folded in too: saving an edit to the SAME product
-          // doesn't change `productId`, so without it the form's local
-          // state would stay frozen at its pre-save values even though
-          // `product` (and the listing) already reflect the fresh save.
-          key={`${productId}:${saveGen}`}
-          categories={categories}
-          initialValues={{
-            name: product.name,
-            slug: product.slug,
-            categoryId: product.categoryId,
-            pricingMode: product.pricingMode,
-            description: product.description ?? "",
-            brand: product.brand ?? "",
-            metaTitle: product.metaTitle ?? "",
-            metaDescription: product.metaDescription ?? "",
-          }}
-          submitLabel="Save changes"
-          onSubmit={(payload) =>
-            saveAndRedirect(async () => {
-              await update(payload);
-              setSaveGen((g) => g + 1);
-            })
-          }
-        />
-      </Card>
-
-      <Card className="p-4">
-        <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Images</h2>
-        <ProductImages images={product.images} onAdd={addImage} onRemove={removeImage} onReorder={reorderImages} />
-      </Card>
-
-      <Card className="p-4">
-        <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Variants</h2>
-        <VariantsList
-          variants={product.variants}
-          pricingMode={product.pricingMode}
-          onCreate={createVariant}
-          onUpdate={updateVariant}
-          onSetActive={setVariantActive}
-        />
-      </Card>
-
-      {/* Renders nothing unless the signed-in role has the analytics permission (super_admin) — cost is confidential. Keyed so a variant added above is picked up. */}
-      <ProductCostsPanel key={`costs-${product.variants.length}`} productId={productId} />
     </div>
   );
 }

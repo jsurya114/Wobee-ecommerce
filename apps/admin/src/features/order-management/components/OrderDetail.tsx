@@ -11,6 +11,7 @@ import type { AdminOrderView } from "../api/admin-orders.client";
 import { useAdminOrder } from "../hooks/useAdminOrder";
 import { OrderStatusActions } from "./OrderStatusActions";
 import { OrderTimeline } from "./OrderTimeline";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { order, loading, error, startProcessing, markPacked, ship, deliver, cancel, returnToOrigin, lastRefundOutcome } = useAdminOrder(orderId);
@@ -30,17 +31,20 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   return (
     <div className="grid gap-6 md:grid-cols-[2fr_1fr]">
       <div className="flex flex-col gap-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="font-display text-xl text-text-primary">{order.orderNumber}</h1>
-          <div className="flex items-center gap-2">
-            {order.hasActiveReturn ? (
-              <Link href={`/returns?orderId=${order.id}`}>
-                <Badge variant="neutral">return requested</Badge>
-              </Link>
-            ) : null}
-            <Badge variant="neutral">{order.status.replace(/_/g, " ").toLowerCase()}</Badge>
-          </div>
-        </div>
+        <PageHeader
+          back={{ href: "/orders", label: "Orders" }}
+          title={order.orderNumber}
+          meta={
+            <>
+              <Badge variant="neutral">{order.status.replace(/_/g, " ").toLowerCase()}</Badge>
+              {order.hasActiveReturn ? (
+                <Link href={`/returns?orderId=${order.id}`}>
+                  <Badge variant="neutral">return requested</Badge>
+                </Link>
+              ) : null}
+            </>
+          }
+        />
 
         <Card className="p-4">
           <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Items</h2>

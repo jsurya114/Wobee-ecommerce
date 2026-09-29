@@ -2,7 +2,8 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginInput } from "@woobe/validation";
-import { Button, FormField } from "@woobe/ui";
+import { Button, FormField, Input, Label } from "@woobe/ui";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -15,6 +16,7 @@ export function LoginForm() {
   const router = useRouter();
   const { login } = useAdminAuth();
   const [formError, setFormError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const {
     register,
     handleSubmit,
@@ -51,28 +53,52 @@ export function LoginForm() {
   // noValidate: react-hook-form + zodResolver already validates and shows a message per
   // field — the email input's own native format check still runs first otherwise.
   return (
-    <form onSubmit={onSubmit} className="flex w-full max-w-sm flex-col gap-4" noValidate>
+    <form onSubmit={onSubmit} className="flex w-full flex-col gap-5" noValidate>
+      {formError ? (
+        <div role="alert" className="flex items-start gap-2 rounded-control border border-error/30 bg-error/5 px-3 py-2.5 font-body text-sm text-error">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{formError}</span>
+        </div>
+      ) : null}
       <FormField
         label="Email"
         type="email"
         autoComplete="email"
+        autoFocus
+        placeholder="you@woobe.in"
         error={errors.email?.message}
         {...register("email")}
       />
-      <FormField
-        label="Password"
-        type="password"
-        autoComplete="current-password"
-        error={errors.password?.message}
-        {...register("password")}
-      />
-      {formError ? (
-        <p role="alert" className="font-body text-sm text-error">
-          {formError}
-        </p>
-      ) : null}
-      <Button type="submit" isLoading={isSubmitting}>
-        Log in
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="admin-login-password">Password</Label>
+        <div className="relative">
+          <Input
+            id="admin-login-password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            invalid={Boolean(errors.password)}
+            aria-describedby={errors.password ? "admin-login-password-error" : undefined}
+            className="pr-11"
+            {...register("password")}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((shown) => !shown)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-pressed={showPassword}
+            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-control text-text-secondary transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+          </button>
+        </div>
+        {errors.password?.message ? (
+          <p id="admin-login-password-error" role="alert" className="font-body text-sm text-error">
+            {errors.password.message}
+          </p>
+        ) : null}
+      </div>
+      <Button type="submit" isLoading={isSubmitting} className="mt-1 w-full">
+        {isSubmitting ? "Signing in…" : "Sign in"}
       </Button>
     </form>
   );

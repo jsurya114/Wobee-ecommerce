@@ -2,6 +2,8 @@
 
 import { Button, FormField, Textarea } from "@woobe/ui";
 import { slugify } from "@woobe/utils";
+import { ChevronDown } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { useFormError } from "@/lib/use-form-error";
 import type { CategoryOption } from "../api/admin-categories.client";
@@ -46,11 +48,14 @@ export function ProductForm({
   categories,
   initialValues,
   submitLabel,
+  cancelHref,
   onSubmit,
 }: {
   categories: CategoryOption[];
   initialValues?: Partial<ProductFormValues>;
   submitLabel: string;
+  /** Where "Cancel" goes — the product list. Leaving discards nothing saved; unsaved edits are simply not submitted. */
+  cancelHref?: string;
   onSubmit: (payload: CreateProductPayload) => Promise<void>;
 }) {
   const [values, setValues] = useState<ProductFormValues>({ ...EMPTY_VALUES, ...initialValues });
@@ -105,113 +110,115 @@ export function ProductForm({
   // backend's own field errors on save) and surfaces a real message via toast/ApiError —
   // native HTML validation was intercepting submission before any of that ran, showing the
   // browser's own generic "Please fill out this field" bubble instead.
+  //
+  // Layout (2026-09-29 admin UX pass): grouped into Basic information / Pricing / an optional,
+  // collapsed-by-default search-listing section, with the save action in a bar that stays in
+  // view while scrolling. Fields, validation and payload are unchanged.
+  const hasSeoContent = Boolean(values.metaTitle || values.metaDescription || fieldErrors.metaTitle || fieldErrors.metaDescription);
+
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-4" noValidate>
-      <div className="grid gap-4 sm:grid-cols-2">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-6" noValidate>
+      <FormSection title="Basic information">
         <FormField label="Name" value={values.name} onChange={(e) => onNameChange(e.target.value)} required error={fieldErrors.name} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="font-body text-sm font-medium text-text-primary" htmlFor="product-category">
+              Category
+            </label>
+            <select
+              id="product-category"
+              value={values.categoryId}
+              onChange={(e) => set("categoryId", e.target.value)}
+              aria-invalid={Boolean(fieldErrors.categoryId)}
+              className="h-11 rounded-control border border-border bg-surface px-4 font-body text-base text-text-primary"
+            >
+              <option value="">Select a category</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+            {fieldErrors.categoryId ? (
+              <p role="alert" className="font-body text-sm text-error">
+                {fieldErrors.categoryId}
+              </p>
+            ) : null}
+          </div>
+          <FormField
+            label="Brand (optional)"
+            value={values.brand}
+            onChange={(e) => set("brand", e.target.value)}
+            error={fieldErrors.brand}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="font-body text-sm font-medium text-text-primary" htmlFor="product-description">
+            Description
+          </label>
+          <Textarea id="product-description" value={values.description} onChange={(e) => set("description", e.target.value)} />
+        </div>
         <FormField
-          label="Slug"
+          label="URL slug"
           value={values.slug}
           onChange={(e) => onSlugChange(e.target.value)}
           required
           error={fieldErrors.slug}
-          helperText={
-            slugTouched
-              ? "Custom URL — won't change automatically."
-              : "Auto-generated from the name. Edit to set a custom URL."
-          }
+          helperText={slugTouched ? "Custom URL — won't change automatically." : "Auto-generated from the name. Edit to set a custom URL."}
         />
-      </div>
+      </FormSection>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="font-body text-sm font-medium text-text-primary" htmlFor="product-category">
-          Category
-        </label>
-        <select
-          id="product-category"
-          value={values.categoryId}
-          onChange={(e) => set("categoryId", e.target.value)}
-          aria-invalid={Boolean(fieldErrors.categoryId)}
-          className="h-11 rounded-control border border-border bg-surface px-4 font-body text-base text-text-primary"
-        >
-          <option value="">Select a category</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-        {fieldErrors.categoryId ? (
-          <p role="alert" className="font-body text-sm text-error">
-            {fieldErrors.categoryId}
-          </p>
-        ) : null}
-      </div>
-
-      <fieldset className="flex flex-col gap-1.5">
-        <legend className="font-body text-sm font-medium text-text-primary">Pricing mode</legend>
-        <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 font-body text-sm text-text-primary">
-            <input
-              type="radio"
-              name="pricingMode"
+      <FormSection title="Pricing">
+        <fieldset className="flex flex-col gap-2">
+          <legend className="sr-only">Pricing mode</legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <PricingModeOption
               value="WEIGHT_BASED"
               checked={values.pricingMode === "WEIGHT_BASED"}
-              onChange={() => set("pricingMode", "WEIGHT_BASED")}
+              onSelect={() => set("pricingMode", "WEIGHT_BASED")}
+              title="Weight based"
+              hint="Variant weight × the global ₹/kg rate set in Settings."
             />
-            Weight based
-          </label>
-          <label className="flex items-center gap-2 font-body text-sm text-text-primary">
-            <input
-              type="radio"
-              name="pricingMode"
+            <PricingModeOption
               value="FIXED"
               checked={values.pricingMode === "FIXED"}
-              onChange={() => set("pricingMode", "FIXED")}
+              onSelect={() => set("pricingMode", "FIXED")}
+              title="Fixed price"
+              hint="Each variant has its own price. Weight is for shipping only."
             />
-            Fixed price
-          </label>
+          </div>
+          {fieldErrors.pricingMode ? (
+            <p role="alert" className="font-body text-sm text-error">
+              {fieldErrors.pricingMode}
+            </p>
+          ) : null}
+        </fieldset>
+      </FormSection>
+
+      <details open={hasSeoContent} className="group rounded-control border border-border">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-body text-sm font-medium text-text-primary">
+          <span>
+            Search engine listing <span className="font-normal text-text-secondary">(optional)</span>
+          </span>
+          <ChevronDown className="h-4 w-4 text-text-secondary transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <div className="grid gap-4 border-t border-border p-4 sm:grid-cols-2">
+          <FormField
+            label="SEO title"
+            value={values.metaTitle}
+            onChange={(e) => set("metaTitle", e.target.value)}
+            error={fieldErrors.metaTitle}
+            helperText="Defaults to the product name."
+          />
+          <FormField
+            label="SEO description"
+            value={values.metaDescription}
+            onChange={(e) => set("metaDescription", e.target.value)}
+            error={fieldErrors.metaDescription}
+            helperText="Defaults to the description."
+          />
         </div>
-        <p className="font-body text-xs text-text-secondary">
-          {values.pricingMode === "FIXED"
-            ? "Each variant's own fixed price is the selling price — weight is stored for shipping only and never affects it."
-            : "Price is derived from each variant's weight × the global ₹/kg rate set in Settings."}
-        </p>
-        {fieldErrors.pricingMode ? (
-          <p role="alert" className="font-body text-sm text-error">
-            {fieldErrors.pricingMode}
-          </p>
-        ) : null}
-      </fieldset>
-
-      <FormField
-        label="Brand (optional)"
-        value={values.brand}
-        onChange={(e) => set("brand", e.target.value)}
-        error={fieldErrors.brand}
-      />
-
-      <div className="flex flex-col gap-1.5">
-        <label className="font-body text-sm font-medium text-text-primary" htmlFor="product-description">
-          Description
-        </label>
-        <Textarea id="product-description" value={values.description} onChange={(e) => set("description", e.target.value)} />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField
-          label="SEO title (optional)"
-          value={values.metaTitle}
-          onChange={(e) => set("metaTitle", e.target.value)}
-          error={fieldErrors.metaTitle}
-        />
-        <FormField
-          label="SEO description (optional)"
-          value={values.metaDescription}
-          onChange={(e) => set("metaDescription", e.target.value)}
-          error={fieldErrors.metaDescription}
-        />
-      </div>
+      </details>
 
       {formError ? (
         <p role="alert" className="font-body text-sm text-error">
@@ -219,9 +226,53 @@ export function ProductForm({
         </p>
       ) : null}
 
-      <Button type="submit" isLoading={isSubmitting} className="self-start">
-        {submitLabel}
-      </Button>
+      <div className="sticky bottom-0 z-10 -mx-4 -mb-4 flex flex-wrap items-center gap-3 rounded-b-card border-t border-border bg-surface/95 px-4 py-3 backdrop-blur">
+        <Button type="submit" isLoading={isSubmitting}>
+          {isSubmitting ? "Saving…" : submitLabel}
+        </Button>
+        {cancelHref ? (
+          <Link href={cancelHref} className="font-body text-sm text-text-secondary hover:text-primary">
+            Cancel
+          </Link>
+        ) : null}
+      </div>
     </form>
+  );
+}
+
+function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-4">
+      <h3 className="font-body text-xs font-semibold uppercase tracking-[0.08em] text-text-secondary">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function PricingModeOption({
+  value,
+  checked,
+  onSelect,
+  title,
+  hint,
+}: {
+  value: ProductFormValues["pricingMode"];
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-start gap-3 rounded-control border p-3 transition-colors ${
+        checked ? "border-primary bg-primary/5" : "border-border hover:border-text-secondary"
+      }`}
+    >
+      <input type="radio" name="pricingMode" value={value} checked={checked} onChange={onSelect} className="mt-1 accent-primary" />
+      <span className="flex flex-col gap-0.5">
+        <span className="font-body text-sm font-medium text-text-primary">{title}</span>
+        <span className="font-body text-xs text-text-secondary">{hint}</span>
+      </span>
+    </label>
   );
 }

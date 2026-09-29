@@ -1,9 +1,10 @@
 import { NewCouponForm } from "@/features/coupons/components/NewCouponForm";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export default function NewCouponPage() {
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-xl text-text-primary">New coupon</h1>
+      <PageHeader back={{ href: "/coupons", label: "Coupons" }} title="New coupon" />
       <NewCouponForm />
     </div>
   );

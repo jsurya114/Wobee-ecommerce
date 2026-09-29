@@ -54,7 +54,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
   };
 
   return (
-    <div ref={scrollContainerRef} className="overflow-x-auto">
+    <div ref={scrollContainerRef} className="relative overflow-x-auto">
       <table className="w-full min-w-[720px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">

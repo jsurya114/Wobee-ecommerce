@@ -146,7 +146,7 @@ export function CategoryForm({
       ) : null}
 
       <Button type="submit" isLoading={isSubmitting} className="self-start">
-        {submitLabel}
+        {isSubmitting ? "Saving…" : submitLabel}
       </Button>
     </form>
   );

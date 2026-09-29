@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
+import { LoadingState } from "@/features/shell/components/LoadingState";
 import { Sidebar } from "@/features/shell/components/Sidebar";
 import { TopBar } from "@/features/shell/components/TopBar";
 
@@ -18,7 +19,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }, [status, router]);
 
   if (status === "loading") {
-    return <p className="p-8 text-center font-body text-text-secondary">Loading…</p>;
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <LoadingState />
+      </div>
+    );
   }
   if (status === "unauthenticated") {
     return null; // redirect effect above is already firing

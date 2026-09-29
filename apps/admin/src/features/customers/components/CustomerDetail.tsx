@@ -8,6 +8,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import { useAdminCustomer } from "../hooks/useAdminCustomer";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function CustomerDetail({ customerId }: { customerId: string }) {
   const { detail, loading, error, setActive } = useAdminCustomer(customerId);
@@ -39,15 +40,18 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-2xl">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl text-text-primary">{customer.name}</h1>
-        <div className="flex items-center gap-2">
-          <Badge variant={customer.isActive ? "success" : "error"}>{customer.isActive ? "active" : "deactivated"}</Badge>
-          <Button variant="secondary" size="sm" isLoading={isToggling} onClick={() => void toggleActive()}>
-            {customer.isActive ? "Deactivate" : "Reactivate"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/customers", label: "Customers" }}
+        title={customer.name}
+        meta={<Badge variant={customer.isActive ? "success" : "error"}>{customer.isActive ? "active" : "deactivated"}</Badge>}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" isLoading={isToggling} onClick={() => void toggleActive()}>
+              {customer.isActive ? "Deactivate" : "Reactivate"}
+            </Button>
+          </>
+        }
+      />
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>

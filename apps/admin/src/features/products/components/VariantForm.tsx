@@ -228,7 +228,7 @@ export function VariantForm({
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" isLoading={isSubmitting}>
-          {isEditing ? "Save variant" : "Add variant"}
+          {isSubmitting ? "Saving…" : isEditing ? "Save variant" : "Add variant"}
         </Button>
         {onCancel ? (
           <Button type="button" variant="secondary" size="sm" onClick={onCancel} disabled={isSubmitting}>
