@@ -1,6 +1,6 @@
 // apps/api/src/modules/settings/settings.integration.test.ts
 import { randomUUID } from "node:crypto";
-import { prisma } from "@woobe/database";
+import { type Prisma, prisma } from "@woobe/database";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../../app";
@@ -35,8 +35,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (previousAppConfig) {
-    const { id: _id, updatedAt: _updatedAt, ...values } = previousAppConfig;
-    await prisma.appConfig.update({ where: { id: "singleton" }, data: values });
+    const { id: _id, updatedAt: _updatedAt, budgetTiles, ...values } = previousAppConfig;
+    // budgetTiles is a NOT NULL json column, so the stored value is never JSON null.
+    await prisma.appConfig.update({ where: { id: "singleton" }, data: { ...values, budgetTiles: budgetTiles as Prisma.InputJsonValue } });
   } else {
     await prisma.appConfig.deleteMany({ where: { id: "singleton" } });
   }
@@ -147,6 +148,45 @@ describe("admin settings: store config", () => {
     expect((await patch({ presetFabrics: [] })).status).toBe(400);
     expect((await patch({ minCartQuantity: 0 })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
+  });
+
+  it("saves Shop by Budget tiles and the homepage uses them, preferring an admin cover", async () => {
+    const token = await loginAdmin("admin@woobe.in", "Admin@12345");
+    const patch = (body: object) => request(app).patch("/api/v1/admin/settings/config").set("Authorization", `Bearer ${token}`).send(body);
+
+    expect((await patch({ budgetTiles: [] })).status).toBe(400);
+    expect((await patch({ budgetTiles: [{ label: "", maxPricePaise: 29_900 }] })).status).toBe(400);
+    expect((await patch({ budgetTiles: [{ label: "Free", maxPricePaise: 0 }] })).status).toBe(400);
+    expect((await patch({ budgetTiles: [{ label: "Half", maxPricePaise: 299.5 }] })).status).toBe(400);
+    expect(
+      (
+        await patch({
+          budgetTiles: [
+            { label: "A", maxPricePaise: 29_900 },
+            { label: "B", maxPricePaise: 29_900 },
+          ],
+        })
+      ).status,
+    ).toBe(400);
+
+    const cover = "https://cdn.example.com/budget/299.jpg";
+    const res = await patch({
+      budgetTiles: [
+        { label: "Under ₹299", maxPricePaise: 29_900, coverImageUrl: cover },
+        { label: "Under ₹1,499", maxPricePaise: 149_900 },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.config.budgetTiles).toEqual([
+      { label: "Under ₹299", maxPricePaise: 29_900, coverImageUrl: cover },
+      { label: "Under ₹1,499", maxPricePaise: 149_900, coverImageUrl: null },
+    ]);
+
+    const home = await request(app).get("/api/v1/home");
+    expect(home.status).toBe(200);
+    expect(home.body.budgetTiles.map((tile: { label: string }) => tile.label)).toEqual(["Under ₹299", "Under ₹1,499"]);
+    expect(home.body.budgetTiles[0].imageUrl).toBe(cover);
+    expect(home.body.budgetTiles[0].maxPricePaise).toBe(29_900);
   });
 
   it("saves a partial update and the public endpoint reflects it immediately", async () => {

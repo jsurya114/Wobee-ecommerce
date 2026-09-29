@@ -13,6 +13,14 @@ export function updatePricingSetting(ratePerKgPaise: number, accessToken: string
   return apiFetch("/api/v1/admin/settings/pricing", { method: "PUT", body: { ratePerKgPaise }, accessToken });
 }
 
+/** One homepage "Shop by Budget" tile (2026-09-29) — price in integer paise. */
+export interface BudgetTile {
+  label: string;
+  maxPricePaise: number;
+  /** null = the homepage uses a product photo from this budget. */
+  coverImageUrl: string | null;
+}
+
 /** Store settings (AppConfig singleton, 2026-09-28) — MANAGE_SETTINGS only. */
 export interface AppConfig {
   minCartQuantity: number;
@@ -22,6 +30,7 @@ export interface AppConfig {
   returnsEnabled: boolean;
   /** COD orders with a delivery fee prepay that fee online (2026-09-28). */
   codShippingUpfront: boolean;
+  budgetTiles: BudgetTile[];
   updatedAt: string | null;
 }
 

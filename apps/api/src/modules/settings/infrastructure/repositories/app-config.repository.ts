@@ -1,5 +1,5 @@
-import { prisma } from "@woobe/database";
-import { DEFAULT_APP_CONFIG, joinPresetList, splitPresetList, type AppConfigValues } from "../../domain/app-config";
+import { type Prisma, prisma } from "@woobe/database";
+import { DEFAULT_APP_CONFIG, joinPresetList, parseBudgetTiles, splitPresetList, type AppConfigValues } from "../../domain/app-config";
 import type { AppConfigRecord, AppConfigRepositoryPort } from "../../application/ports/app-config-repository.port";
 
 const SINGLETON_ID = "singleton";
@@ -11,6 +11,7 @@ type AppConfigRow = {
   presetFits: string;
   returnsEnabled: boolean;
   codShippingUpfront: boolean;
+  budgetTiles: Prisma.JsonValue;
   updatedAt: Date;
 };
 
@@ -29,6 +30,9 @@ export class AppConfigRepository implements AppConfigRepositoryPort {
       ...(patch.presetFits !== undefined ? { presetFits: joinPresetList(patch.presetFits) } : {}),
       ...(patch.returnsEnabled !== undefined ? { returnsEnabled: patch.returnsEnabled } : {}),
       ...(patch.codShippingUpfront !== undefined ? { codShippingUpfront: patch.codShippingUpfront } : {}),
+      ...(patch.budgetTiles !== undefined
+        ? { budgetTiles: patch.budgetTiles.map((tile) => ({ label: tile.label, maxPricePaise: tile.maxPricePaise, coverImageUrl: tile.coverImageUrl })) }
+        : {}),
     };
     // Upsert: the first save creates the row (every column not in `data`
     // takes its schema default, which equals DEFAULT_APP_CONFIG).
@@ -45,6 +49,7 @@ function toRecord(row: AppConfigRow): AppConfigRecord {
     presetFits: splitPresetList(row.presetFits),
     returnsEnabled: row.returnsEnabled,
     codShippingUpfront: row.codShippingUpfront,
+    budgetTiles: parseBudgetTiles(row.budgetTiles),
     updatedAt: row.updatedAt,
   };
 }

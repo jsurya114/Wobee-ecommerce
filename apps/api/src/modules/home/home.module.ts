@@ -19,6 +19,7 @@ import {
   listProductsUseCase,
   resolveProductIdsForVariantsUseCase,
 } from "../products/products.module";
+import { getAppConfigUseCase } from "../settings/settings.module";
 import { getAggregateTestimonialRatingUseCase, listApprovedTestimonialsUseCase } from "../testimonials/testimonials.module";
 import { cacheAside } from "../../shared/cache/catalog-cache";
 import { env } from "../../config/env";
@@ -53,6 +54,11 @@ const inStockProductIdsProvider = {
   },
 };
 
+/** Admin-configured Shop by Budget tiles (2026-09-29) — AppConfig.budgetTiles, read through `settings`' exported use-case, never its Prisma model (ADR-010). */
+const budgetTilesReader = {
+  execute: async () => (await getAppConfigUseCase.execute()).budgetTiles,
+};
+
 const realGetHomePageUseCase = new GetHomePageUseCase(
   listProductsUseCase,
   deliveredOnlyBestSellingVariantsReader,
@@ -69,6 +75,7 @@ const realGetHomePageUseCase = new GetHomePageUseCase(
   inStockProductIdsProvider,
   countActiveProductsBySizeUseCase,
   groupProductsByOfferUseCase,
+  budgetTilesReader,
 );
 
 const HOME_TTL_SECONDS = 60;

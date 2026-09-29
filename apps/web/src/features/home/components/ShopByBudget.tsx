@@ -5,10 +5,11 @@ import type { HomeBudgetTile } from "../api/home.client";
 /**
  * Discovery by final selling price (redesign spec §B) — Woobe-appropriate:
  * the shopper browses by what they'll actually pay. Uses the existing
- * `maxPrice` catalogue filter (paise). 2026-08-31: image cards, not pill
- * links — `imageUrl` is the cheapest qualifying product's own real photo
- * (resolved server-side in GetHomePageUseCase, same `/api/v1/home` call,
- * no extra request), not invented art. `price_desc` so the best items under
+ * `maxPrice` catalogue filter (paise). Tiles (label, cap, optional cover)
+ * are admin-configured in Settings (2026-09-29). `imageUrl` is the admin
+ * cover when set, else a qualifying product's own real photo (resolved
+ * server-side in GetHomePageUseCase, same `/api/v1/home` call, no extra
+ * request), not invented art. `price_desc` so the best items under
  * the cap surface first on the filtered page.
  */
 export function ShopByBudget({ tiles }: { tiles: HomeBudgetTile[] }) {

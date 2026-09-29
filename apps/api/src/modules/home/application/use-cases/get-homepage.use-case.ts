@@ -53,14 +53,6 @@ const CURATED_CLOTHING_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "One Size"];
 // the final rail still has BEST_SELLERS_LIMIT items whenever enough sales
 // history exists.
 const BEST_SELLERS_VARIANT_OVERFETCH = 60;
-// 2026-08-31 (card redesign) — fixed price buckets, same values ShopByBudget
-// previously hardcoded client-side; moved here so the cover image and the
-// filter link stay in sync from one source instead of two.
-const BUDGET_TILE_DEFS = [
-  { label: "Under ₹499", maxPricePaise: 49_900 },
-  { label: "Under ₹799", maxPricePaise: 79_900 },
-  { label: "Under ₹999", maxPricePaise: 99_900 },
-];
 /** "Loved by Our Customers" rail (2026-09-11, replaces the old per-product Customer Reviews rail) — up to this many APPROVED testimonials, newest/highest-rated first. */
 const TESTIMONIALS_LIMIT = 6;
 
@@ -165,6 +157,16 @@ interface BudgetProductsLister {
   execute(input: { maxPricePaise: number; sort: "price_desc"; page: number; limit: number }): Promise<ListProductsResult>;
 }
 
+/**
+ * Admin-configured "Shop by Budget" tiles (2026-09-29), in display order —
+ * bound in home.module.ts to `settings`' AppConfig.budgetTiles (whose column
+ * default is the three tiles this use-case used to hardcode). Replaces the
+ * old `BUDGET_TILE_DEFS` constant.
+ */
+interface BudgetTilesReader {
+  execute(): Promise<{ label: string; maxPricePaise: number; coverImageUrl: string | null }[]>;
+}
+
 export interface HomeCategoryTile {
   id: string;
   name: string;
@@ -176,7 +178,7 @@ export interface HomeCategoryTile {
 export interface HomeBudgetTile {
   label: string;
   maxPricePaise: number;
-  /** The cheapest active product at/under this cap's own image, or null if nothing qualifies yet. */
+  /** The admin-uploaded cover when set (2026-09-29); otherwise the top active product at/under this cap's own image, or null if nothing qualifies yet. */
   imageUrl: string | null;
 }
 
@@ -335,6 +337,7 @@ export class GetHomePageUseCase {
     private readonly inStockProductIdsProvider: InStockProductIdsProvider,
     private readonly sizeAvailabilityReader: SizeAvailabilityReader,
     private readonly productsByOfferGrouper: ProductsByOfferGrouper,
+    private readonly budgetTilesReader: BudgetTilesReader,
   ) {}
 
   async execute(): Promise<HomePageView> {
@@ -457,10 +460,13 @@ export class GetHomePageUseCase {
   }
 
   private async resolveBudgetTiles(): Promise<HomeBudgetTile[]> {
+    const tiles = await this.budgetTilesReader.execute();
     return Promise.all(
-      BUDGET_TILE_DEFS.map(async (def) => {
-        const result = await this.budgetProductsLister.execute({ maxPricePaise: def.maxPricePaise, sort: "price_desc", page: 1, limit: 1 });
-        return { label: def.label, maxPricePaise: def.maxPricePaise, imageUrl: result.products[0]?.primaryImage?.url ?? null };
+      tiles.map(async (tile) => {
+        // An admin-uploaded cover skips the product lookup entirely.
+        if (tile.coverImageUrl) return { label: tile.label, maxPricePaise: tile.maxPricePaise, imageUrl: tile.coverImageUrl };
+        const result = await this.budgetProductsLister.execute({ maxPricePaise: tile.maxPricePaise, sort: "price_desc", page: 1, limit: 1 });
+        return { label: tile.label, maxPricePaise: tile.maxPricePaise, imageUrl: result.products[0]?.primaryImage?.url ?? null };
       }),
     );
   }

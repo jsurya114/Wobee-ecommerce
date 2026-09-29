@@ -991,6 +991,8 @@ model AppConfig {
   returnsEnabled     Boolean  @default(false)
   /// Feature flag (2026-09-28) — when true, a COD order with a delivery fee must pay that fee online (Razorpay) before it is confirmed; the rest is collected in cash on delivery. Off by default so enabling it is a deliberate admin action once Razorpay is verified in that environment.
   codShippingUpfront Boolean  @default(false)
+  /// Homepage "Shop by Budget" tiles (2026-09-29): JSON array of { label: string, maxPricePaise: int, coverImageUrl: string | null }, in display order. The default equals the three tiles previously hardcoded in GetHomePageUseCase. coverImageUrl null = use the most expensive in-budget product's photo, the pre-existing behaviour.
+  budgetTiles        Json     @default("[{\"label\":\"Under ₹499\",\"maxPricePaise\":49900,\"coverImageUrl\":null},{\"label\":\"Under ₹799\",\"maxPricePaise\":79900,\"coverImageUrl\":null},{\"label\":\"Under ₹999\",\"maxPricePaise\":99900,\"coverImageUrl\":null}]")
   updatedAt          DateTime @updatedAt
 
   @@map("app_config")
