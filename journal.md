@@ -4479,3 +4479,29 @@ Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entrie
   - **Release-age rule kept:** 10.0.12 would have needed a `minimumReleaseAgeExclude` exception, so it was not used.
   - **Result:** the audit is clean, and all 1,161 API tests still pass.
 - The pasted brief was cut off partway through Task 2, and Task 3 never arrived. Task 2 was implemented from its visible "CURRENT STATE" and title. **Task 3 is not done** because its content is unknown.
+
+## 2026-10-04 — Production outage from automatic database password rotation (fixed; rotation turned off)
+
+**Branch/commit:** `feat/admin-settings-returns-cod-banners` (journal only). No code changed; the fix was made in AWS and on the production server.
+
+**What happened:**
+- On the afternoon of 2026-10-04 (IST), every API request that reads the database started returning 500. The readiness check reported the database as unavailable. The health check, Redis, the database instance and all containers stayed up.
+- The API logs showed the database rejecting the app's credentials.
+- **Root cause:** the RDS module has AWS manage the database admin password, and AWS rotates that password **every 7 days** by default. The API and worker read a fixed `DATABASE_URL` from an env file on the server, so each rotation leaves them with the old password.
+- The 2026-09-28 outage had the same cause. It was fixed by hand but never journaled, so the weekly pattern went unnoticed.
+- Unrelated: `woobe.in/shop` returns 404 because there is no `/shop` route. The catalogue is at `/products`.
+
+**What changed (production only):**
+1. Automatic rotation is turned off on the RDS-managed secret. Terraform doesn't manage rotation, so `terraform apply` won't turn it back on.
+2. On the server (over SSM), the instance read the current password from Secrets Manager itself and rewrote only the credentials in `DATABASE_URL`. The password never left the server or appeared in any output. A backup of the previous env file was kept on the server.
+3. Redeployed the image that was already running, through the normal SSM deploy document with migrations off, so the API and worker were recreated with the new env file (a plain restart doesn't reload it). About 7 s of API downtime.
+
+**Why:** a small local-business storefront doesn't need weekly password rotation, and weekly outages were worse. The user chose to turn rotation off rather than make the containers reload the password on their own.
+
+**Verified:** readiness returns 200 with database and Redis both up; the products API returns data; the storefront home page and `/products` load without errors.
+
+**Follow-ups / known gaps:**
+- If the database admin password is ever reset again, the API breaks the same way. To recover: rewrite `DATABASE_URL` on the server from the secret, then redeploy the current image with migrations off. See `docs/deployment.md` for the env file and the deploy document.
+- To keep rotation, the containers would need to read the secret at startup and be restarted after each rotation.
+- There is no alerting on readiness or the API 5xx rate; both outages were found by hand. Add a Grafana/Prometheus alert.
+- Consider a comment in the RDS Terraform module saying rotation is off on purpose.
