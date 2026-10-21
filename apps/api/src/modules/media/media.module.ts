@@ -21,8 +21,8 @@ const mediaRepository = new MediaRepository();
 const mediaStorage = createMediaStorage(env);
 
 export const uploadMediaUseCase = new UploadMediaUseCase(mediaStorage, mediaRepository);
-const getMediaUseCase = new GetMediaUseCase(mediaRepository);
-const deleteMediaUseCase = new DeleteMediaUseCase(mediaStorage, mediaRepository);
+export const getMediaUseCase = new GetMediaUseCase(mediaRepository);
+export const deleteMediaUseCase = new DeleteMediaUseCase(mediaStorage, mediaRepository);
 
 const mediaController = new MediaController(uploadMediaUseCase, getMediaUseCase, deleteMediaUseCase);
 

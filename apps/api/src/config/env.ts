@@ -130,9 +130,28 @@ const envSchema = z.object({
   // staff-invitation.policy.ts). 72h (3 days) is a starting default, not a
   // measured requirement — tune per how onboarding actually plays out.
   STAFF_INVITATION_TTL_HOURS: z.coerce.number().int().positive().default(72),
+
+  // AI model photos (modules/ai-images). Off by default: nothing is generated and no provider is called
+  // until AI_IMAGES_ENABLED=true. "fake" renders a placeholder (dev/tests only, rejected in production).
+  // Costs real money per image with "fashn" — AI_IMAGES_DAILY_LIMIT caps requested images per UTC day.
+  AI_IMAGES_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  AI_IMAGES_PROVIDER: z.enum(["fashn", "fake"]).default("fashn"),
+  FASHN_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional()),
+  AI_IMAGES_MODE: z.enum(["fast", "balanced", "quality"]).default("balanced"),
+  AI_IMAGES_RESOLUTION: z.enum(["1k", "2k"]).default("1k"),
+  AI_IMAGES_DAILY_LIMIT: z.coerce.number().int().positive().default(100),
 });
 
 const envSchemaWithRefinements = envSchema.superRefine((data, ctx) => {
+  if (data.AI_IMAGES_ENABLED && data.AI_IMAGES_PROVIDER === "fashn" && !data.FASHN_API_KEY) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["FASHN_API_KEY"], message: "FASHN_API_KEY is required when AI_IMAGES_ENABLED=true and AI_IMAGES_PROVIDER=fashn" });
+  }
+  if (data.NODE_ENV === "production" && data.AI_IMAGES_ENABLED && data.AI_IMAGES_PROVIDER === "fake") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["AI_IMAGES_PROVIDER"], message: 'AI_IMAGES_PROVIDER must not be "fake" when NODE_ENV=production' });
+  }
   if (data.NODE_ENV === "production" && !data.GOOGLE_CLIENT_ID) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

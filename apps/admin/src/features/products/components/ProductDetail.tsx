@@ -10,6 +10,7 @@ import { useAdminCategories } from "../hooks/useAdminCategories";
 import { useAdminProduct } from "../hooks/useAdminProduct";
 import { ProductForm } from "./ProductForm";
 import { ProductCostsPanel } from "./ProductCostsPanel";
+import { AiModelPhotosPanel } from "./AiModelPhotosPanel";
 import { ProductImages } from "./ProductImages";
 import { VariantsList } from "./VariantsList";
 
@@ -94,6 +95,11 @@ export function ProductDetail({ productId }: { productId: string }) {
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Images</h2>
         <ProductImages images={product.images} onAdd={addImage} onRemove={removeImage} onReorder={reorderImages} />
+      </Card>
+
+      <Card className="p-4">
+        <h2 className="mb-3 font-body text-sm font-medium text-text-primary">AI model photos</h2>
+        <AiModelPhotosPanel productId={product.id} />
       </Card>
 
       <Card className="p-4">

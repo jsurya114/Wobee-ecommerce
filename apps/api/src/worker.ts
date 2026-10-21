@@ -1,6 +1,8 @@
 import { prisma } from "@woobe/database";
 import { Queue, Worker, UnrecoverableError, type Job } from "bullmq";
 import { env } from "./config/env";
+import { AI_IMAGES_QUEUE_NAME, aiImageQueueConnection } from "./modules/ai-images/infrastructure/queues/ai-image.queue";
+import { markGeneratedImageFailedUseCase, processGeneratedImageUseCase, recoverStaleGenerationsUseCase } from "./modules/ai-images/ai-images.module";
 import { NotificationDeliveryError } from "./modules/notifications/domain/errors/notification-delivery.error";
 import { markNotificationFailedUseCase, processNotificationJobUseCase } from "./modules/notifications/notifications.module";
 import { classifyFailedAttempt } from "./modules/notifications/infrastructure/queues/classify-failed-attempt";
@@ -94,6 +96,32 @@ worker.on("failed", (job, error) => {
   }
 });
 
+// AI model photos (modules/ai-images). Only consumes when enabled — a disabled deploy leaves the queue
+// untouched. Concurrency stays under FASHN's default of 6 in-flight requests; each job is network-bound.
+const aiImageWorker = env.AI_IMAGES_ENABLED
+  ? new Worker(
+      AI_IMAGES_QUEUE_NAME,
+      async (job: Job<{ generatedImageId: string }>) => processGeneratedImageUseCase.execute(job.data.generatedImageId),
+      { connection: aiImageQueueConnection, concurrency: 3 },
+    )
+  : undefined;
+
+aiImageWorker?.on("failed", (job, error) => {
+  // Retries exhausted: the use-case released the row for retry each time, so settle it as FAILED now.
+  if (job && classifyFailedAttempt(job, error) !== "retry") {
+    void markGeneratedImageFailedUseCase.execute(job.data.generatedImageId, error.message);
+  }
+});
+
+// Redis is disposable (ADR-017): re-enqueue rows stranded by a flush or crash, now and every 5 minutes.
+const recoverStale = (): void => {
+  recoverStaleGenerationsUseCase.execute().catch((error: unknown) => {
+    console.error("[ai-images-worker] stale recovery failed:", error instanceof Error ? error.message : error);
+  });
+};
+const recoveryTimer = aiImageWorker ? setInterval(recoverStale, 5 * 60 * 1000) : undefined;
+if (aiImageWorker) recoverStale();
+
 // A metrics-port problem (e.g. EADDRINUSE) must never stop notifications from
 // being sent: log it and carry on without a scrape target.
 const metricsServerPromise = startMetricsServer({ registry: metricsRegistry, host: env.WORKER_METRICS_HOST, port: env.WORKER_METRICS_PORT })
@@ -113,12 +141,15 @@ console.log(`[notifications-worker] listening on queue "${NOTIFICATIONS_QUEUE_NA
 async function shutdown(signal: string): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`[notifications-worker] received ${signal}, shutting down gracefully...`);
+  if (recoveryTimer) clearInterval(recoveryTimer);
   await worker.close();
+  await aiImageWorker?.close();
   const metricsServer = await metricsServerPromise;
   await new Promise<void>((resolve) => (metricsServer ? metricsServer.close(() => resolve()) : resolve()));
   await countsQueue.close();
   await prisma.$disconnect();
   notificationQueueConnection.disconnect();
+  aiImageQueueConnection.disconnect();
   process.exit(0);
 }
 

@@ -21,3 +21,4 @@ export * from "./shipping.schema";
 export * from "./staff.schema";
 export * from "./users.schema";
 export * from "./wishlist.schema";
+export * from "./ai-images.schema";

@@ -4505,3 +4505,24 @@ Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entrie
 - To keep rotation, the containers would need to read the secret at startup and be restarted after each rotation.
 - There is no alerting on readiness or the API 5xx rate; both outages were found by hand. Add a Grafana/Prometheus alert.
 - Consider a comment in the RDS Terraform module saying rotation is off on purpose.
+
+## 2026-10-21 — AI model photos for product images (built, off by default, not yet tried against FASHN)
+
+**Branch:** `feat/ai-model-photos` (uncommitted when this was written).
+
+**Why:** clients want to upload a plain photo of a garment and get on-model product photos from several angles, instead of arranging a photo shoot.
+
+**What changed:**
+- **Admin:** a new "AI model photos" card on the product page. The admin picks angles (front, back, side, detail), chooses a garment photo, and sees each result appear. Each image can be approved, discarded or regenerated. Nothing reaches the storefront until it is approved; approving adds it as a normal product image.
+- **API:** new `ai-images` module (`/api/v1/ai-images`). Generation runs in the existing worker on a new `ai-images` queue, one job per angle, so one bad angle never blocks the others.
+- **Provider:** FASHN `product-to-model`, behind a provider interface so another vendor can be swapped in. A `fake` provider echoes the photo back for free local testing.
+- **Database:** two new tables, `ai_image_generations` and `ai_generated_images` (additive migration `20261021000000_add_ai_image_generation`).
+- **Config:** `AI_IMAGES_ENABLED` (default off), `AI_IMAGES_PROVIDER`, `FASHN_API_KEY`, `AI_IMAGES_MODE`, `AI_IMAGES_RESOLUTION`, `AI_IMAGES_DAILY_LIMIT`. See `.env.example` and `docs/deployment.md` §7a.
+
+**Decisions:** FASHN over Gemini image because it is built for garment-to-model and fidelity of prints matters most; review-then-publish so a badly rendered garment never goes live; no new infrastructure because generation is network-bound and the worker already exists.
+
+**Checked:** 24 new unit tests pass (provider error mapping, process/approve/reject/regenerate, recovery sweep); typecheck, lint and the module-boundary check are clean; the repository was exercised against the local dev Postgres (claim, approve, regenerate, stale lookup) and its test rows removed.
+
+**Not checked:** no real FASHN call has been made (no API key yet), so back/side-view quality is unknown. The API integration tests and the admin screen were not run (no test database or Redis running here, and the admin UI was only type-checked). Do these before enabling it in production.
+
+**Follow-ups:** run the spike on 5-6 real garments first; if back/side views are poor, add a second provider adapter (e.g. a Gemini image model) behind the same interface. Rejected images clean up their own files, but removing a normal product image still does not delete its media (existing gap).

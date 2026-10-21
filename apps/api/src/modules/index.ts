@@ -1,4 +1,5 @@
 import type { Router } from "express";
+import { router as aiImagesRouter } from "./ai-images/ai-images.module";
 import { router as adminRouter } from "./admin/admin.module";
 import { router as analyticsRouter } from "./analytics/analytics.module";
 import { router as auditRouter } from "./audit/audit.module";
@@ -49,6 +50,7 @@ export const moduleRouters: { path: string; router: Router }[] = [
   { path: "/settings", router: settingsRouter },
   { path: "/testimonials", router: testimonialsRouter },
   { path: "/media", router: mediaRouter },
+  { path: "/ai-images", router: aiImagesRouter },
   { path: "/returns", router: returnsRouter },
   { path: "/refunds", router: refundsRouter },
   { path: "/notifications", router: notificationsRouter },
