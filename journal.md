@@ -4338,3 +4338,22 @@ This also explains — and corrects — a misdiagnosis in the immediately preced
 **Suites actually run:** Valkey 93/0 (five BullMQ states x four restart kinds, production values via CONFIG GET), deploy.sh 160/0 twice (default + `API_BIND_HOST=127.0.0.1`), nginx 84/0, sync 142/0 (against the exact planned SSM document), API 968/968 idle, promtool, dashboards (79 queries), monorepo typecheck/lint/boundaries.
 **Harness bugs fixed on the way:** `docker kill` bypasses the restart policy (crash must kill the process; and the first "fix" silently did nothing because the harness image's entrypoint is `docker`); push-metrics path not remapped; NOAUTH assertion inherited the container's own REDISCLI_AUTH.
 **Caveats:** the named SSO profile `WoobeTerraformAdmin-185658217213` is not configured on this machine; the backend was exercised UNMODIFIED with only `-backend-config="profile=woobe"` (static-key IAM user, same account). Re-run `aws sso login` + `terraform init -reconfigure` + `terraform plan` with the SSO profile before applying. Two unrelated local services (Homebrew Redis, `version-vault-redis`) were stopped while the Valkey suite ran and restored (verified).
+
+---
+
+## 2026-10-22 — Notification reliability + courier-aware shipping emails (PR 1 of 4)
+
+**Scope:** first of four planned notification PRs (reliability + couriers → contacts/unsubscribe/scheduler → abandoned cart + coupon/offer emails → admin Campaigns). Nothing deployed; additive migration `20261022000000_notification_reliability_and_couriers`.
+
+**Reliability fixes (audit findings):**
+1. Post-commit enqueues are best-effort now (`bestEffortEnqueueNotificationUseCase`, used by orders/returns/auth/admin). Before, a Redis/DB error after ship/deliver/cancel/webhook committed threw: admins got a 500 and the retry saw `changed:false`, so the email was lost.
+2. `notifications.dedupeKey` (unique): `<EVENT>:<orderId>` per order event, so a replayed webhook or double click cannot send twice. Deliberate re-sends use `:<timestamp>`.
+3. Stale-claim bug: reclaim was measured from `createdAt`, so a long-queued row that was mid-send could be taken by a second worker. New `claimedAt` column.
+4. PENDING rows whose `queue.add` failed (or lost to a Redis flush) were stuck forever. The worker now re-queues rows PENDING > 5 min at start-up and every 5 min.
+5. `markNotificationFailed` in the worker had no `.catch`. `SMTP_FROM` placeholder is refused in production when `SMTP_HOST` is set.
+
+**Courier presets (`packages/validation/src/couriers.ts`):** Ekart, DTDC, India Post, Delhivery, Blue Dart, Xpressbees, Professional Couriers, ST Courier, Anjani, Sri Maruti, VRL, Other. Admin ship form has a courier dropdown, optional per-shipment tracking link and a link preview; shipped orders get "Edit tracking / resend email" and "Email: out for delivery". New emails: out for delivery (once per order, no status change), returned to origin. `Order.carrierCode`/`trackingUrl` added; the storefront shows a Track link.
+
+**Honest limit:** no courier's tracking deep link could be verified (their pages are JS/captcha-gated), so presets link to each courier's official tracking page and the email shows the tracking number prominently; the number is NOT pre-filled in the link. Anjani and Sri Maruti have no confirmed official page (link omitted). `deepLinkTemplate` exists on the preset for when someone tests one with a real consignment number. Courier "tips" are generic; no delay claims are asserted.
+
+**Not done / not verified:** API integration tests (need the test Postgres/Redis; not running here) — unit suites for orders, notifications, email templates and validation pass; the admin screen was typechecked, not clicked through; no real SMTP send. A customer-initiated cancel email from the plan does not exist because customers cannot cancel (admin cancel already emails).

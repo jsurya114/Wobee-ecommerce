@@ -8,6 +8,8 @@ import {
   renderOrderCancelledEmail,
   renderOrderConfirmedEmail,
   renderOrderDeliveredEmail,
+  renderOrderOutForDeliveryEmail,
+  renderOrderReturnedToOriginEmail,
   renderOrderShippedEmail,
   renderPaymentFailedEmail,
 } from "./order.templates";
@@ -38,7 +40,9 @@ export const EMAIL_TEMPLATES: Record<NotificationEventType, EmailRenderer> = {
   ORDER_CONFIRMED: renderOrderConfirmedEmail,
   PAYMENT_FAILED: renderPaymentFailedEmail,
   ORDER_SHIPPED: renderOrderShippedEmail,
+  ORDER_OUT_FOR_DELIVERY: renderOrderOutForDeliveryEmail,
   ORDER_DELIVERED: renderOrderDeliveredEmail,
+  ORDER_RETURNED_TO_ORIGIN: renderOrderReturnedToOriginEmail,
   ORDER_CANCELLED: renderOrderCancelledEmail,
   RETURN_REQUESTED: renderReturnRequestedEmail,
   RETURN_APPROVED: renderReturnApprovedEmail,

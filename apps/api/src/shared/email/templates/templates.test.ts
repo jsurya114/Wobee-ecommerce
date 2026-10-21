@@ -90,6 +90,32 @@ describe("email templates — every queue event has a defensive renderer", () =>
     assertNoLeaks(without.html, without.text);
   });
 
+  it("order-shipped uses the courier preset: official link button, monospace number, tips", () => {
+    const out = EMAIL_TEMPLATES.ORDER_SHIPPED({
+      contactEmail: "c@x.com", orderNumber: "O1", carrier: "India Post (Speed Post)", carrierCode: "INDIA_POST",
+      trackingNumber: "EE123456789IN", trackingUrl: "https://www.indiapost.gov.in/",
+    });
+    expect(out.html).toContain("Track on India Post (Speed Post)");
+    expect(out.html).toContain('href="https://www.indiapost.gov.in/"');
+    expect(out.html).toContain("EE123456789IN");
+    expect(out.text).toContain("Track: https://www.indiapost.gov.in/");
+    expect(out.html).toMatch(/day or two/);
+  });
+
+  it("order-shipped never links a non-http tracking url", () => {
+    const out = EMAIL_TEMPLATES.ORDER_SHIPPED({ contactEmail: "c@x.com", orderNumber: "O1", carrier: "X", trackingNumber: "T", trackingUrl: "javascript:alert(1)" });
+    expect(out.html).not.toContain("javascript:");
+  });
+
+  it("out-for-delivery and returned-to-origin render", () => {
+    const ofd = EMAIL_TEMPLATES.ORDER_OUT_FOR_DELIVERY({ contactEmail: "c@x.com", orderNumber: "O1", carrier: "DTDC", trackingNumber: "T1" });
+    expect(ofd.subject).toMatch(/out for delivery/i);
+    const rto = EMAIL_TEMPLATES.ORDER_RETURNED_TO_ORIGIN({ contactEmail: "c@x.com", orderNumber: "O1" });
+    expect(rto.subject).toMatch(/could not be delivered/i);
+    assertNoLeaks(ofd.html, ofd.text);
+    assertNoLeaks(rto.html, rto.text);
+  });
+
   it("cancellation email never claims a refund is complete", () => {
     const out = EMAIL_TEMPLATES.ORDER_CANCELLED({ contactEmail: "c@x.com", orderNumber: "O1", refundIssued: true });
     expect(out.text).toMatch(/refund has been initiated/i);

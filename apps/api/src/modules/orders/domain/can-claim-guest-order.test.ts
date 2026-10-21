@@ -22,6 +22,8 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     placedAt: new Date(),
     trackingNumber: null,
     carrier: null,
+    carrierCode: null,
+    trackingUrl: null,
     shippedAt: null,
     deliveredAt: null,
     cancelledAt: null,

@@ -63,6 +63,9 @@ export interface OrderEntity {
   placedAt: Date;
   trackingNumber: string | null;
   carrier: string | null;
+  /** Courier registry code (@woobe/validation COURIERS); null for orders shipped before couriers were presets. */
+  carrierCode: string | null;
+  trackingUrl: string | null;
   shippedAt: Date | null;
   deliveredAt: Date | null;
   cancelledAt: Date | null;

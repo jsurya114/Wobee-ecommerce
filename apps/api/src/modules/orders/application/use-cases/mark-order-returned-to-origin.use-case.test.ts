@@ -15,7 +15,7 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     subtotalPaise: 100, discountPaise: 0, shippingFeePaise: 0, taxPaise: 0, totalPaise: 100, totalWeightGrams: 100,
     paymentMethod: "COD", placedAt: new Date(),
     items: [{ id: "item-1", variantId: "variant-1", productNameSnapshot: "P", skuSnapshot: "SKU", color: "Red", size: "M", weightGrams: 100, pricingMode: "WEIGHT_BASED", unitRatePerKgPaise: 1000, basePricePaise: 100, unitPricePaise: 100, quantity: 2, lineTotalPaise: 200, taxAmountPaise: 10, discountPaise: 0, offerId: null, offerNameSnapshot: null, offerDiscountType: null, offerDiscountValue: null, offerDiscountPaise: 0 }],
-    trackingNumber: "TRK1", carrier: "BlueDart", shippedAt: new Date(), deliveredAt: null, cancelledAt: null, cancellationReason: null, hasActiveReturn: false,
+    trackingNumber: "TRK1", carrier: "BlueDart", carrierCode: null, trackingUrl: null, shippedAt: new Date(), deliveredAt: null, cancelledAt: null, cancellationReason: null, hasActiveReturn: false,
     ...overrides,
   };
 }
@@ -37,7 +37,7 @@ function buildUseCase(overrides: { findByIdResult?: OrderEntity; transitionChang
     recordInventoryReservation: vi.fn(),
     recordPaymentWebhook: vi.fn(),
   };
-  const useCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transaction, observability);
+  const useCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transaction, observability, { execute: vi.fn() });
   return { useCase, orderRepository, inventoryRestock, auditLogger, observability };
 }
 

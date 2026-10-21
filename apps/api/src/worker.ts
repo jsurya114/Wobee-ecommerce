@@ -2,7 +2,7 @@ import { prisma } from "@woobe/database";
 import { Queue, Worker, UnrecoverableError, type Job } from "bullmq";
 import { env } from "./config/env";
 import { NotificationDeliveryError } from "./modules/notifications/domain/errors/notification-delivery.error";
-import { markNotificationFailedUseCase, processNotificationJobUseCase } from "./modules/notifications/notifications.module";
+import { markNotificationFailedUseCase, processNotificationJobUseCase, recoverPendingNotificationsUseCase } from "./modules/notifications/notifications.module";
 import { classifyFailedAttempt } from "./modules/notifications/infrastructure/queues/classify-failed-attempt";
 import { NOTIFICATIONS_QUEUE_NAME, notificationQueueConnection } from "./modules/notifications/infrastructure/queues/notification.queue";
 import { startMetricsServer } from "./shared/infrastructure/observability/prometheus/metrics-server";
@@ -90,9 +90,25 @@ worker.on("failed", (job, error) => {
   // Same condition as before (attempts exhausted OR UnrecoverableError) — now
   // shared with the metrics so "terminal failure" means one thing in both.
   if (classifyFailedAttempt(job, error) !== "retry") {
-    void markNotificationFailedUseCase.execute(job.data.notificationId, error.message);
+    markNotificationFailedUseCase.execute(job.data.notificationId, error.message).catch((markError: unknown) => {
+      console.error("[notifications-worker] could not record terminal failure:", markError instanceof Error ? markError.message : markError);
+    });
   }
 });
+
+// Redis is disposable (ADR-017): re-queue any notification row left PENDING by a failed enqueue or a
+// Redis flush. Runs at start-up and every 5 minutes; harmless to repeat (job id = notification id).
+const recoverPending = (): void => {
+  recoverPendingNotificationsUseCase.execute().then(
+    ({ requeued }) => {
+      // eslint-disable-next-line no-console
+      if (requeued > 0) console.log(`[notifications-worker] re-queued ${requeued} pending notification(s)`);
+    },
+    (error: unknown) => console.error("[notifications-worker] pending recovery failed:", error instanceof Error ? error.message : error),
+  );
+};
+recoverPending();
+const recoverTimer = setInterval(recoverPending, 5 * 60 * 1000);
 
 // A metrics-port problem (e.g. EADDRINUSE) must never stop notifications from
 // being sent: log it and carry on without a scrape target.
@@ -113,6 +129,7 @@ console.log(`[notifications-worker] listening on queue "${NOTIFICATIONS_QUEUE_NA
 async function shutdown(signal: string): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`[notifications-worker] received ${signal}, shutting down gracefully...`);
+  clearInterval(recoverTimer);
   await worker.close();
   const metricsServer = await metricsServerPromise;
   await new Promise<void>((resolve) => (metricsServer ? metricsServer.close(() => resolve()) : resolve()));

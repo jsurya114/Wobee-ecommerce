@@ -1,32 +1,35 @@
 "use client";
 
 import { Button, Input } from "@woobe/ui";
+import type { ShipOrderInput, UpdateTrackingInput } from "@woobe/validation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
 import { hasPermission } from "@/features/shell/nav-config";
 import type { AdminOrderView } from "../api/admin-orders.client";
+import { ShipmentForm } from "./ShipmentForm";
 
 interface Props {
   order: AdminOrderView;
   onStartProcessing: () => Promise<void>;
   onMarkPacked: () => Promise<void>;
-  onShip: (input: { trackingNumber: string; carrier: string }) => Promise<void>;
+  onShip: (input: ShipOrderInput) => Promise<void>;
+  onUpdateTracking: (input: UpdateTrackingInput) => Promise<void>;
+  onOutForDelivery: () => Promise<void>;
   onDeliver: () => Promise<void>;
   onCancel: (input: { reason?: string }) => Promise<void>;
   onReturnToOrigin: () => Promise<void>;
   lastRefundIssued: boolean | null;
 }
 
-export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onDeliver, onCancel, onReturnToOrigin, lastRefundIssued }: Props) {
+export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onUpdateTracking, onOutForDelivery, onDeliver, onCancel, onReturnToOrigin, lastRefundIssued }: Props) {
   const { user } = useAdminAuth();
   const [busy, setBusy] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [confirmingRto, setConfirmingRto] = useState(false);
-  const [trackingNumber, setTrackingNumber] = useState("");
-  const [carrier, setCarrier] = useState("");
+  const [editingTracking, setEditingTracking] = useState(false);
   const [reason, setReason] = useState("");
 
   if (!hasPermission(user?.role, "MANAGE_ORDERS")) {
@@ -101,17 +104,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
           Mark as shipped
         </Button>
         {shipping ? (
-          <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-            <Input placeholder="Tracking number" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
-            <Input placeholder="Carrier" value={carrier} onChange={(e) => setCarrier(e.target.value)} />
-            <Button
-              onClick={() => void run(() => onShip({ trackingNumber, carrier }), "Order marked as shipped")}
-              isLoading={busy}
-              disabled={!trackingNumber || !carrier}
-            >
-              Confirm shipment
-            </Button>
-          </div>
+          <ShipmentForm submitLabel="Confirm shipment" busy={busy} onSubmit={(values) => void run(() => onShip(values), "Order marked as shipped")} />
         ) : null}
       </div>
     );
@@ -124,10 +117,27 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
           <Button onClick={() => void run(onDeliver, "Order marked as delivered")} isLoading={busy}>
             Mark as delivered
           </Button>
+          <Button variant="secondary" onClick={() => void run(onOutForDelivery, "Out-for-delivery email sent (it is only sent once per order)")} disabled={busy}>
+            Email: out for delivery
+          </Button>
+          <Button variant="secondary" onClick={() => setEditingTracking((v) => !v)} disabled={busy}>
+            Edit tracking / resend email
+          </Button>
           <Button variant="secondary" onClick={() => setConfirmingRto(true)} disabled={busy}>
             Mark delivery failed / RTO
           </Button>
         </div>
+        {editingTracking ? (
+          <ShipmentForm
+            initial={order}
+            submitLabel="Save and email customer"
+            busy={busy}
+            onSubmit={(values) => {
+              void run(() => onUpdateTracking({ ...values, resend: true }), "Tracking updated and customer emailed");
+              setEditingTracking(false);
+            }}
+          />
+        ) : null}
         {confirmingRto ? (
           <div className="flex flex-col gap-2 rounded-md border border-border p-3">
             <p className="font-body text-sm text-text-secondary">

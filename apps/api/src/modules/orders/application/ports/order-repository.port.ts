@@ -105,8 +105,13 @@ export interface OrderRepositoryPort {
     to: OrderEntity["status"],
     tx: unknown,
     extraFields?: Partial<
-      Pick<OrderEntity, "trackingNumber" | "carrier" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
+      Pick<OrderEntity, "trackingNumber" | "carrier" | "carrierCode" | "trackingUrl" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
     >,
+  ): Promise<TransitionOrderStatusResult>;
+  /** Rewrites the courier/tracking fields of an already-SHIPPED order (`WHERE status = 'SHIPPED'`); `changed: false` if it is no longer shipped. */
+  updateTracking(
+    orderId: string,
+    fields: Pick<OrderEntity, "trackingNumber" | "carrier" | "carrierCode" | "trackingUrl">,
   ): Promise<TransitionOrderStatusResult>;
   /** Admin order list (ADR-025's admin order view) — no userId filter, unlike findSummariesByUserId. */
   findAllPaginated(filter: ListOrdersFilter): Promise<ListOrdersResult>;

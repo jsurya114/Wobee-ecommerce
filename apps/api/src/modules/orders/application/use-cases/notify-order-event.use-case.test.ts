@@ -41,6 +41,8 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     ],
     trackingNumber: null,
     carrier: null,
+    carrierCode: null,
+    trackingUrl: null,
     shippedAt: null,
     deliveredAt: null,
     cancelledAt: null,

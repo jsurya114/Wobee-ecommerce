@@ -1,5 +1,5 @@
 import type { OrderStatus, PaymentMethod, PaymentStatus } from "@woobe/types";
-import type { CancelOrderInput, ShipOrderInput } from "@woobe/validation";
+import type { CancelOrderInput, ShipOrderInput, UpdateTrackingInput } from "@woobe/validation";
 import { apiFetch } from "@/lib/api-client";
 
 export interface AdminOrderItemView {
@@ -42,6 +42,8 @@ export interface AdminOrderView {
   placedAt: string;
   trackingNumber: string | null;
   carrier: string | null;
+  carrierCode: string | null;
+  trackingUrl: string | null;
   shippedAt: string | null;
   deliveredAt: string | null;
   cancelledAt: string | null;
@@ -101,6 +103,15 @@ export function markPacked(id: string, accessToken: string): Promise<AdminOrderV
 
 export function ship(id: string, input: ShipOrderInput, accessToken: string): Promise<AdminOrderView> {
   return apiFetch(`/api/v1/admin/orders/${id}/ship`, { method: "POST", body: input, accessToken });
+}
+
+export function updateTracking(id: string, input: UpdateTrackingInput, accessToken: string): Promise<AdminOrderView> {
+  return apiFetch(`/api/v1/admin/orders/${id}/tracking`, { method: "POST", body: input, accessToken });
+}
+
+/** Emails the customer that the parcel is out for delivery (once per order). The order stays SHIPPED. */
+export function outForDelivery(id: string, accessToken: string): Promise<{ queued: boolean }> {
+  return apiFetch(`/api/v1/admin/orders/${id}/out-for-delivery`, { method: "POST", accessToken });
 }
 
 export function deliver(id: string, accessToken: string): Promise<AdminOrderView> {

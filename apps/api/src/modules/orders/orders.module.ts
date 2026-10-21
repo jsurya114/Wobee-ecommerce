@@ -11,7 +11,7 @@ import { getCartUseCase, getOrCreateCartUseCase, lockCartForCheckoutUseCase, mar
 import { recordAuditLogUseCase } from "../audit/audit.module";
 import { redeemCouponUseCase } from "../coupons/coupons.module";
 import { reserveInventoryForCheckoutUseCase, restockFinalizedSaleUseCase } from "../inventory/inventory.module";
-import { enqueueNotificationUseCase } from "../notifications/notifications.module";
+import { bestEffortEnqueueNotificationUseCase as enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { calculateGstUseCase } from "../pricing/pricing.module";
 import { observability } from "../../shared/infrastructure/observability/prometheus/prometheus-observability";
 import { getProductsByIdsUseCase, resolveProductIdsForVariantsUseCase } from "../products/products.module";
@@ -44,6 +44,8 @@ import { MarkOrderPackedUseCase } from "./application/use-cases/mark-order-packe
 import { MarkOrderPaymentFailedUseCase } from "./application/use-cases/mark-order-payment-failed.use-case";
 import { MarkOrderReturnedToOriginUseCase } from "./application/use-cases/mark-order-returned-to-origin.use-case";
 import { NotifyOrderEventUseCase } from "./application/use-cases/notify-order-event.use-case";
+import { NotifyOutForDeliveryUseCase } from "./application/use-cases/notify-out-for-delivery.use-case";
+import { UpdateTrackingUseCase } from "./application/use-cases/update-tracking.use-case";
 import { SetOrderHasActiveReturnUseCase } from "./application/use-cases/set-order-has-active-return.use-case";
 import { ShipOrderUseCase } from "./application/use-cases/ship-order.use-case";
 import { StartProcessingOrderUseCase } from "./application/use-cases/start-processing-order.use-case";
@@ -141,7 +143,10 @@ export const deliverOrderUseCase = new DeliverOrderUseCase(orderRepository, audi
  * (unlike cancellation, never needs composing with `refunds` in `admin` —
  * see the use-case's own doc comment for why).
  */
-export const markOrderReturnedToOriginUseCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transactionRunner, observability);
+export const markOrderReturnedToOriginUseCase = new MarkOrderReturnedToOriginUseCase(orderRepository, inventoryRestock, auditLogger, transactionRunner, observability, notifyOrderEventUseCase);
+/** Admin tools on a shipped order: correct the courier/tracking (optionally re-emailing), and send the one-off "out for delivery" email. */
+export const updateTrackingUseCase = new UpdateTrackingUseCase(orderRepository, auditLogger, notifyOrderEventUseCase);
+export const notifyOutForDeliveryUseCase = new NotifyOutForDeliveryUseCase(orderRepository, auditLogger, notifyOrderEventUseCase);
 /**
  * Status transition + inventory restock ONLY. The refund and the
  * `ORDER_CANCELLED` audit entry that a cancellation also implies are

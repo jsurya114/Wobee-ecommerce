@@ -35,6 +35,7 @@ export interface OrderView {
   placedAt: string;
   trackingNumber: string | null;
   carrier: string | null;
+  trackingUrl: string | null;
   shippedAt: string | null;
   /** Week 2 Day 6 (week2 (1).md §11) — the return-window anchor; only a DELIVERED order can be returned. */
   deliveredAt: string | null;

@@ -1,4 +1,5 @@
 import type { Role } from "@woobe/types";
+import { resolveCourier, type CourierCode } from "@woobe/validation";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import type { AuditLoggerPort } from "../ports/audit-logger.port";
 import type { OrderRepositoryPort, TransitionOrderStatusResult } from "../ports/order-repository.port";
@@ -8,7 +9,11 @@ import type { OrderNotificationEventType } from "./notify-order-event.use-case";
 
 export interface ShipOrderInput {
   trackingNumber: string;
-  carrier: string;
+  carrierCode?: CourierCode;
+  /** Free-text courier name: required for OTHER / legacy callers, ignored when a preset is chosen. */
+  carrier?: string;
+  /** Per-shipment tracking link overriding the preset's. */
+  trackingUrl?: string;
 }
 
 /**
@@ -32,7 +37,7 @@ export class ShipOrderUseCase {
     private readonly auditLogger: AuditLoggerPort,
     private readonly transaction: TransactionPort,
     private readonly shipmentCreator: ShipmentCreatorPort,
-    private readonly notifyOrderEvent: { execute(orderId: string, type: OrderNotificationEventType): Promise<void> },
+    private readonly notifyOrderEvent: { execute(orderId: string, type: OrderNotificationEventType, options?: { dedupeVersion?: string }): Promise<void> },
   ) {}
 
   async execute(orderId: string, actor: { id: string; role: Role }, input: ShipOrderInput): Promise<TransitionOrderStatusResult> {
@@ -47,16 +52,19 @@ export class ShipOrderUseCase {
       throw new ConflictError(`Cannot ship an order in status ${existing.status}`);
     }
 
+    const courier = resolveCourier(input);
     const shipment = await this.shipmentCreator.createShipment({
       orderId,
       trackingNumber: input.trackingNumber,
-      carrier: input.carrier,
+      carrier: courier.name,
     });
 
     const result = await this.transaction.run(async (tx) => {
       const transitioned = await this.orderRepository.transitionStatus(orderId, "PACKED", "SHIPPED", tx, {
         trackingNumber: shipment.trackingNumber,
         carrier: shipment.carrier,
+        carrierCode: courier.code,
+        trackingUrl: courier.trackingUrl,
         shippedAt: new Date(),
       });
       if (transitioned.changed) {

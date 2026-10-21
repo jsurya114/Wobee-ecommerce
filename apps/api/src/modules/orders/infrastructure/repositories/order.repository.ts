@@ -152,7 +152,7 @@ export class OrderRepository implements OrderRepositoryPort {
     to: OrderEntity["status"],
     tx: unknown,
     extraFields?: Partial<
-      Pick<OrderEntity, "trackingNumber" | "carrier" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
+      Pick<OrderEntity, "trackingNumber" | "carrier" | "carrierCode" | "trackingUrl" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
     >,
   ): Promise<TransitionOrderStatusResult> {
     const client = tx as PrismaTx;
@@ -161,6 +161,15 @@ export class OrderRepository implements OrderRepositoryPort {
       data: { status: to, ...extraFields },
     });
     const order = await client.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
+    return { changed: count > 0, order: toEntity(order) };
+  }
+
+  async updateTracking(
+    orderId: string,
+    fields: Pick<OrderEntity, "trackingNumber" | "carrier" | "carrierCode" | "trackingUrl">,
+  ): Promise<TransitionOrderStatusResult> {
+    const { count } = await prisma.order.updateMany({ where: { id: orderId, status: "SHIPPED" }, data: fields });
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
     return { changed: count > 0, order: toEntity(order) };
   }
 
@@ -266,6 +275,8 @@ function toEntity(order: OrderWithItems): OrderEntity {
     placedAt: order.placedAt,
     trackingNumber: order.trackingNumber,
     carrier: order.carrier,
+    carrierCode: order.carrierCode,
+    trackingUrl: order.trackingUrl,
     shippedAt: order.shippedAt,
     deliveredAt: order.deliveredAt,
     cancelledAt: order.cancelledAt,
