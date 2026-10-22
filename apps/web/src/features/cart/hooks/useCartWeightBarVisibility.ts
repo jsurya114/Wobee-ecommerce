@@ -17,7 +17,7 @@ import { useCart } from "./useCart";
  * fighting for attention there, same reasoning `WhatsAppButton`'s own
  * `HIDDEN_ON_PATHS` already applies to this exact pair of routes.
  */
-const HIDDEN_ROUTE_PREFIXES = ["/cart", "/checkout", "/products/", "/order-confirmation", "/login", "/register"];
+const HIDDEN_ROUTE_PREFIXES = ["/cart", "/checkout", "/products/", "/order-confirmation", "/payment", "/login", "/register"];
 
 /**
  * Shared by `FloatingCartWeightIndicator` (to decide whether to render) and

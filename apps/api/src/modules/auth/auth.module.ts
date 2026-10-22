@@ -72,7 +72,7 @@ export const registerUserUseCase = new RegisterUserUseCase(
   refreshTokenService,
 );
 export const loginUserUseCase = new LoginUserUseCase(authRepository, bcryptService, jwtService, refreshTokenService);
-export const refreshTokenUseCase = new RefreshTokenUseCase(authRepository, jwtService, refreshTokenService);
+export const refreshTokenUseCase = new RefreshTokenUseCase(authRepository, jwtService, refreshTokenService, env.REFRESH_TOKEN_REUSE_GRACE_SECONDS);
 export const logoutUserUseCase = new LogoutUserUseCase(authRepository, refreshTokenService);
 export const getCurrentUserUseCase = new GetCurrentUserUseCase(authRepository);
 /** Exported for the `users` module's profile-edit endpoint (Week 2 Day 3) — see the use-case's own doc comment for why this lives in auth, not users. */

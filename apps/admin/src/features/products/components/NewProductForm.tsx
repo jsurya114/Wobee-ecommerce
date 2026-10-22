@@ -18,6 +18,7 @@ export function NewProductForm() {
       <ProductForm
         categories={categories}
         submitLabel="Create product"
+        cancelHref="/products"
         onSubmit={async (payload) => {
           const result = await withFreshToken((token) => productsApi.createProduct(payload, token));
           toast.success("Product created");

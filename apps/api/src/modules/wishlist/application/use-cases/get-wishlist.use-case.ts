@@ -21,12 +21,21 @@ export interface WishlistLineView {
   availableQuantity: number | null;
   /**
    * Whether this line is currently addable to cart as-is. A no-variant item
-   * is "available" as long as the product itself is active — the shopper
-   * hasn't committed to a size yet, so stock isn't evaluated until they do
-   * (on the PDP, via move-to-cart's own live check). A variant item needs
-   * the product AND variant active AND real stock.
+   * is "available" while the product is active and at least one of its
+   * variants has stock (2026-09-30; before that, only while active) — the
+   * shopper still picks the size on the PDP, where move-to-cart's own live
+   * check applies. A variant item needs the product AND variant active AND
+   * real stock.
    */
   isAvailable: boolean;
+  /**
+   * 2026-09-30 — the product (or, for a line with a chosen size, that
+   * variant) is active but has no live stock. The storefront no longer lists
+   * such a product anywhere else, but a wishlisted one stays here, shown as
+   * SOLD OUT, with nothing to add to the bag. A deactivated product/variant
+   * is "no longer available", not sold out.
+   */
+  isSoldOut: boolean;
   addedAt: string;
 }
 
@@ -66,10 +75,11 @@ export class GetWishlistUseCase {
       .map((item) => item.variantId)
       .filter((id): id is string => id !== null);
 
-    const [products, variants, availability] = await Promise.all([
+    const [products, variants, availability, inStockProductIds] = await Promise.all([
       this.productCatalog.getProducts(productIds),
       variantIds.length > 0 ? this.variantCatalog.getVariants(variantIds) : Promise.resolve(new Map<string, never>()),
       variantIds.length > 0 ? this.inventoryReader.getAvailableQuantities(variantIds) : Promise.resolve(new Map<string, number>()),
+      this.inventoryReader.findInStockProductIds(),
     ]);
 
     const lines: WishlistLineView[] = items
@@ -82,9 +92,12 @@ export class GetWishlistUseCase {
 
         const variant = item.variantId ? variants.get(item.variantId) : undefined;
         const availableQuantity = item.variantId ? (availability.get(item.variantId) ?? 0) : null;
+        const isSoldOut = item.variantId
+          ? product.isActive && Boolean(variant?.isActive) && (availableQuantity ?? 0) === 0
+          : product.isActive && !inStockProductIds.has(product.id);
         const isAvailable = item.variantId
           ? product.isActive && Boolean(variant?.isActive) && (availableQuantity ?? 0) > 0
-          : product.isActive;
+          : product.isActive && !isSoldOut;
 
         const line: WishlistLineView = {
           itemId: item.id,
@@ -100,6 +113,7 @@ export class GetWishlistUseCase {
           isVariantActive: item.variantId ? Boolean(variant?.isActive) : null,
           availableQuantity,
           isAvailable,
+          isSoldOut,
           addedAt: item.createdAt.toISOString(),
         };
         return line;

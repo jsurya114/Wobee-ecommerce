@@ -5,6 +5,10 @@ export interface OrderForPayment {
   status: string;
   paymentMethod: "RAZORPAY" | "COD";
   totalPaise: number;
+  shippingFeePaise: number;
+  /** Non-null only for a COD order that must prepay its delivery fee online (2026-09-28). */
+  payableOnDeliveryPaise: number | null;
+  shippingPaidUpfront: boolean;
   items: { variantId: string; quantity: number }[];
 }
 
@@ -20,7 +24,8 @@ export interface TransitionResult {
  */
 export interface OrderPort {
   getOrder(orderId: string): Promise<OrderForPayment | null>;
-  confirm(orderId: string, tx: unknown): Promise<TransitionResult>;
+  /** `options.shippingPaidUpfront` — the capture being confirmed is a COD order's prepaid delivery fee. */
+  confirm(orderId: string, tx: unknown, options?: { shippingPaidUpfront?: boolean }): Promise<TransitionResult>;
   markPaymentFailed(orderId: string, tx: unknown): Promise<TransitionResult>;
   /**
    * Week 2 Day 8 (week2 (1).md §20) — called AFTER the caller's own

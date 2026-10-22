@@ -6,8 +6,20 @@ function fakeObservability(): ObservabilityPort {
   return { recordOrderCreated: vi.fn(), recordOrderEvent: vi.fn(), recordRefundIssued: vi.fn(), recordInventoryReservation: vi.fn(), recordPaymentWebhook: vi.fn() };
 }
 
-function build(opts: { status?: string; paymentMethod?: string; confirmChanged?: boolean; txFails?: boolean; notifyFails?: boolean } = {}) {
-  const order = { id: "o1", userId: null, status: opts.status ?? "PENDING_PAYMENT", paymentMethod: opts.paymentMethod ?? "COD", totalPaise: 500, items: [] };
+function build(
+  opts: { status?: string; paymentMethod?: string; confirmChanged?: boolean; txFails?: boolean; notifyFails?: boolean; payableOnDeliveryPaise?: number | null } = {},
+) {
+  const order = {
+    id: "o1",
+    userId: null,
+    status: opts.status ?? "PENDING_PAYMENT",
+    paymentMethod: opts.paymentMethod ?? "COD",
+    totalPaise: 500,
+    shippingFeePaise: 0,
+    payableOnDeliveryPaise: opts.payableOnDeliveryPaise ?? null,
+    shippingPaidUpfront: false,
+    items: [],
+  };
   const orderPort = {
     getOrder: vi.fn().mockResolvedValue(order),
     confirm: vi.fn().mockResolvedValue({ changed: opts.confirmChanged ?? true }),
@@ -57,5 +69,16 @@ describe("ConfirmCodOrderUseCase — order-confirmed metric", () => {
     const { useCase, observability } = build({ notifyFails: true });
     await expect(useCase.execute("o1", undefined)).rejects.toThrow("notify down");
     expect(observability.recordOrderEvent).toHaveBeenCalledWith({ event: "confirmed" });
+  });
+
+  it("refuses to confirm a COD order whose delivery fee must be prepaid online (COD shipping upfront)", async () => {
+    const { useCase, orderPort } = build({ payableOnDeliveryPaise: 450 });
+    await expect(useCase.execute("o1", undefined)).rejects.toThrow("Pay the delivery fee online");
+    expect(orderPort.confirm).not.toHaveBeenCalled();
+  });
+
+  it("still treats an already-CONFIRMED upfront order as an idempotent success", async () => {
+    const { useCase } = build({ status: "CONFIRMED", payableOnDeliveryPaise: 450 });
+    await expect(useCase.execute("o1", undefined)).resolves.toEqual({ alreadyConfirmed: true });
   });
 });

@@ -1,14 +1,14 @@
 "use client";
 
-import { Button, Input } from "@woobe/ui";
-import type { ShipOrderInput, UpdateTrackingInput } from "@woobe/validation";
-import { useState } from "react";
+import { Button, ConfirmationDialog, Input } from "@woobe/ui";
+import { COURIERS, type ShipOrderInput, type UpdateTrackingInput } from "@woobe/validation";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
 import { hasPermission } from "@/features/shell/nav-config";
-import type { AdminOrderView } from "../api/admin-orders.client";
-import { ShipmentForm } from "./ShipmentForm";
+import type { AdminOrderView, CancelRefundOutcome } from "../api/admin-orders.client";
+import { ShipmentForm, type ShipmentValues } from "./ShipmentForm";
 
 interface Props {
   order: AdminOrderView;
@@ -20,15 +20,26 @@ interface Props {
   onDeliver: () => Promise<void>;
   onCancel: (input: { reason?: string }) => Promise<void>;
   onReturnToOrigin: () => Promise<void>;
-  lastRefundIssued: boolean | null;
+  /** Outcome of a cancellation made in THIS session (null otherwise). */
+  lastRefundOutcome: CancelRefundOutcome | null;
 }
 
-export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onUpdateTracking, onOutForDelivery, onDeliver, onCancel, onReturnToOrigin, lastRefundIssued }: Props) {
+/** A status change waiting on the admin's confirmation (2026-09-28 — every transition goes through ConfirmationDialog). */
+interface PendingAction {
+  title: string;
+  description: ReactNode;
+  confirmLabel: string;
+  variant: "default" | "destructive";
+  action: () => Promise<void>;
+  successMessage: string;
+}
+
+export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onUpdateTracking, onOutForDelivery, onDeliver, onCancel, onReturnToOrigin, lastRefundOutcome }: Props) {
   const { user } = useAdminAuth();
   const [busy, setBusy] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [confirmingRto, setConfirmingRto] = useState(false);
+  const [pending, setPending] = useState<PendingAction | null>(null);
   const [editingTracking, setEditingTracking] = useState(false);
   const [reason, setReason] = useState("");
 
@@ -36,20 +47,131 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
     return null; // defense in depth — the API already enforces this; a staff member without the permission shouldn't see a live-looking button that 403s
   }
 
-  const run = async (action: () => Promise<void>, successMessage: string) => {
+  const ref = order.orderNumber; // shown in every dialog — the order number staff recognise, never the UUID
+
+  const runPending = async () => {
+    if (!pending) return;
     setBusy(true);
     try {
-      await action();
-      toast.success(successMessage);
+      await pending.action();
+      toast.success(pending.successMessage);
       setShipping(false);
       setCancelling(false);
-      setConfirmingRto(false);
+      setEditingTracking(false);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "That didn't work.");
     } finally {
       setBusy(false);
+      setPending(null);
     }
   };
+
+  const dialog = (
+    <ConfirmationDialog
+      open={pending !== null}
+      title={pending?.title ?? ""}
+      description={pending?.description ?? ""}
+      confirmLabel={pending?.confirmLabel ?? "Confirm"}
+      variant={pending?.variant ?? "default"}
+      isLoading={busy}
+      onConfirm={runPending}
+      onCancel={() => setPending(null)}
+    />
+  );
+
+  const confirmProcessing = () =>
+    setPending({
+      title: "Start processing?",
+      description: `Move order #${ref} to Processing? Fulfillment will begin.`,
+      confirmLabel: "Mark as processing",
+      variant: "default",
+      action: onStartProcessing,
+      successMessage: "Order moved to processing",
+    });
+
+  const confirmPacked = () =>
+    setPending({
+      title: "Mark as packed?",
+      description: `Mark #${ref} as Packed?`,
+      confirmLabel: "Mark packed",
+      variant: "default",
+      action: onMarkPacked,
+      successMessage: "Order marked as packed",
+    });
+
+  const courierLabel = (values: ShipmentValues) => (values.carrier ? values.carrier : COURIERS[values.carrierCode].name);
+
+  const confirmShipment = (values: ShipmentValues) =>
+    setPending({
+      title: "Confirm shipment?",
+      description: `Ship #${ref} with tracking ${values.trackingNumber} via ${courierLabel(values)}? Customer will be notified.`,
+      confirmLabel: "Confirm shipment",
+      variant: "default",
+      action: () => onShip(values),
+      successMessage: "Order marked as shipped",
+    });
+
+  const confirmTrackingUpdate = (values: ShipmentValues) =>
+    setPending({
+      title: "Update tracking and email the customer?",
+      description: `Change #${ref} to ${courierLabel(values)}, tracking ${values.trackingNumber}? The customer is emailed the corrected details.`,
+      confirmLabel: "Save and email",
+      variant: "default",
+      action: () => onUpdateTracking({ ...values, resend: true }),
+      successMessage: "Tracking updated and customer emailed",
+    });
+
+  const confirmOutForDelivery = () =>
+    setPending({
+      title: "Email: out for delivery?",
+      description: `Tell the customer #${ref} is out for delivery? This email is only sent once per order.`,
+      confirmLabel: "Send email",
+      variant: "default",
+      action: onOutForDelivery,
+      successMessage: "Out-for-delivery email sent",
+    });
+
+  const confirmDelivered = () =>
+    setPending({
+      title: "Mark as delivered?",
+      description: `Mark #${ref} as Delivered? This cannot be undone.${
+        order.paymentMethod === "COD" ? " Cash-on-delivery payment will be recorded as collected." : ""
+      }`,
+      confirmLabel: "Mark as delivered",
+      variant: "destructive",
+      action: onDeliver,
+      successMessage: "Order marked as delivered",
+    });
+
+  const confirmCancellation = () => {
+    const trimmedReason = reason.trim();
+    setPending({
+      title: "Cancel this order?",
+      description: `Cancel #${ref}? Inventory will be restocked and refund initiated for anything paid online. This cannot be undone.`,
+      confirmLabel: "Cancel order",
+      variant: "destructive",
+      action: () => onCancel({ reason: trimmedReason || undefined }),
+      successMessage: "Order cancelled",
+    });
+  };
+
+  const confirmReturnToOrigin = () =>
+    setPending({
+      title: "Mark delivery failed?",
+      description: (
+        <>
+          <p>Mark #{ref} as returned to origin?</p>
+          <p className="mt-2">
+            The shipment could not be delivered and is being returned to Woobe. This restocks the item(s) and — for a cash-on-delivery order —
+            leaves the payment as pending, since Woobe never collected it.
+          </p>
+        </>
+      ),
+      confirmLabel: "Mark delivery failed",
+      variant: "destructive",
+      action: onReturnToOrigin,
+      successMessage: "Order marked as returned to origin",
+    });
 
   if (order.status === "CONFIRMED") {
     return (
@@ -65,7 +187,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
       // overflow-width check alone.
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void run(onStartProcessing, "Order moved to processing")} isLoading={busy}>
+          <Button onClick={confirmProcessing} disabled={busy}>
             Mark as processing
           </Button>
           <Button variant="secondary" onClick={() => setCancelling(true)} disabled={busy}>
@@ -73,6 +195,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
           </Button>
         </div>
         {cancelling ? renderCancelForm() : null}
+        {dialog}
       </div>
     );
   }
@@ -81,7 +204,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
     return (
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void run(onMarkPacked, "Order marked as packed")} isLoading={busy}>
+          <Button onClick={confirmPacked} disabled={busy}>
             Mark packed
           </Button>
           <Button variant="secondary" onClick={() => setCancelling(true)} disabled={busy}>
@@ -89,6 +212,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
           </Button>
         </div>
         {cancelling ? renderCancelForm() : null}
+        {dialog}
       </div>
     );
   }
@@ -104,8 +228,9 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
           Mark as shipped
         </Button>
         {shipping ? (
-          <ShipmentForm submitLabel="Confirm shipment" busy={busy} onSubmit={(values) => void run(() => onShip(values), "Order marked as shipped")} />
+          <ShipmentForm submitLabel="Confirm shipment" busy={busy} onSubmit={confirmShipment} />
         ) : null}
+        {dialog}
       </div>
     );
   }
@@ -114,51 +239,35 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
     return (
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void run(onDeliver, "Order marked as delivered")} isLoading={busy}>
+          <Button onClick={confirmDelivered} disabled={busy}>
             Mark as delivered
           </Button>
-          <Button variant="secondary" onClick={() => void run(onOutForDelivery, "Out-for-delivery email sent (it is only sent once per order)")} disabled={busy}>
+          <Button variant="secondary" onClick={confirmOutForDelivery} disabled={busy}>
             Email: out for delivery
           </Button>
           <Button variant="secondary" onClick={() => setEditingTracking((v) => !v)} disabled={busy}>
             Edit tracking / resend email
           </Button>
-          <Button variant="secondary" onClick={() => setConfirmingRto(true)} disabled={busy}>
+          <Button variant="secondary" onClick={confirmReturnToOrigin} disabled={busy}>
             Mark delivery failed / RTO
           </Button>
         </div>
-        {editingTracking ? (
-          <ShipmentForm
-            initial={order}
-            submitLabel="Save and email customer"
-            busy={busy}
-            onSubmit={(values) => {
-              void run(() => onUpdateTracking({ ...values, resend: true }), "Tracking updated and customer emailed");
-              setEditingTracking(false);
-            }}
-          />
-        ) : null}
-        {confirmingRto ? (
-          <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-            <p className="font-body text-sm text-text-secondary">
-              The shipment could not be delivered and is being returned to Woobe. This restocks the item(s) and — for a cash-on-delivery order —
-              leaves the payment as pending, since Woobe never collected it.
-            </p>
-            <Button
-              variant="secondary"
-              onClick={() => void run(onReturnToOrigin, "Order marked as returned to origin")}
-              isLoading={busy}
-            >
-              Confirm — mark delivery failed
-            </Button>
-          </div>
-        ) : null}
+        {editingTracking ? <ShipmentForm initial={order} submitLabel="Save and email customer" busy={busy} onSubmit={confirmTrackingUpdate} /> : null}
+        {dialog}
       </div>
     );
   }
 
-  if (lastRefundIssued === false && order.status === "CANCELLED") {
-    return <p className="font-body text-sm text-error">Refund needs manual follow-up — the automatic attempt didn't succeed.</p>;
+  // Bug fix (2026-09-28): this used to key off `refundIssued === false`, which
+  // is ALSO what a COD cancel returns (nothing was ever collected, so nothing
+  // to refund) — every successful COD cancellation showed this red warning
+  // and looked like it had failed. Only a genuinely failed refund attempt
+  // needs a human now.
+  if (order.status === "CANCELLED" && lastRefundOutcome === "FAILED") {
+    return <p className="font-body text-sm text-error">Order cancelled, but the refund needs manual follow-up — the automatic attempt didn&apos;t succeed.</p>;
+  }
+  if (order.status === "CANCELLED" && lastRefundOutcome === "COMPLETED") {
+    return <p className="font-body text-sm text-success">Order cancelled and refund issued.</p>;
   }
 
   return null;
@@ -167,7 +276,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
     return (
       <div className="flex flex-col gap-2 rounded-md border border-border p-3">
         <Input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
-        <Button variant="secondary" onClick={() => void run(() => onCancel({ reason: reason || undefined }), "Order cancelled")} isLoading={busy}>
+        <Button variant="secondary" onClick={confirmCancellation} disabled={busy}>
           Confirm cancellation
         </Button>
       </div>

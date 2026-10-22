@@ -3,6 +3,7 @@
 import useEmblaCarousel from "embla-carousel-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isAllowedBannerLink } from "@woobe/validation";
 import type { HomeBanner } from "../api/home.client";
 
 const AUTOPLAY_INTERVAL_MS = 5000;
@@ -18,7 +19,22 @@ const AUTOPLAY_INTERVAL_MS = 5000;
  * href>` with an unsafe scheme.
  */
 function isSafeHref(url: string): boolean {
-  return url.startsWith("/") || /^https:\/\//i.test(url) || /^http:\/\//i.test(url);
+  // Same parser-based check the write side uses — a string-prefix test lets
+  // "/\\evil.com" or a tab/newline variant through, which browsers turn into
+  // "//evil.com" (an external site).
+  return isAllowedBannerLink(url);
+}
+
+/**
+ * The link a slide opens. Banner CTAs are admin-picked actions resolved by the
+ * API to a storefront path (`resolvedCtaUrl`, 2026-09-28). Only if that field
+ * is absent entirely (an older cached payload) does it fall back to the raw
+ * `ctaUrl` — which isSafeHref rejects unless it's a genuine path/URL, so a new
+ * "category:<id>" reference can never be used as a link.
+ */
+function bannerHref(banner: HomeBanner): string | null {
+  const href = banner.resolvedCtaUrl !== undefined ? banner.resolvedCtaUrl : banner.ctaUrl;
+  return href && isSafeHref(href) ? href : null;
 }
 
 /**
@@ -147,8 +163,13 @@ export function PromoCarousel({ banners }: { banners: HomeBanner[] }) {
 }
 
 function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boolean }) {
+  const href = bannerHref(banner);
   const content = (
     <div className="relative aspect-[8/5] w-full max-h-[280px] overflow-hidden bg-surface-2 sm:aspect-[3/2] sm:max-h-[320px] md:aspect-[16/9] md:max-h-[380px] lg:aspect-[2/1] lg:max-h-[440px] xl:max-h-[480px]">
+      {/* Deliberately a plain <img>, not next/image: banners may be animated
+          GIFs (2026-09-28), and Next's image optimizer re-encodes them to a
+          single static frame. The first slide still loads eagerly with
+          fetchPriority="high". */}
       <img
         src={banner.imageUrl}
         alt={banner.title ?? ""}
@@ -161,7 +182,7 @@ function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boole
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent px-4 pb-4 pt-8 text-white sm:px-6">
           {banner.title ? <p className="font-display text-base sm:text-lg">{banner.title}</p> : null}
           {banner.subtitle ? <p className="mt-0.5 font-body text-xs text-white/85 sm:text-sm">{banner.subtitle}</p> : null}
-          {banner.ctaLabel && banner.ctaUrl ? (
+          {banner.ctaLabel && href ? (
             <span className="mt-2 inline-flex items-center rounded-pill bg-white px-3 py-1.5 font-body text-xs font-medium text-text-primary">
               {banner.ctaLabel}
             </span>
@@ -171,9 +192,9 @@ function BannerSlide({ banner, priority }: { banner: HomeBanner; priority: boole
     </div>
   );
 
-  if (banner.ctaUrl && isSafeHref(banner.ctaUrl)) {
+  if (href) {
     return (
-      <Link href={banner.ctaUrl} className="block" aria-label={banner.title ?? "Promotion"}>
+      <Link href={href} className="block" aria-label={banner.title ?? "Promotion"}>
         {content}
       </Link>
     );

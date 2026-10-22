@@ -13,6 +13,7 @@ function payment(overrides: Partial<PaymentEntity> = {}): PaymentEntity {
     razorpayOrderId: null,
     razorpayPaymentId: null,
     razorpaySignature: null,
+    upfrontAmountPaise: null,
     ...overrides,
   };
 }

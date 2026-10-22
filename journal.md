@@ -4339,6 +4339,567 @@ This also explains — and corrects — a misdiagnosis in the immediately preced
 **Harness bugs fixed on the way:** `docker kill` bypasses the restart policy (crash must kill the process; and the first "fix" silently did nothing because the harness image's entrypoint is `docker`); push-metrics path not remapped; NOAUTH assertion inherited the container's own REDISCLI_AUTH.
 **Caveats:** the named SSO profile `WoobeTerraformAdmin-185658217213` is not configured on this machine; the backend was exercised UNMODIFIED with only `-backend-config="profile=woobe"` (static-key IAM user, same account). Re-run `aws sso login` + `terraform init -reconfigure` + `terraform plan` with the SSO profile before applying. Two unrelated local services (Homebrew Redis, `version-vault-redis`) were stopped while the Valkey suite ran and restored (verified).
 
+## 2026-09-20 → 2026-09-23 — Catch-up note: work merged to `main` that was never journaled
+
+Recorded 2026-09-28 from `git log`, so the next reader doesn't assume the entries above are the latest state. Details live in each commit message.
+- **Production infrastructure is live.** The first real `terraform apply` ran; three AWS-API validation bugs it surfaced were fixed in `13f2607` (ASCII-only security-group descriptions, CloudFront custom error response, `{{ }}` in the observability SSM document).
+- **Two live deploy blockers, applied as targeted Terraform changes:** the GitHub OIDC trust policy now matches the ID-suffixed `sub` claim GitHub issues after the repo/owner rename (`f6c995a`); `deploy.sh`'s `head -6` SIGPIPE that aborted every deploy (exit 141) was removed (`f2e27ad`).
+- **Business-analytics module** (`91bcc38`, migration `20260921000000_business_analytics`): database-backed admin dashboard, unit-cost snapshots, funnel, first-party event collector.
+- **Storefront:** mobile liquid-glass nav and sticky search (`4717ded`); PDP pincode check is frontend-only and the offer ticker is limited to `/` and `/products` (`0a5b2e7`); offers ticker / testimonial carousel fixes.
+- **Admin:** a FIXED_AMOUNT offer can't exceed the targeted products' price (`a6ea2fb`).
+- **Razorpay checkout:** the widget opens right after "Place order"; unpaid orders live on a dedicated `/payment/[id]` page, and `/order-confirmation` only ever shows confirmed orders (`0f2e0c8`, `8618f07`, `75076e6`).
+- **CI:** gitleaks allowlists, a regression test for the deploy SIGPIPE bug, and cart rate-limit counters reset per test file.
+
+---
+
+## 2026-09-28 — Admin settings, returns switch, COD delivery fee online, banner actions, GIFs, cancel fix, confirmation dialogs (8 tasks)
+
+**Branch/commit:** `feat/admin-settings-returns-cod-banners` (off `main` @ `4dba6d2`), pushed, **not merged**. 11 commits, one per task plus two follow-up fixes: `e04c461` settings, `c4e7fc6` variant form, `71b573e` bulk upload, `a9143fb` returns + COD, `9693480` banner actions, `b61a36a` + `5055070` banner-link security fix, `a4cf501` cancel fix, `1ae5759` confirmation dialog, `ed043eb` GIF support.
+
+**What changed:**
+
+1. **Extended admin settings** (`e04c461`). New `settings` module owns a single-row `AppConfig` (id `singleton`): `minCartQuantity`, size/fabric/fit presets (stored comma-separated), `returnsEnabled`. Reads fall back to column defaults when the row is missing, and the seed upserts it without resetting saved values. Endpoints:
+   - public `GET /api/v1/settings/config/public`;
+   - `GET/PATCH /api/v1/admin/settings/config`;
+   - `GET/PATCH /api/v1/admin/settings/shipping` (all `MANAGE_SETTINGS`).
+
+   The Settings page now has four sections: Pricing / Cart & shipping rules / Product presets / Store policies.
+   - **Deviation from the brief:** minimum cart weight and "free delivery by price" live on the existing, versioned `ShippingRule` (new column `freeDeliveryMinSubtotalPaise`, 0 = off), not duplicated into `AppConfig`. Cart progress and checkout already read `ShippingRule`; a second copy could let them disagree.
+   - Free delivery by price uses the offer-adjusted, pre-coupon items subtotal. Either it or the weight threshold qualifies.
+   - Checkout enforces `minCartQuantity` (422). The minimum-weight message now reads "Minimum cart weight is 1kg to place an order — add Xg more."
+   - Rupee inputs go through a new string-based `parseRupeeInputToPaise` in `@woobe/utils` (no float math, unit-tested).
+2. **Variant form** (`c4e7fc6`). "Fixed price (₹)" is converted to integer paise at submit, and more than 2 decimals is rejected. Size (required), Fabric and Fit (optional) are dropdowns over the presets, each with "Other…" free text; a value that isn't a preset opens in "Other" mode with its text kept. Presets are capped at 30 characters to match the variant `size` column.
+3. **Bulk product image upload** (`71b573e`). `multiple` file input. Uploads run strictly one after another through the unchanged single-file `POST /media`, with an "Uploading N of M…" status. A failed file doesn't stop the batch, and the batch ends with a summary toast.
+4. **Returns switched off + COD delivery fee online** (`a9143fb`, migration `20260928010000_cod_shipping_upfront`, additive only).
+   - **Returns:** `AppConfig.returnsEnabled` (default **off**) is enforced inside `RequestReturnUseCase`, so no route can bypass it: new requests get 403 `RETURNS_DISABLED`. Existing returns stay readable and admin can still process them.
+   - **Returns UI:** the storefront hides "Request a return"; Help → Returns explains open-box delivery; footer/nav return links repointed; PDP shows "Open box delivery — verify your order at the doorstep"; the admin sidebar marks Returns "Disabled".
+   - **COD fee, deviation from the brief:** not "pay shipping, then create the order", which would take money with no order to attach it to (and `Payment.orderId` is unique). With `AppConfig.codShippingUpfront` on (default **off**), checkout creates the COD order as before and records `Order.payableOnDeliveryPaise = total − shippingFee`. The fee alone goes through the existing Razorpay order + signature-verified webhook, which confirms the order (`shippingPaidUpfront = true`).
+   - **COD fee, payment record:** the single COD `Payment` row keeps `amountPaise` = order total, records the online part in `upfrontAmountPaise`, and stays PENDING until delivery marks it CAPTURED.
+   - **COD fee, rules:** `/payments/cod/confirm` refuses such orders (409), and the webhook rejects any amount other than the fee. Cancelling refunds only the fee; the dashboard's "COD outstanding" excludes it; the confirmation email shows the split.
+5. **Banner preset actions** (`9693480`). The admin picks No link / category / collection / product (search picker) / all offers / new arrivals / custom link.
+   - `ctaUrl` stores a reference (`category:<id>`, `offers`, `custom:<url>`, …), parsed and formatted once in `@woobe/validation`.
+   - The banners API resolves it on every read to the target's *current* slug (`resolvedCtaUrl`). An inactive or missing target resolves to null, so the CTA is hidden rather than dead.
+   - Legacy raw links keep working. The home cache schema version was bumped to 6.
+6. **Security fix on banner links** (`b61a36a`, `5055070`), found by the automated commit security review. `/\evil.com` and tab/newline variants passed the old "starts with `/`, not `//`" check, but browsers turn them into `//evil.com` (an external site); the old validator had the same gap. Both the save-side validator and the storefront's `isSafeHref` now parse the link against a fixed base and require the same origin, and reject backslashes, whitespace and control characters.
+7. **Cancelling confirmed orders** (`a4cf501`).
+   - The prompt's guesses were wrong: route, `MANAGE_ORDERS` permission, allowed statuses and the transactional restock were all correct, and the refund already ran after the cancel commit, best-effort.
+   - Reproduced in the admin UI: the cancel succeeded, but every COD cancel immediately showed a red "Refund needs manual follow-up", because the API returned `refundIssued: false` both for "nothing to refund" and for "refund failed". That made successful cancels look failed.
+   - Now the API returns `refundOutcome` (`NOT_APPLICABLE` | `COMPLETED` | `FAILED`, also written to the audit log) and the warning only shows for `FAILED`.
+   - PACKED orders are still **not** cancellable (deliberate allow-list, pinned by a test). This is left as a business decision.
+8. **Confirmation dialog** (`1ae5759`). New `ConfirmationDialog` in `@woobe/ui` on native `<dialog>` + `showModal()`: Escape cancels, the confirm button is focused so Enter confirms, a spinner shows while the action runs, and there's a destructive (red) variant. Every order transition in `OrderStatusActions` goes through it, naming the order by its order number.
+9. **GIF banners** (`ed043eb`).
+   - The admin upload allowlist gains `image/gif` and the cap goes from 5MB to 10MB. SVG and video stay rejected.
+   - Customer testimonial photos keep their own stricter validator (JPEG/PNG/WebP, 5MB).
+   - The storefront carousel was already a plain `<img>` (not `next/image`), so GIFs animate with no change; a comment now guards that.
+   - The admin shows a clear message when the proxy returns 413.
+
+**Why:** the user's 8-task brief (admin settings, variant form, bulk upload, returns off + COD fee online, banner actions, cancel fix, confirmation dialogs, GIFs). Every deviation above was made where the literal instruction would have caused a correctness, money or data-loss problem, and is explained in its commit message.
+
+**Verified:**
+- `pnpm run typecheck` clean (9/9); `pnpm run lint` clean (9/9); `boundaries:check` 0 violations (no new cycles; new edges `settings→shipping`, `orders/returns→settings`, `banners→categories/collections/products`); `check:migrations` exit 0; `pnpm run build` exit 0 for all 3 apps.
+- `pnpm run test` all green: **1,159** API tests (139 files) plus utils and validation, with `SMTP_HOST=` and `GOOGLE_CLIENT_ID=` blanked because the root `.env` leaks real values into tests (the known local-only issue). One full run hit 2 failures in untouched files (`admin-staff`, `products-on-offer`); both passed 3/3 in isolation, and the next full run was all green: the documented shared-`woobe_test` flake.
+- **New tests:**
+  - settings + checkout rules integration;
+  - COD-upfront end to end: setting off → unchanged; on → 409 on `/cod/confirm`, amount-mismatch rejected, fee capture confirms, PENDING until delivery → CAPTURED; payment failure releases stock; cancel refunds only the fee;
+  - returns-disabled 403;
+  - banner CTA resolution + unsafe-link rejection;
+  - GIF upload served back byte-for-byte;
+  - refund-outcome unit and integration tests;
+  - rupee-parser and free-delivery-by-subtotal unit tests.
+- **Live in the browser** (chrome-devtools, local dev fleet, every task):
+  - **Settings:** ₹12.345 rejected with the paise message; ₹1,999.50 saved as exactly 199,950 paise in a new `shipping_rules` row; duplicate preset rejected; new preset saved and offered in the variant Size dropdown; the returns toggle flips the sidebar "Disabled" badge.
+  - **Variant form:** ₹72 shown for 7,200 paise; ₹72.505 rejected; ₹75.25 saved as 7,525 paise with the non-preset size "One Size" preserved, then reverted.
+  - **Bulk upload:** 3 PNGs + 1 text file → 3 attached, per-file error toast, "Uploading 1 of 2…" / "2 of 2…", button disabled during the batch, summary toast.
+  - **Banner:** created with a real animated GIF → stored `category:<id>`, resolved to the live slug, edit form reopens with the same selection, homepage renders it as a plain `<img>` linking to the category.
+  - **Returns:** "Request a return" hidden on a delivered order while off and shown when on; Help and footer copy updated.
+  - **COD fee:** with the setting on, checkout shows "Shipping (pay now) / Items (pay on delivery)" and "Place order & pay ₹50.00 delivery fee", lands on `/payment/[id]` showing ₹50 now / ₹840 cash on delivery, and admin shows "Awaiting online payment" + "COD amount (collect at delivery) ₹840.00". The Razorpay step itself failed locally only because `.env` has the stub key `rzp_test_stub_…` (the same failure plain "Pay online" gets here); the webhook path after a real payment is covered by integration tests.
+  - **Cancel:** a confirmed COD order cancels with no false warning.
+  - **Dialog:** Escape leaves the order unchanged, Enter performs the transition, and the destructive variant renders red with the order number.
+  - All settings, test orders, customer, banner, product images and media created during verification were removed from `woobe_dev`, with stock restored.
+
+**Follow-ups / known gaps:**
+- **Two switches are OFF by default:** returns (so returns stop as soon as this deploys, as requested), and "Collect COD delivery fee online". Turn the COD one on in Settings → Store policies only after Razorpay is verified in that environment; it has not been run against real Razorpay.
+- **Production nginx still caps uploads at 6MB**, so 6–10MB files get 413. Raise it **on the host only**; the steps are in `docs/deployment.md` → "Raising the upload size limit". Do **not** edit `api.conf.tpl`: it is rendered into `user_data`, and `user_data_replace_on_change = true` would replace the production instance on the next apply. The older advice in "Changing the nginx configuration" to mirror host edits into the template has the same risk.
+- A COD-upfront order whose fee is never paid holds its stock reservation, the same pre-existing gap as abandoned Razorpay orders.
+- PACKED-order cancellation remains an open business decision.
+- Presets are stored comma-separated, so a single preset can't contain a comma (validated).
+
+---
+
+## 2026-09-29 — Variant form: live weight-based price preview; weight optional for fixed-price products
+
+**Branch/commit:** `feat/admin-settings-returns-cod-banners` (the PR #21 branch, reused after its merge as requested). Two commits: `feat(admin): dynamic price preview for weight-based products in variant form`, `feat(products): weight is optional for fixed-price product variants`. No schema change and no migration.
+
+**What changed:**
+- **Price preview (WEIGHT_BASED products).** In `VariantForm`, the static "Weight × the global ₹/kg rate" text is replaced by a live preview.
+  - It shows, for example, "₹720.00 (500g × ₹1,440/kg)", recalculated on every keystroke.
+  - Other states: "Enter weight to see price" (blank or 0), "Loading rate…", a whole-grams hint for input like `1.5`, and a fallback line if the rate can't load.
+  - A "Preview — actual price is always computed server-side." note sits underneath.
+  - It uses `calculateWeightBasedPricePaise` from `@woobe/utils`, the same function the server uses, so the formula isn't duplicated.
+  - The form still sends only `weightGrams`; no price is sent for weight-based products.
+- **Where the rate comes from (safer than the brief's first option).** The brief suggested `useAdminPricingSetting`, but `GET /admin/settings/pricing` needs `MANAGE_SETTINGS`, which `PRODUCT_MANAGEMENT_STAFF` (the people who edit variants) doesn't have. It would have 403'd for them, and widening that permission would weaken RBAC.
+  - Instead, `GET /api/v1/settings/config/public` now also returns `ratePerKgPaise`. That value is already public on every product page.
+  - This goes through a new `PricingRateReaderPort` in `settings`, wired to `pricing`'s `getPricingSettingUseCase`. `pricing` doesn't import `settings`, so there's no cycle.
+  - Saving a new rate in Settings invalidates the admin's cached public config, so the preview updates right away.
+- **Weight optional for FIXED products.**
+  - `weightGrams` in `createVariantSchema` is now optional, and in both create and update schemas it's `int().min(0)`.
+  - A blank weight is stored as **0 = "not tracked"**. The column stays `Int NOT NULL`, so no migration is needed.
+  - Server-side rules:
+    - **Create/update a variant:** a WEIGHT_BASED product's variant with weight 0 or missing gets a 400 with `fieldErrors.weightGrams`, because it would otherwise be priced at ₹0.
+    - **FIXED → WEIGHT_BASED switch:** refused with a 400 while *any* variant (inactive included) has no weight. Reactivating one later would otherwise sell it at ₹0.
+  - Admin UI:
+    - the label reads "Weight (grams, optional)" for FIXED products;
+    - an existing 0 is shown as blank;
+    - decimals and negatives are rejected client-side;
+    - `VariantsList` shows "No weight" instead of "0g".
+  - I checked the code that reads weight before allowing 0:
+    - nothing divides by variant weight;
+    - `calculateWeightBasedPricePaise` and the unit-cost snapshot accept 0;
+    - the storefront shows weight only for weight-priced lines;
+    - a 0g line adds nothing to cart shipping weight.
+
+**Verification:**
+- typecheck and lint clean.
+- Full `pnpm run test` green: **1,161** API tests in 139 files, plus utils (30) and validation (17), run with `SMTP_HOST=` and `GOOGLE_CLIENT_ID=` blanked.
+- New integration tests:
+  - Public config now includes `ratePerKgPaise`, matching the latest `PricingSetting`.
+  - A FIXED variant with no weight → 201 with `weightGrams` 0, priced by its fixed price.
+  - A negative weight → 400.
+  - Switching a weightless FIXED product to WEIGHT_BASED → 400.
+  - A WEIGHT_BASED variant with missing weight → 400.
+  - Editing a WEIGHT_BASED variant to weight 0 → 400.
+
+**Follow-ups / known gaps:**
+- Deploying this needs no database step. The API must deploy before or with the admin; until then, the preview shows its "couldn't load the rate" fallback.
+- **Security dependency bumps (same PR, #22):**
+  - **Why:** CI's `pnpm audit --prod` step started failing on two newly published moderate advisories, unrelated to this change:
+    - `nodemailer` below 10.0.2, GHSA-6vj9-mwq6-2f5v;
+    - `multer` below 2.4.0, GHSA-3pph-fpjx-jg34.
+  - **What changed:** `multer` went to ^2.4.0 and `nodemailer` to ^10.0.11. Nodemailer 10's only breaking change is requiring Node ≥20, and the API Docker image, CI and the root `engines` field are all Node 22.
+  - **Release-age rule kept:** 10.0.12 would have needed a `minimumReleaseAgeExclude` exception, so it was not used.
+  - **Result:** the audit is clean, and all 1,161 API tests still pass.
+- The pasted brief was cut off partway through Task 2, and Task 3 never arrived. Task 2 was implemented from its visible "CURRENT STATE" and title. **Task 3 is not done** because its content is unknown.
+
+---
+
+## 2026-09-29 — Admin auto-logout fix, PDP "Key Highlights" overlay, admin UX pass (PARTIALLY COMPLETED)
+
+**Branch/commit:** `feat/admin-ux-session-pdp-highlights`, created from `main` at `2a0105f` (PR #22). **Not merged, no PR, not deployed.**
+
+| Commit | What |
+|---|---|
+| `8ec6582` | `fix(auth): prevent unexpected admin session logout` |
+| `5db4458` | `feat(web): key highlights overlay on the second product image` |
+| `d81ea79` | `feat(admin): redesign login, product editing and page headers` |
+| (this entry) | `docs(journal): …` |
+
+### 1. Admin auto-logout: reproduced, root cause found, fixed
+
+**Root cause: a refresh-token rotation race in the admin app.** It was not caused by cookies, CORS, env vars or token lifetimes.
+- **Backend:** the admin refresh token (`admin_refresh_token`) is single-use and rotated on every `POST /api/v1/admin/auth/refresh` (`RefreshTokenUseCase`). Presenting an already-rotated token is treated as theft, and `revokeAllRefreshTokensForUser` signs the admin out on every device.
+- **Frontend:** the admin's `withFreshToken` (`useAdminAuth.tsx`) started its own `/refresh` for every request that got a 401.
+- **Trigger:** when the 15-minute access token expired, any page firing several requests at once sent several refreshes with the same cookie. Also:
+  - the silent refresh on page load could race the page's first requests;
+  - React StrictMode double-mounts in dev.
+- **Result:** the admin was logged out "after a few minutes".
+- **History:** the storefront fixed exactly this on 2026-08-30 (`apps/web/src/features/auth/api/refresh-coordinator.ts`). The admin app never received that fix.
+
+**Reproduced at API level:**
+- login → 3 concurrent refreshes with the same cookie → `200, 200, 401`;
+- then *every* resulting cookie → `401` (all sessions revoked).
+
+**Production config checked, and not the cause:**
+- The admin (`admin.woobe.in`) calls `NEXT_PUBLIC_ADMIN_API_URL=https://api.woobe.in` (checked via `vercel env pull`, not committed). Those are the same *site*, so the `SameSite=Strict` cookie is sent.
+- Live preflight: `Access-Control-Allow-Origin: https://admin.woobe.in` plus `Allow-Credentials: true`.
+- `/refresh` without a cookie → `401 "No admin refresh token cookie"`, with CORS headers present.
+- Cookie flags: `httpOnly`, `Secure` in production, `SameSite=Strict`, signed, path `/api/v1/admin`. `trust proxy` is configured.
+
+**The fix (frontend only; the security model is unchanged):**
+- **New `singleFlight` helper** (`packages/utils/src/single-flight.ts`, 3 unit tests): concurrent callers share one in-flight Promise.
+- **New `apps/admin/src/features/auth/api/refresh-coordinator.ts`:**
+  - all admin refreshes go through `singleFlight`;
+  - on top of that, `navigator.locks` (Web Locks) serializes refreshes across tabs where supported.
+- **`useAdminAuth.tsx`:**
+  - the mount-time refresh and `withFreshToken` both use the coordinator;
+  - a 401 whose token was already replaced by another request retries with the new token instead of rotating again;
+  - **only a 401/403 from `/refresh` ends the session.** A network error or 5xx during refresh (e.g. nginx 502 while the API restarts on deploy) is rethrown and the session is kept. Before this, it logged the admin out.
+  - **a 400/422 on the retried request no longer logs the admin out.** Before this, any error on the post-refresh retry, such as a form validation error, ended the session.
+- **Not changed:** rotation, reuse detection, TTLs (15m/30d), cookie flags and backend code. Nothing was moved to localStorage.
+
+**Verified in a browser** (local API with `JWT_ACCESS_TOKEN_TTL=20s`, admin dev server):
+- Login, then three expiry cycles (~80s) navigating Orders → Products → Dashboard: exactly **one** `/refresh` per expiry, and the retried request is 200, with no logout.
+- Reload (StrictMode double mount): **one** `/refresh`, and the admin stays signed in.
+- Logout → `/login`. A protected route afterwards gets `/refresh 401` → `/login`.
+- Simulated `502` on `/refresh` → the admin stays signed in, the page retries, and the next refresh succeeds.
+- The responsive scan (below) did **112 full page loads** in one session, each doing a refresh, with **0** bounces to `/login`.
+- **Not browser-tested:** two tabs refreshing at the same instant. That path is covered by Web Locks by design and is untested.
+
+### 2. PDP second image: "Key Highlights" overlay
+
+- **Behaviour:** the **second** slide of the product image carousel (`ProductGallery.tsx`) shows a "Key Highlights" overlay inside the image. It is part of that slide, so it swipes in on image 2 and out on image 1.
+- **Design:** a bottom-weighted dark gradient keeps the top of the photo visible; rows are label over value with hairline separators. It uses `pointer-events-none`, so swipes and controls work through it.
+- **Data:** real product data only, via `apps/web/src/features/catalog/lib/build-key-highlights.ts`. The rows are:
+  - Type (category);
+  - Brand;
+  - Fabric, Fit and Colour of the **selected variant**;
+  - Weight (weight-priced items only).
+
+  A row appears only if its value exists (values over 40 characters are skipped), and the overlay shows only with 2+ images and 2+ rows.
+- **Adapts per product and per variant.** For example, on local test data the kurta's Mustard variant showed 5 rows and its Teal variant 3.
+- **Limitation — the reference fields don't exist yet.** The schema has **no** "Work", "Blouse attached", "Saree material", "Set quantity", "Length" or similar fields. Those need a structured product-attributes field (a schema change plus an admin UI) and were deliberately **not** invented.
+- **Reference image:** the brief's reference image was **not attached** to the conversation. The design follows its written description.
+- **Verified:**
+  - 390 / 375 / 768 / 1024 / 1440px, with no horizontal overflow and the overlay inside the image;
+  - dot navigation, thumbnail navigation and a real drag swipe (overlay shows on image 2 and hides on image 1).
+- **Test data:** the local test data (an extra image row plus fabric/fit on `cotton-kurta`) was removed afterwards.
+
+### 3. Admin UX pass — **PARTIALLY COMPLETED**
+
+**Done:**
+- **Login page:**
+  - split layout (brand panel ≥lg, focused form);
+  - show/hide password button;
+  - inline error banner with icon;
+  - "Signing in…" state, autofocus and a placeholder;
+  - a note for invited staff.
+
+  Login logic, validation, error handling and redirect are unchanged. Verified: wrong password shows "Invalid email or password"; the correct password signs in.
+- **Shared `PageHeader`** (`apps/admin/src/features/shell/components/PageHeader.tsx`):
+  - used on every edit/create page — products, categories, collections, coupons, offers, banners, staff, customers, orders and returns;
+  - adds a "‹ List" back link, which these pages never had;
+  - status badges sit beside the title, and actions wrap on narrow screens.
+- **Product add/edit:**
+  - **Layout:** two columns from xl (details + variants | images + cost), so the edit page is ~1,430px tall instead of ~1,830px at 1440px.
+  - **Form sections:** Basic information / Pricing (selectable cards) / a collapsible "Search engine listing (optional)" section, which opens automatically when it has content or an error.
+  - **Save bar:** stays in view while scrolling, with a Cancel link.
+  - **Unchanged:** fields, validation and payload.
+  - **Verified:**
+    - an empty name keeps the admin on the page with "Name is required";
+    - a valid save shows "Saving…", then "Saved successfully", then returns to `/products`.
+- **Saving state:** a "Saving…" label on every entity form (categories, collections, coupons, offers, banners, products, variants).
+- **Loading:** a branded spinner replaces the bare "Loading…" text while the session is checked.
+- **Responsive fixes (these bugs were already there):**
+  - **Inventory** overflowed by 268px at 390px and by 122px at 768px. The cause: an `sr-only` "Actions" header label (absolutely positioned) escaped a scroll container that wasn't positioned. All six table scroll containers are now `relative`.
+  - **Banners:** each row overflowed by 20px at 390px; the actions now wrap.
+- **Responsive scan:**
+  - 28 admin pages (20 list/create plus 8 real detail pages) × 390/768/1024/1280px = **112 checks**;
+  - after the fixes, every re-checked page shows 0 overflow at 375, 390 and 768px.
+
+**Not done** (for the next person):
+- **List pages** (Products, Orders, Categories and so on) still hand-roll their headers; they could move to `PageHeader` with `actions`.
+- **Other forms:** the Category, Collection, Coupon, Offer, Banner and Staff forms were not regrouped into sections and have no sticky save bar or Cancel link. Only the "Saving…" label was added.
+- **Tables:** no sticky headers; the status-badge casing is still lowercase everywhere.
+- **Not reviewed:** order workflow UX (OrderStatusActions), the settings page layout, the dashboard, testimonials, and the inventory adjust flow.
+- **Required-field markers:** no consistent convention exists yet. An asterisk was tried on Category, then removed for consistency.
+
+### Tests / checks
+- `pnpm run typecheck` ✅ and `pnpm run lint` ✅ (all 8 projects).
+- `pnpm run test` ✅:
+  - utils 33 (including 3 new `singleFlight` tests);
+  - validation 17;
+  - API **1,161/1,161**, with `SMTP_HOST=` and `GOOGLE_CLIENT_ID=` blanked.
+
+  The first full run had 1 failure in `admin-offers.integration.test.ts`, a file this branch doesn't touch (the branch has no API changes). It passed 3/3 in isolation, and the full rerun was green: the known shared-`woobe_test` flake.
+- API auth and admin suites: 22 files, 188 tests ✅.
+- `pnpm run build` ✅ (api, web, admin).
+
+### Follow-ups / known gaps
+- **Deploy:** after deploying, the auto-logout fix should be watched in production. Leave the admin open for more than 15 minutes, then use a page that fires several requests (the dashboard).
+- **Optional extra hardening (not done):** a short server-side "grace window" for a just-rotated refresh token would also cover a refresh whose *response* is lost in transit (the server rotated, the browser never got the new cookie). That changes security semantics, so it needs a deliberate decision.
+- **Highlights data:** saree/jewellery-specific highlights need a structured product-attributes field; see §2.
+- **Local environment notes:**
+  - switching branches on this iCloud-synced Desktop created 11 byte-identical `… 2.tsx/.ts/.sql` duplicates. They were verified identical and deleted, never committed.
+  - `pnpm` minimum-release-age still applies to dependencies.
+
+---
+
+## 2026-09-29 (later) — Admin UX pass completed; two more logout causes found and fixed
+
+**Branch/commit:** `feat/admin-ux-session-pdp-highlights`, continuing the entry above. **Not merged, no PR, not deployed.**
+
+| Commit | What |
+|---|---|
+| `c29a01d` | `fix(auth): stop refresh-token reuse detection from logging out valid sessions` |
+| `1107416` | `feat(admin): finish admin UX pass across lists, forms, orders and settings` |
+| (this entry) | `docs(journal): …` |
+
+This supersedes the "PARTIALLY COMPLETED" status and the "optional grace window (not done)" follow-up in the entry above.
+
+### Auth: two more causes of unexpected logouts, both live on `main` today
+
+The frontend single-flight fix (`8ec6582`) was necessary but **not sufficient**. Continued browser testing hit "Refresh token reuse detected — all sessions revoked" twice more, with two different causes.
+
+**1. Lost rotation response.**
+- **What happens:** the server rotates the token, but the browser never receives the response, for example a tab reloaded or closed mid-refresh, a dropped mobile connection, or a proxy timeout. The browser keeps the old cookie, and its next refresh is treated as theft, which revokes every session.
+- **Reproduced in Chrome:** Slow 3G, then abort a `/admin/auth/refresh` in flight, then refresh → `401 reuse detected`.
+- **Fix:**
+  - `RefreshToken.replacedByTokenId` (a new nullable column) records which token replaced a rotated one.
+  - A rotated token presented again within `REFRESH_TOKEN_REUSE_GRACE_SECONDS` (default **30**, 0 disables) is treated as a lost response, **provided its replacement has never been used**. The unused replacement is retired and a fresh pair is issued.
+  - There is only ever one live token per session; the chain is never forked.
+- **Verified:** the same abort reproduction now returns `200`, and the next refresh returns `200`.
+
+**2. Stale-cookie cascade.**
+- **What happens:** a token that died *without* rotation (logout, a previous revoke-all, password reset, deactivation) is still sitting in another browser or device. When that device refreshes, the old code ran revoke-all again, signing the user out of the session they had just logged into.
+- **Found:** the token chain showed page 5's *current, correct* token revoked with no replacement recorded 36s after it was issued. It was caused by another browser context holding a dead cookie.
+- **Proven with a failing test first:** `auth.integration.test.ts` → "a stale, already-dead cookie from another device does not log out the user's current session" failed on the old code (`expected 401 to be 200`).
+- **Fix:** only a replay of a **rotated** token (`replacedByTokenId` set) triggers revoke-all. Other revoked tokens are simply rejected with a 401.
+- **Verified in the browser:** the stale context was sent to `/login`, and the fresh context stayed signed in.
+
+**Also fixed:** rotation is now atomic (`updateMany … where revokedAt IS NULL`). Before, two concurrent refreshes with the same token could *both* succeed (seen as `200, 200, 401` in the earlier curl reproduction).
+
+**Security properties kept:**
+- A replay of a rotated token after the window, or after its replacement was used, still revokes every session.
+- Deactivated accounts are refused, even inside the window.
+- TTLs and cookie flags are unchanged, and there is no localStorage.
+
+**Transitional note:** tokens rotated *before* this migration have `replacedByTokenId = NULL`. A replay of one is rejected but does not trigger revoke-all. This matters only for tokens rotated before deploy (at most 30 days).
+
+**Files:**
+- Schema and migration `20260929000000_refresh_token_replaced_by` — additive (`ALTER TABLE … ADD COLUMN "replacedByTokenId" TEXT`); the destructive-migration guard passes.
+- Auth code: `refresh-token.use-case.ts`, `issue-token-pair.ts`, the repository port and implementation, and `auth.module.ts`.
+- Config: `env.ts` and `.env.example`.
+
+**Tests added:**
+- Unit (`refresh-token.use-case.test.ts`, 5 cases):
+  - grace 0 is strict;
+  - a lost response is recovered, including a second loss in the same window;
+  - reuse after the replacement was used is theft;
+  - a logout-revoked token doesn't revoke other sessions;
+  - a deactivated account is refused.
+- Integration (`auth.integration.test.ts`):
+  - lost-response recovery;
+  - 4 concurrent refreshes leave at most one live token;
+  - a replay after the window is theft;
+  - the stale-device case.
+- The existing reuse test now uses the rotated token before the replay. A replay while the replacement is unused and inside the window is, by design, the lost-response case; the test's security assertion (revoke-all) is unchanged.
+
+**Browser (Chrome, local):**
+- Two frames booting at the same instant, ×3 rounds: both stay signed in each round (Web Locks), and the session remains valid.
+- 95 page loads in the final responsive scan: 0 logouts.
+
+**Deploy note:** this branch now carries a DB migration. The production deploy's `run_migrations=true` applies it (additive, safe). No env change is required; the default is 30s.
+
+### Admin UX — now COMPLETE for the scope listed in the entry above
+- **List pages:** all 13 use the shared `PageHeader`. Returns, Settings and Testimonials gain a one-line description.
+- **Forms:**
+  - Shared `FormActions` (a sticky save bar, Cancel, "Saving…") is used by the product, category, collection, coupon, offer, banner and staff-create forms.
+  - Shared `FormSection` is used by the product form, the **coupon** form (Discount / Conditions & limits / Schedule) and the **offer** form (Offer / Discount / Where it applies / Schedule).
+  - Staff role selects are aligned with every other select (`h-11 rounded-control text-base`).
+- **Order detail:**
+  - The status actions (the most frequent task) moved from below every card to the top of the side column (first on mobile), next to the timeline, and they stay in view on desktop.
+  - "Total weight 0g" is hidden for fixed-price-only orders.
+  - Verified: the confirmation dialog still guards every transition; it was opened and cancelled, and the order is unchanged.
+- **Settings:**
+  - Jump links (Pricing / Cart & shipping / Product presets / Store policies) replace the uppercase section labels that repeated each card's own title.
+  - The pricing card is no longer narrower than the others, and its input is half width like the grid fields.
+- **Inventory adjust:**
+  - autofocus and placeholders ("+10 or -3", "e.g. New stock arrived");
+  - a live "Available: 33 → 30" preview, flagging "can't go below zero" (the server already rejects negative stock);
+  - Enter confirms, Escape cancels, "Saving…".
+  - Verified: +1 then −1 restored the stock to 33. **Two test adjustments ("UX test (reverted)", "UX test revert") remain in local `woobe_dev` stock history.**
+- **Dashboard:** count charts (orders, sessions) had y-axis labels "0 0 1 1 1" (fractional ticks rounded by an integer formatter). They now use whole-number ticks (`niceTicks(…, integerOnly)`) and read "0 1" / "0 1 2 3".
+- **Filters:** the Testimonials and Returns single filters no longer stretch the full page width.
+- **Deliberately not done:**
+  - **Sticky table headers:** the tables sit in horizontal-scroll containers, where `position: sticky` can't pin to the page. It would need nested vertical scrolling, which is worse UX at 50 rows per page.
+  - **Badge casing:** already consistent lowercase everywhere; changing it would also change the storefront.
+- **Responsive:** 19 key pages × 375 / 390 / 768 / 1024 / 1440 = **95 checks, 0 overflow**.
+
+### Checks (servers stopped, machine idle)
+- typecheck: 8/8 ✅.
+- lint: 8/8 ✅.
+- `boundaries:check`: ✅ (738 modules, 0 violations).
+- `check-destructive-migration`: ✅.
+- `pnpm run test`: utils 33, validation 17, API **1,170/1,170** ✅.
+  - A run *during* the browser scan had 4 failures in coupons/returns. Those files passed 44/44 in isolation, and the idle full run was green; the failures came from machine load.
+- `pnpm run build`: api, web, admin ✅. The admin `.next` was cleared first, because an earlier build had run while a dev server was still up (stopping the wrapper command didn't stop the Node child; servers must be stopped by port).
+
+### Still open
+- **Production:** confirm after deploy by leaving the admin idle for more than 15 minutes, then using the dashboard. Keeping two tabs or two devices open is also worth checking.
+- **Product highlights:** saree/jewellery-specific fields still need a structured attributes model (see the entry above).
+
+---
+
+## 2026-09-29 (final) — Refresh-token rules finalised; admin-curated product highlights
+
+**Branch/commit:** `feat/admin-ux-session-pdp-highlights`: `1267cc8` (auth), `f0755fa` (highlights), plus this entry. Merged to `main` via a PR (see below).
+
+### Auth: revoke-all only on proof of theft
+- **What was still wrong:** after `c29a01d`, an idle session could still be revoked everywhere. A frame was removed mid-refresh, so the response was lost; the session then sat unused for 23 minutes (outside the 30s window); the next refresh with the old cookie ran revoke-all. Confirmed from the token chain: the sent token was rotated at 10:49:03, its replacement was never used, and it was presented at 11:12:39. The real-world equivalent is a tab closed mid-refresh and reopened later.
+- **Browser fix:** `keepalive: true` on the refresh request in both apps, so a request cut off by the page leaving still completes and the rotated cookie is stored. **Verified:** on Slow 3G, fired a refresh, left the page after 300ms, waited 40s (beyond the window), came back → signed in. The chain shows the rotation at 11:17:26 and the new token used at 11:18:21.
+- **Server rules (`RefreshTokenUseCase.handleRevokedToken`):**
+
+| Revoked token presented | Result |
+|---|---|
+| Revoked without rotation (logout, revoke-all, password reset; or rotated before this column existed) | 401, other sessions untouched |
+| Rotated, replacement **never used**, inside the window | Recovered (fresh pair) |
+| Rotated, replacement **never used**, after the window | That session ends (401); other devices untouched |
+| Rotated, and its replacement was **itself rotated** (the chain continued) | Theft → revoke every session |
+
+- **Theft detection kept:** a grace-retired replacement now also points at its successor. If an attacker replays inside the window and keeps using the session, the legitimate token's return still triggers revoke-all (unit test "still catches theft…").
+- **Tests:** auth suites 111 ✅. The grace-0 unit test and the "after the window" integration test now assert the new rule, and they also check that another device survives.
+
+### Admin-curated Key Highlights (closes the earlier "not stored anywhere yet" gap)
+- **Data:** `Product.highlights`, JSONB `NOT NULL DEFAULT '[]'`. Migration `20260929010000_product_highlights` is additive; existing products get `[]`.
+- **Validation (`productHighlightsSchema`):**
+  - at most 8 rows; label ≤ 30 and value ≤ 60 characters, trimmed;
+  - labels unique, ignoring case;
+  - on update, leaving the field out keeps it unchanged, and `[]` clears it.
+  - 4 unit tests.
+- **API:** create, update, admin detail and the public product page carry `highlights`. The JSON is read defensively (`parseProductHighlights` drops malformed rows).
+- **Tests:** integration covers create → public product page, rejecting duplicates, "edit other fields keeps highlights", "clear with `[]`", and "existing products default to `[]`".
+- **Admin:** a "Product highlights" section in the product form (add/remove rows, 0/8 counter). Half-filled rows and duplicate labels are caught before submit; fully empty rows are ignored.
+- **Storefront:** admin-curated highlights take priority over derived ones on the second-image overlay. One curated row is enough to show the overlay; derived rows still need 2+.
+- **Verified end to end in the browser:**
+  - Admin: a half-filled row was rejected and kept the admin on the page; the valid save showed "Saved successfully".
+  - Storefront at 390px: the overlay showed "Print: Hand block-printed" and "Length: Knee length".
+  - Test data was restored (highlights `[]`, the extra image removed).
+
+### Checks
+- typecheck 8/8 ✅; lint ✅; `boundaries:check` ✅ (0 violations).
+- Tests: utils 33, validation 21, API **1,174/1,174** ✅.
+- `pnpm run build`: api, web, admin ✅.
+
+### Environment note (my mistake, fixed)
+- **What happened:** I deleted `apps/admin/.next` and `apps/web/.next` (to clear iCloud `… 2.ts` duplicates that broke `tsc`) while the developer's own `pnpm dev` was serving them, and both returned 500.
+- **Fix:** I restarted them on 3000/3001, then stopped them for the production build. They need a fresh `pnpm dev` (or `pnpm --filter ./apps/web dev` / `./apps/admin dev`). The developer's API process on :4000 was left running.
+
+### Database changes and production
+- **Migrations on this branch:**
+  - `20260929000000_refresh_token_replaced_by`
+  - `20260929010000_product_highlights`
+
+  Both are additive, applied locally to `woobe_dev` and `woobe_test`, and pass the destructive-migration guard.
+- **Production:** RDS gets them through the normal deploy (`deploy.yml` with `run_migrations=true` runs `prisma migrate deploy` before the new containers start). The RDS password was **not** touched.
+
+## 2026-09-30 — Sold-out products hidden from Home/Shop (SOLD OUT in wishlist); Shop by Budget price leak fixed
+
+**Branch:** `fix/out-of-stock-budget-filter`, from main `fc47ffe`. Pushed, **not merged, no PR, not deployed.**
+**Commit:** the single `fix(catalog): …` commit on this branch (hash in `git log` / the task report).
+
+### Part 1 — Out-of-stock visibility
+
+**Existing stock rule (unchanged, not reinvented):**
+- A variant is in stock when `SUM(quantityAvailable − quantityReserved) > 0` across warehouses (`InventoryRepository.findInStockVariantIds`).
+- A product is in stock when **any ACTIVE variant** is in stock. This is the SQL the listing's `inStock` filter already applied (`EXISTS … v."isActive" AND v.id = ANY(inStockVariantIds)`).
+- Red/M 0 + Red/L 5 + Blue/M 0 → still listed. It drops out only when no active variant has stock.
+
+**What was already right:** every Home product rail was already `inStockOnly`: New Arrivals, Fashion by Weight, Offer campaigns, and Loved by Customers (post-filtered).
+
+**Root cause:**
+- **Shop:** `GET /api/v1/products` (Shop grid, load more, filter-count previews, collection pages) only hid sold-out products when the shopper ticked "In stock". The default listing showed them.
+- **Home:** the budget tile cover lookup wasn't stock-filtered.
+- **Home cache:** the whole-page Redis cache (60 s) could keep a just-sold-out product for up to a minute.
+
+**Fixes:**
+- **Shop (backend):** `ProductsController.list` always passes `inStockOnly: true`. Every storefront listing now uses the existing live in-stock filter, with no second stock implementation. `?inStock=` is still accepted; it's always satisfied now.
+- **Home:** budget tile covers use `inStockOnly: true`. "Loved by Customers" uses the new shared `FindInStockProductIdsUseCase`, which follows the same active-variant rule as the Shop SQL; the previous check ignored `isActive` on the variant.
+- **Cache (no caching disabled, no TTL changes):**
+  - New `fingerprintIds()` in `catalog-cache.ts`.
+  - In-stock listings used to skip the cache entirely. They're now cached under a key that includes a fingerprint of the live in-stock variant set, which is read on every request (DEVELOPMENT_RULES #1).
+  - The Home page cache key includes the same fingerprint.
+  - When anything sells out or is restocked, the key changes, so the page shows at once. While stock is unchanged, the cache still hits.
+  - Stock itself is never cached.
+- **Wishlist:**
+  - The API line gains `isSoldOut`: active but no stock. For a line with a chosen size, that means that variant has no stock; without a size, no active variant has stock.
+  - A size-less sold-out line is now `isAvailable: false`.
+  - UI: a red **SOLD OUT** badge (shared `Badge`), a dimmed image, and no "Move to bag" or "Choose a size" button. Remove still works.
+  - A deactivated product still reads "No longer available", not sold out.
+  - The existing move-to-cart live stock check (422) is unchanged.
+- **PDP:** unchanged. A sold-out product's page still loads (200) with all sizes unavailable.
+- **Related products (PDP rail):** unchanged and **still shows sold-out siblings**. The task limited the rule to Home and Shop; see limitations.
+
+### Part 2 — Shop by Budget (₹488 shown under ₹299)
+
+**Flow traced:**
+- The Home tile is an `<a href="/products?maxPrice=<paise>&sort=price_desc">`. It's a fresh URL, so no earlier min/max can survive.
+- `page.tsx` → `parseProductsQueryParams` → `listProducts` → `productListQuerySchema` (paise, int) → `ListProductsUseCase` → SQL `p."minPricePaiseCache" <= maxPrice`.
+- The URL, filter sheet (`Max = 499`), API and SQL all carried the same inclusive paise maximum. **The query was correct**: the new filter-only tests pass on main unchanged.
+
+**Root cause:**
+- The value being compared was stale. `effectivePricePaiseCache` and `minPricePaiseCache`, which the listing filters, sorts and shows, were only recomputed when a variant was edited. **Changing the global ₹/kg rate never re-priced them**, and a comment in `UpdatePricingSettingUseCase` wrongly claimed they refreshed "on their own read paths".
+- PDP, cart and checkout price live, so after a rate **increase** a weight-priced product could sit in the ₹299 budget at its old cached price (for example ₹240) while it actually cost ₹488.
+- **Production shows it today:**
+  - `demo-satin-wrap-top`: the list cache says ₹288 (240 g at the old ₹1,200/kg), but the PDP says ₹215.76 at the current ₹899/kg.
+  - 24 of the 27 weight-priced products (of 40 listed) still carry caches from the old rate. Currently that errs the other way (it hides products that do fit a budget), but the next rate increase would leak.
+- **The redis list cache wasn't the cause:** the key already includes `maxPricePaise` (a unit test now proves ₹299 and ₹499 never share an entry).
+
+**Fix:**
+- **`RefreshWeightBasedPriceCachesUseCase`** (products, admin):
+  - re-prices every WEIGHT_BASED variant through the existing pricing path (`PricingReaderPort.calculateMany` → `CalculateEffectivePriceUseCase`), with no second formula;
+  - writes only the prices that changed;
+  - recomputes each product's `minPricePaiseCache` in one transaction (repo `findWeightBasedVariantsForRepricing` and `updateVariantPriceCaches`);
+  - then bumps the catalog cache version.
+- **Admin wiring:** `admin.module.ts` composes "save rate, then refresh" (`changePricingRateUseCase`), because pricing can't import products (products → pricing already). `AdminSettingsController` takes `Pick<UpdatePricingSettingUseCase, "execute">`.
+- **Data migration** `20260930000000_refresh_weight_based_price_caches`:
+  - data-only, UPDATEs only (no schema change) — it passes the destructive-migration guard;
+  - re-prices the rows that are already stale, once, at the current rate;
+  - uses the same formula as `calculateWeightBasedPricePaise` (round half-up; the rate override is deprecated and ignored);
+  - production gets it through the normal deploy (`run_migrations=true`).
+- Applied locally to `woobe_dev` (checked by corrupting one row and watching it repaired) and to `woobe_test`.
+- **Not changed:** the filter still uses the base price (`minPricePaiseCache`, the price the card shows with a strikethrough when an offer applies). That's the existing price representation, as the task asked; offers, coupons, cart and checkout are untouched.
+
+### Tests
+- **New:** `shop-by-budget.integration.test.ts` (9), covering:
+  - ₹299: 100/200/299 shown; 300/488/499/500 hidden;
+  - ₹499: 499 shown, 500 hidden;
+  - 299 → 499 → 199 → reset;
+  - budget combined with category, size, colour, search, every sort, and pagination;
+  - **a rate change through `PUT /admin/settings/pricing` moves a product from ₹240 to ₹488.** It leaves the ₹299 budget and lists at ₹488 under ₹499, the same as its PDP.
+
+  The rate-change test **fails on main** (verified by stashing the fix); the other 8 pass on main.
+- `products.integration.test.ts`:
+  - the zero-stock fixture (`breeze-top`) no longer appears in any listing, and the changed tests assert its absence instead of counting it (totals 5→4, 4→3, 2→1);
+  - **new:** sold out, restock and reserved-only stock without `inStock`; the PDP still 200;
+  - **new:** listed while any active variant has stock, dropped once the only stocked variant is deactivated.
+- `collections.integration.test.ts`: the fixture helper now gives products one in-stock variant (they had none, so they were sold out by definition).
+- `wishlist.integration.test.ts`, 5 new tests:
+  - size-less sold out;
+  - one in-stock size is enough;
+  - in → out → in;
+  - deactivated product isn't "sold out";
+  - a sold-out item can be removed and can't be moved to the bag (422).
+- **Unit:**
+  - `RefreshWeightBasedPriceCachesUseCase` (2), `FindInStockProductIdsUseCase` (1);
+  - `fingerprintIds` (1);
+  - `CachedProductRepository` keys (2): budgets never share entries; the stock set is in the key;
+  - Home budget-tile expectations now include `inStockOnly: true`.
+- **Full API run:** 1,227 / 1,229. The 2 failures are in `returns.integration.test.ts`, a module this branch doesn't touch, and it passes **56/56 on its own**: the same load flake noted in earlier entries.
+- **typecheck** ✅; **lint** ✅ (`--max-warnings=0`); **boundaries** ✅ (0 violations); **build** api/web/admin ✅.
+
+### Verified locally (API and web dev servers, Redis cache ON)
+- **Stock:** selling out `embroidered-top` removed it from Shop (15→14) and from Home Fashion by Weight and its offer campaign on the very next request. The PDP still returned 200. Restocking brought it back. Stock was restored to the seed values.
+- **Budget (browser):** the Home "Under ₹499" tile went to `/products?maxPrice=49900&sort=price_desc`, the filter sheet showed Max 499 with Min empty, 13 results were all at most ₹480, and the preview count matched.
+  - Changing to ₹299 gave 5 results (max ₹264); ₹199 gave 4 (max ₹132); "Clear all" gave 15.
+  - Category pills keep the budget. Accessories under ₹299 excluded the ₹408 and ₹456 bags.
+- **Wishlist (browser, throwaway local customer, deleted afterwards):**
+  - a whole product sold out and a chosen size sold out both showed SOLD OUT, with no bag button;
+  - the in-stock item kept "Choose a size";
+  - Remove on a sold-out line worked;
+  - the sold-out product was absent from the Shop and Home HTML.
+  - Stock was restored exactly (22/18/35).
+- **Production was NOT verified:** nothing is deployed.
+
+### Files
+- **API:**
+  - `products.controller.ts`, `list`: always in-stock.
+  - `cached-product-repository.ts` (stock-keyed list cache, passthroughs) and `product.repository.ts` (3 new methods), with the matching port.
+  - New use cases: `find-in-stock-product-ids.use-case.ts` and `admin/refresh-weight-based-price-caches.use-case.ts`; wiring in `products.module.ts`.
+  - `home.module.ts` (stock-keyed cache, shared in-stock rule) and `get-homepage.use-case.ts` (in-stock budget covers).
+  - Wishlist: the `inventory-reader.port.ts` port, `get-wishlist.use-case.ts` and `wishlist.module.ts`.
+  - `admin.module.ts` and `admin-settings.controller.ts`; the doc comment in `update-pricing-setting.use-case.ts`.
+  - `shared/cache/catalog-cache.ts`: `fingerprintIds`.
+- **Web:** `wishlist.client.ts` and `WishlistLineItem.tsx`.
+- **DB:** migration `20260930000000_refresh_weight_based_price_caches`.
+- **Tests:** listed above.
+
+### Known limitations / follow-ups
+- **PDP "related products" still lists sold-out siblings.** This was left as-is on purpose (the rule is Home and Shop only). It's a one-line change (`findRelatedProducts` + in-stock ids) if wanted.
+- The search typeahead (suggestions dropdown) can still suggest a sold-out product; it links to the PDP. Shop search **results** exclude them.
+- `sitemap.xml` is built from the same listing endpoint, so while a product is sold out its PDP drops out of the sitemap; it comes back when restocked.
+- The Shop's "In stock only" toggle is now always satisfied, so it's redundant; it was kept to avoid touching unrelated filter UI.
+- Every Home request and in-stock listing does one live inventory `groupBy` for the fingerprint. It's the same query the `inStock` filter always ran, and fine at this catalogue size.
+- **Local data only:** "Embroidered Top" shows ₹0 because a local ₹300-off offer applies to a ₹264 item. That's pre-existing offer data, not part of this task.
+
 ---
 
 ## 2026-10-22 — Notification reliability + courier-aware shipping emails (PR 1 of 4)

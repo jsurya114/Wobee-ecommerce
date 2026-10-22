@@ -51,8 +51,17 @@ const SPARKLE_POSITIONS: { top?: string; left?: string; right?: string; bottom?:
  * (github.com/jsurya114/CycloneX, `Apps/views/user/confirmation.ejs`) —
  * recolored to Woobe's own pink family instead of that reference's
  * rainbow palette, per this app's single-brand-color design system.
+ *
+ * Exported (2026-09-22) so OrderConfirmation can fire the same burst when a
+ * RAZORPAY order's webhook-verified capture actually lands — that page
+ * never rendered this component (checkout navigates straight to the
+ * dedicated `/payment/[id]` page instead, which itself only ever hands off
+ * to OrderConfirmation once that capture lands), so a real payment success
+ * had no celebration at all. Callers are responsible for their own
+ * reduced-motion + once-only guards, same as this component's own usage
+ * below.
  */
-function fireConfetti(): void {
+export function fireConfetti(): void {
   void import("canvas-confetti").then(({ default: confetti }) => {
     const colors = [BRAND_PRIMARY, BRAND_PRIMARY_HOVER, BRAND_PRIMARY_TINT];
     const count = 160;

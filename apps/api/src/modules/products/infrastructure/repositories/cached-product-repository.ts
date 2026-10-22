@@ -1,4 +1,4 @@
-import { bumpCatalogCacheVersion, cacheAside } from "../../../../shared/cache/catalog-cache";
+import { bumpCatalogCacheVersion, cacheAside, fingerprintIds } from "../../../../shared/cache/catalog-cache";
 import type {
   AddProductImageInput,
   CreateProductInput,
@@ -7,12 +7,14 @@ import type {
   ListProductsAdminResult,
   ListProductsFilter,
   ListProductsResult,
+  OfferPriceFloorTarget,
   ProductRepositoryPort,
   ProductSummaryProjection,
   ProductSummaryProjectionWithStatus,
   UpdateProductInput,
   UpdateVariantInput,
 } from "../../application/ports/product-repository.port";
+import type { SearchMatchTerms } from "../../domain/parse-search-query";
 import type {
   AdminProductDetailEntity,
   AdminProductImageEntity,
@@ -37,12 +39,14 @@ function buildListKey(filter: ListProductsFilter): string {
     filter.categoryId ?? "_",
     filter.collectionId ?? "_",
     filter.search ?? "_",
+    filter.smartSearch ? JSON.stringify(filter.smartSearch) : "_",
     joinSorted(filter.sizes),
     joinSorted(filter.colors),
     filter.minPricePaise ?? "_",
     filter.maxPricePaise ?? "_",
     filter.onOffer ? "onOffer" : "_",
     filter.offerId ?? "_",
+    filter.pricingMode ?? "_",
     filter.sort,
     filter.page,
     filter.limit,
@@ -56,11 +60,13 @@ function buildListKey(filter: ListProductsFilter): string {
  * admin method and every live-inventory/live-pricing read stays a direct
  * passthrough to the inner repository, unchanged and always live.
  *
- * `findMany` is deliberately NOT cached when `filter.inStockVariantIds` is
- * present (`inStockOnly=true`) — that set is resolved live from `inventory`
- * one call up (`ListProductsUseCase`) and changes on every stock movement,
- * so caching against it would be both the closest thing here to caching
- * inventory and a near-zero cache-hit-rate key shape anyway.
+ * `findMany` with `filter.inStockVariantIds` (every storefront listing
+ * since 2026-09-30 — sold-out products are never listed) is cached per
+ * in-stock set: that set is resolved live from `inventory` one call up
+ * (`ListProductsUseCase`) on every request, and its fingerprint is part of
+ * the key, so a stock change (in → out or out → in) is a different key and
+ * a fresh read — stock itself is never cached. Until then it skipped the
+ * cache entirely, which would now mean no listing cache at all.
  *
  * Every write method that can change what a cached read would show bumps
  * the shared catalog cache version (see `bumpCatalogCacheVersion`'s own
@@ -73,8 +79,8 @@ export class CachedProductRepository implements ProductRepositoryPort {
   constructor(private readonly inner: ProductRepositoryPort) {}
 
   findMany(filter: ListProductsFilter): Promise<ListProductsResult> {
-    if (filter.inStockVariantIds) return this.inner.findMany(filter);
-    return cacheAside(buildListKey(filter), LIST_TTL_SECONDS, () => this.inner.findMany(filter));
+    const stockKey = filter.inStockVariantIds ? `:stock:${fingerprintIds(filter.inStockVariantIds)}` : "";
+    return cacheAside(`${buildListKey(filter)}${stockKey}`, LIST_TTL_SECONDS, () => this.inner.findMany(filter));
   }
 
   findBySlug(slug: string): Promise<ProductDetailEntity | null> {
@@ -90,8 +96,8 @@ export class CachedProductRepository implements ProductRepositoryPort {
   findTopProductsPerOffer(params: { limit: number; inStockVariantIds?: string[] }): Promise<{ offerId: string; productId: string }[]> {
     return this.inner.findTopProductsPerOffer(params);
   }
-  searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]> {
-    return this.inner.searchSuggestions(query, limit);
+  searchSuggestions(terms: SearchMatchTerms, limit: number): Promise<ProductSuggestionEntity[]> {
+    return this.inner.searchSuggestions(terms, limit);
   }
   findVariantsByIds(variantIds: string[]): ReturnType<ProductRepositoryPort["findVariantsByIds"]> {
     return this.inner.findVariantsByIds(variantIds);
@@ -107,6 +113,9 @@ export class CachedProductRepository implements ProductRepositoryPort {
   }
   findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>> {
     return this.inner.findProductIdsForVariantIds(variantIds);
+  }
+  findProductIdsWithActiveVariants(variantIds: string[]): Promise<Set<string>> {
+    return this.inner.findProductIdsWithActiveVariants(variantIds);
   }
   findPrimaryImageUrlByCategoryIds(categoryIds: string[]): Promise<Map<string, string>> {
     return this.inner.findPrimaryImageUrlByCategoryIds(categoryIds);
@@ -170,6 +179,17 @@ export class CachedProductRepository implements ProductRepositoryPort {
   async recomputeMinPrice(productId: string): Promise<void> {
     await this.inner.recomputeMinPrice(productId);
     await bumpCatalogCacheVersion();
+  }
+  findWeightBasedVariantsForRepricing(): ReturnType<ProductRepositoryPort["findWeightBasedVariantsForRepricing"]> {
+    return this.inner.findWeightBasedVariantsForRepricing();
+  }
+  async updateVariantPriceCaches(updates: Parameters<ProductRepositoryPort["updateVariantPriceCaches"]>[0]): Promise<void> {
+    await this.inner.updateVariantPriceCaches(updates);
+    await bumpCatalogCacheVersion();
+  }
+  /** Read-only admin support query (fix: admin offer discount validation) — same uncached passthrough as findVariantForAdmin; nothing to invalidate. */
+  getMinPricePaiseForOfferTarget(target: OfferPriceFloorTarget): ReturnType<ProductRepositoryPort["getMinPricePaiseForOfferTarget"]> {
+    return this.inner.getMinPricePaiseForOfferTarget(target);
   }
   async addImage(productId: string, input: AddProductImageInput): Promise<AdminProductImageEntity> {
     const result = await this.inner.addImage(productId, input);

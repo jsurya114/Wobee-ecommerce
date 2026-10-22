@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminOffer } from "../hooks/useAdminOffer";
 import { OfferForm, toDatetimeLocalValue, toRupeesValue } from "./OfferForm";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function OfferDetail({ offerId }: { offerId: string }) {
   const saveAndRedirect = useSaveAndRedirect("/offers");
@@ -39,15 +40,18 @@ export function OfferDetail({ offerId }: { offerId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-xl">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-xl text-text-primary">{offer.name}</h1>
-        <div className="flex items-center gap-2">
-          <Badge variant={offer.isActive ? "success" : "neutral"}>{offer.isActive ? "active" : "disabled"}</Badge>
-          <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
-            {offer.isActive ? "Deactivate" : "Activate"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/offers", label: "Offers" }}
+        title={offer.name}
+        meta={<Badge variant={offer.isActive ? "success" : "neutral"}>{offer.isActive ? "active" : "disabled"}</Badge>}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
+              {offer.isActive ? "Deactivate" : "Activate"}
+            </Button>
+          </>
+        }
+      />
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>

@@ -1,6 +1,6 @@
 import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
 import type { RefundEntity } from "../../domain/entities/refund.entity";
-import type { PaymentReaderPort } from "../ports/payment-reader.port";
+import type { PaymentForRefundView, PaymentReaderPort } from "../ports/payment-reader.port";
 import type { PaymentRefundWriterPort } from "../ports/payment-refund-writer.port";
 import type { RazorpayRefundGatewayPort } from "../ports/razorpay-refund-gateway.port";
 import type { RefundRepositoryPort } from "../ports/refund-repository.port";
@@ -9,6 +9,26 @@ export interface IssueRefundResult {
   refundIssued: boolean;
   reason?: "not-applicable" | "gateway-error";
   refundId?: string;
+  /** How much was (or would have been) refunded online — the order total for a Razorpay order, only the prepaid delivery fee for a COD order. */
+  amountPaise?: number;
+}
+
+/**
+ * What a CANCELLED order can get back through Razorpay, from the Payment
+ * record alone:
+ *  - a captured RAZORPAY payment -> its full amount;
+ *  - a COD payment whose delivery fee was prepaid online (COD shipping
+ *    upfront, 2026-09-28) and whose cash was never collected (still
+ *    PENDING — cancellation always happens before delivery) -> that fee only.
+ * Anything else (plain COD, uncaptured, already refunded) -> nothing.
+ */
+function refundableOnlineAmountPaise(payment: PaymentForRefundView): number | null {
+  if (!payment.razorpayPaymentId) return null;
+  if (payment.provider === "RAZORPAY" && payment.status === "CAPTURED") return payment.amountPaise;
+  if (payment.provider === "COD" && payment.status === "PENDING" && payment.upfrontAmountPaise && payment.upfrontAmountPaise > 0) {
+    return payment.upfrontAmountPaise;
+  }
+  return null;
 }
 
 /**
@@ -50,18 +70,19 @@ export class IssueRefundForCancelledOrderUseCase {
     }
 
     const payment = await this.paymentReader.findByOrderId(orderId);
-    if (!payment || payment.provider !== "RAZORPAY" || payment.status !== "CAPTURED" || !payment.razorpayPaymentId) {
+    const refundPaise = payment ? refundableOnlineAmountPaise(payment) : null;
+    if (!payment || refundPaise === null || !payment.razorpayPaymentId) {
       return { refundIssued: false, reason: "not-applicable" };
     }
 
     let created: RefundEntity;
     try {
-      const refund = await this.gateway.refundPayment(payment.razorpayPaymentId, payment.amountPaise);
+      const refund = await this.gateway.refundPayment(payment.razorpayPaymentId, refundPaise);
       created = await this.refundRepository.create({
         orderId,
         provider: "RAZORPAY",
         status: "COMPLETED",
-        amountPaise: payment.amountPaise,
+        amountPaise: refundPaise,
         providerRefundId: refund.id,
       });
     } catch {
@@ -72,10 +93,10 @@ export class IssueRefundForCancelledOrderUseCase {
         orderId,
         provider: "RAZORPAY",
         status: "FAILED",
-        amountPaise: payment.amountPaise,
+        amountPaise: refundPaise,
       });
       this.observability.recordRefundIssued({ result: "failure" });
-      return { refundIssued: false, reason: "gateway-error" };
+      return { refundIssued: false, reason: "gateway-error", amountPaise: refundPaise };
     }
 
     // The refund has genuinely happened and is durably recorded as
@@ -93,6 +114,6 @@ export class IssueRefundForCancelledOrderUseCase {
       // gap versus a duplicate FAILED Refund row shadowing this COMPLETED one.
     }
     this.observability.recordRefundIssued({ result: "success" });
-    return { refundIssued: true, refundId: created.id };
+    return { refundIssued: true, refundId: created.id, amountPaise: refundPaise };
   }
 }

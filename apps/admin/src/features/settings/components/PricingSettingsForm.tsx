@@ -50,7 +50,7 @@ export function PricingSettingsForm() {
   }
 
   return (
-    <Card className="max-w-md p-4">
+    <Card className="p-4">
       <h2 className="mb-1 font-body text-sm font-medium text-text-primary">Weight pricing</h2>
       <p className="mb-4 font-body text-sm text-text-secondary">
         Applies to every weight-priced product. Not a per-product or per-variant setting.
@@ -58,7 +58,7 @@ export function PricingSettingsForm() {
       {/* noValidate: onSubmit's own field check + ApiError/fieldErrors handling already
           surface real messages — native HTML validation (this field's min={1}) was
           intercepting submission before either ran. */}
-      <form onSubmit={onSubmit} className="flex flex-col gap-3" noValidate>
+      <form onSubmit={onSubmit} className="flex flex-col gap-3 sm:max-w-[calc(50%-0.5rem)]" noValidate>
         <FormField
           label="₹ / kg"
           type="number"

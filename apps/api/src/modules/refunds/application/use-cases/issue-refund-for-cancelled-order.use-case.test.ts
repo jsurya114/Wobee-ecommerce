@@ -34,6 +34,41 @@ function buildUseCase(overrides: {
 }
 
 describe("IssueRefundForCancelledOrderUseCase", () => {
+  describe("COD with a prepaid delivery fee (COD shipping upfront, 2026-09-28)", () => {
+    const codWithFee = {
+      id: "p1",
+      provider: "COD" as const,
+      status: "PENDING" as const,
+      amountPaise: 11_000,
+      razorpayPaymentId: "pay_fee",
+      upfrontAmountPaise: 5_000,
+    };
+
+    it("refunds ONLY the prepaid delivery fee, never the uncollected cash portion", async () => {
+      const { useCase, gateway, refundRepository, paymentRefundWriter } = buildUseCase({ payment: codWithFee });
+      const result = await useCase.execute("order-1");
+      expect(result).toEqual({ refundIssued: true, refundId: "refund-db-1", amountPaise: 5_000 });
+      expect(gateway.refundPayment).toHaveBeenCalledWith("pay_fee", 5_000);
+      expect(refundRepository.create).toHaveBeenCalledWith(expect.objectContaining({ status: "COMPLETED", amountPaise: 5_000 }));
+      expect(paymentRefundWriter.markRefunded).toHaveBeenCalledWith("p1");
+    });
+
+    it("refunds nothing while the delivery fee was never captured (no payment id yet)", async () => {
+      const { useCase, gateway } = buildUseCase({ payment: { ...codWithFee, status: "CREATED", razorpayPaymentId: null } });
+      expect(await useCase.execute("order-1")).toEqual({ refundIssued: false, reason: "not-applicable" });
+      expect(gateway.refundPayment).not.toHaveBeenCalled();
+    });
+
+    it("records a FAILED row for the fee amount when the gateway refund fails", async () => {
+      const { useCase, refundRepository } = buildUseCase({
+        payment: codWithFee,
+        refundPayment: vi.fn().mockRejectedValue(new Error("gateway down")),
+      });
+      expect(await useCase.execute("order-1")).toEqual({ refundIssued: false, reason: "gateway-error", amountPaise: 5_000 });
+      expect(refundRepository.create).toHaveBeenCalledWith(expect.objectContaining({ status: "FAILED", amountPaise: 5_000 }));
+    });
+  });
+
   it("issues nothing when there is no payment (or it's COD) — nothing was ever collected pre-delivery, and this is not a metered refund attempt", async () => {
     const { useCase, gateway, observability } = buildUseCase({ payment: null });
     const result = await useCase.execute("order-1");
@@ -56,7 +91,7 @@ describe("IssueRefundForCancelledOrderUseCase", () => {
       payment: { id: "p1", provider: "RAZORPAY", status: "CAPTURED", amountPaise: 1000, razorpayPaymentId: "pay_abc" },
     });
     const result = await useCase.execute("order-1");
-    expect(result).toEqual({ refundIssued: true, refundId: "refund-db-1" });
+    expect(result).toEqual({ refundIssued: true, refundId: "refund-db-1", amountPaise: 1000 });
     expect(refundRepository.create).toHaveBeenCalledWith({
       orderId: "order-1",
       provider: "RAZORPAY",
@@ -74,7 +109,7 @@ describe("IssueRefundForCancelledOrderUseCase", () => {
       refundPayment: vi.fn().mockRejectedValue(new Error("Razorpay is not configured")),
     });
     const result = await useCase.execute("order-1");
-    expect(result).toEqual({ refundIssued: false, reason: "gateway-error" });
+    expect(result).toEqual({ refundIssued: false, reason: "gateway-error", amountPaise: 1000 });
     expect(refundRepository.create).toHaveBeenCalledWith({
       orderId: "order-1",
       provider: "RAZORPAY",
@@ -91,7 +126,7 @@ describe("IssueRefundForCancelledOrderUseCase", () => {
     });
     paymentRefundWriter.markRefunded = vi.fn().mockRejectedValue(new Error("db blip"));
     const result = await useCase.execute("order-1");
-    expect(result).toEqual({ refundIssued: true, refundId: "refund-db-1" });
+    expect(result).toEqual({ refundIssued: true, refundId: "refund-db-1", amountPaise: 1000 });
     expect(refundRepository.create).toHaveBeenCalledTimes(1);
   });
 

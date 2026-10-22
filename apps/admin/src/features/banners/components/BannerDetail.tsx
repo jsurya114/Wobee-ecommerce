@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api-client";
 import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminBanner } from "../hooks/useAdminBanner";
 import { BannerForm } from "./BannerForm";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function BannerDetail({ bannerId }: { bannerId: string }) {
   const saveAndRedirect = useSaveAndRedirect("/banners");
@@ -43,15 +44,18 @@ export function BannerDetail({ bannerId }: { bannerId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-2xl">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl text-text-primary">{banner.title ?? "Untitled banner"}</h1>
-        <div className="flex items-center gap-2">
-          <Badge variant={banner.isActive ? "success" : "neutral"}>{banner.isActive ? "active" : "inactive"}</Badge>
-          <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
-            {banner.isActive ? "Deactivate" : "Activate"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/banners", label: "Banners" }}
+        title={banner.title ?? "Untitled banner"}
+        meta={<Badge variant={banner.isActive ? "success" : "neutral"}>{banner.isActive ? "active" : "inactive"}</Badge>}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
+              {banner.isActive ? "Deactivate" : "Activate"}
+            </Button>
+          </>
+        }
+      />
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Details</h2>

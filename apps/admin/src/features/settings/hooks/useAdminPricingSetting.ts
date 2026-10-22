@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
 import * as settingsApi from "../api/admin-settings.client";
+import { publicAppConfigQueryKey } from "./usePublicAppConfig";
 
 export const pricingSettingQueryKey = ["admin", "settings", "pricing"] as const;
 
@@ -20,6 +21,8 @@ export function useAdminPricingSetting() {
     mutationFn: (ratePerKgPaise: number) => withFreshToken((token) => settingsApi.updatePricingSetting(ratePerKgPaise, token)),
     onSuccess: (result) => {
       queryClient.setQueryData(pricingSettingQueryKey, result);
+      // The public config echoes this rate for VariantForm's price preview.
+      void queryClient.invalidateQueries({ queryKey: publicAppConfigQueryKey });
     },
   });
 

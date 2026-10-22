@@ -8,6 +8,10 @@ export interface OrderForPayment {
   status: OrderEntity["status"];
   paymentMethod: OrderEntity["paymentMethod"];
   totalPaise: number;
+  shippingFeePaise: number;
+  /** Non-null only for a COD order that must prepay its delivery fee online (2026-09-28). */
+  payableOnDeliveryPaise: number | null;
+  shippingPaidUpfront: boolean;
   items: { variantId: string; quantity: number }[];
 }
 
@@ -30,6 +34,9 @@ export class GetOrderForPaymentUseCase {
       status: order.status,
       paymentMethod: order.paymentMethod,
       totalPaise: order.totalPaise,
+      shippingFeePaise: order.shippingFeePaise,
+      payableOnDeliveryPaise: order.payableOnDeliveryPaise,
+      shippingPaidUpfront: order.shippingPaidUpfront,
       items: order.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
     };
   }

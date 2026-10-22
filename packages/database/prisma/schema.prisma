@@ -226,6 +226,13 @@ model RefreshToken {
   tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
+  /// Set only when this token was ROTATED (not on logout / revoke-all): the id
+  /// of the token that replaced it. Lets RefreshTokenUseCase tell a client that
+  /// never received its rotation response (retries within the grace window
+  /// while the replacement is still unused) from a replayed/stolen token
+  /// (2026-09-29, admin auto-logout fix). Plain column, no FK: rows are
+  /// append-only per session and deleted with their user.
+  replacedByTokenId String?
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -429,12 +436,14 @@ model Category {
 }
 
 model Collection {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  description   String?
+  /// Admin-uploaded cover image (2026-09-29). Null = derive the cover from the top-sorted assigned product's primary image, the pre-existing behaviour.
+  coverImageUrl String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
 
   products ProductCollection[]
 
@@ -522,6 +531,13 @@ model Product {
   /// later" pattern coupons' schema followed for Week 2 Day 5.
   metaTitle          String?
   metaDescription    String?
+  /// Admin-curated "Key Highlights" (2026-09-29) — an ordered JSON array of
+  /// { label, value } pairs (e.g. Work: Sequin, Blouse attached: Yes), shown on
+  /// the PDP's second-image overlay. Free-form on purpose: sarees, kurtas and
+  /// bangles need different facts. Validated (max 8, lengths, unique labels)
+  /// by productHighlightsSchema in @woobe/validation. Empty = the PDP derives
+  /// highlights from category/variant data instead.
+  highlights         Json        @default("[]")
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
@@ -944,16 +960,42 @@ model OfferProduct {
 /// already got in DECISIONS_PENDING.md #2, added there as #5 by this
 /// change, not silently assumed final.
 model ShippingRule {
-  id                         String   @id @default(uuid())
-  minWeightGramsForCheckout  Int      @default(1000)
-  freeDeliveryThresholdGrams Int      @default(1500)
-  standardFeePaise           Int
-  estimatedDeliveryDaysMin   Int      @default(3)
-  estimatedDeliveryDaysMax   Int      @default(7)
-  effectiveFrom              DateTime @default(now())
-  createdAt                  DateTime @default(now())
+  id                           String   @id @default(uuid())
+  minWeightGramsForCheckout    Int      @default(1000)
+  freeDeliveryThresholdGrams   Int      @default(1500)
+  standardFeePaise             Int
+  estimatedDeliveryDaysMin     Int      @default(3)
+  estimatedDeliveryDaysMax     Int      @default(7)
+  /// Admin settings (2026-09-28) — free delivery by ITEMS SUBTOTAL (after automatic offers, before any coupon), in addition to the weight-based threshold above: either condition qualifies. 0 disables it. Lives here, next to the weight threshold it complements, so every shipping rule stays versioned together in one table.
+  freeDeliveryMinSubtotalPaise Int      @default(0)
+  effectiveFrom                DateTime @default(now())
+  createdAt                    DateTime @default(now())
 
   @@map("shipping_rules")
+}
+
+/// Admin settings (2026-09-28) — store-wide switches and presets that are
+/// not pricing (PricingSetting) or shipping (ShippingRule) rules. Single row,
+/// id "singleton": read paths fall back to these column defaults when the row
+/// is missing, so a fresh database behaves identically before anyone saves
+/// settings. Presets are comma-separated (an individual preset value may not
+/// contain a comma — enforced by the admin validation schema).
+model AppConfig {
+  id                 String   @id @default("singleton")
+  /// Minimum total item count (sum of line quantities) to place an order.
+  minCartQuantity    Int      @default(1)
+  presetSizes        String   @default("XS,S,M,L,XL,XXL,3XL,Free Size")
+  presetFabrics      String   @default("Cotton,Silk,Linen,Polyester,Rayon,Georgette,Chiffon,Crepe,Velvet")
+  presetFits         String   @default("Regular,Slim,Relaxed,Oversized,A-Line")
+  /// Feature flag — customers can request NEW returns only when true. Existing returns stay visible and admin can still process them.
+  returnsEnabled     Boolean  @default(false)
+  /// Feature flag (2026-09-28) — when true, a COD order with a delivery fee must pay that fee online (Razorpay) before it is confirmed; the rest is collected in cash on delivery. Off by default so enabling it is a deliberate admin action once Razorpay is verified in that environment.
+  codShippingUpfront Boolean  @default(false)
+  /// Homepage "Shop by Budget" tiles (2026-09-29): JSON array of { label: string, maxPricePaise: int, coverImageUrl: string | null }, in display order. The default equals the three tiles previously hardcoded in GetHomePageUseCase. coverImageUrl null = use the most expensive in-budget product's photo, the pre-existing behaviour.
+  budgetTiles        Json     @default("[{\"label\":\"Under ₹499\",\"maxPricePaise\":49900,\"coverImageUrl\":null},{\"label\":\"Under ₹799\",\"maxPricePaise\":79900,\"coverImageUrl\":null},{\"label\":\"Under ₹999\",\"maxPricePaise\":99900,\"coverImageUrl\":null}]")
+  updatedAt          DateTime @updatedAt
+
+  @@map("app_config")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -984,6 +1026,10 @@ model Order {
   totalWeightGrams Int
 
   paymentMethod PaymentMethod
+
+  /// COD shipping upfront (2026-09-28). `payableOnDeliveryPaise` is set at checkout ONLY when the order must prepay its delivery fee online (= totalPaise - shippingFeePaise, the cash the courier collects); null means an ordinary COD/online order. `shippingPaidUpfront` flips to true when the webhook-verified Razorpay capture of that fee confirms the order.
+  shippingPaidUpfront    Boolean @default(false)
+  payableOnDeliveryPaise Int?
 
   /// Denormalized for admin filtering only — the real state lives on Return (plan.md §4).
   hasActiveReturn   Boolean @default(false)
@@ -1120,16 +1166,18 @@ model AdminAuditLog {
 // ─────────────────────────────────────────────────────────────────────────
 
 model Payment {
-  id                String        @id @default(uuid())
-  orderId           String
-  provider          PaymentMethod
-  status            PaymentStatus @default(CREATED)
-  amountPaise       Int
-  razorpayOrderId   String?
-  razorpayPaymentId String?
-  razorpaySignature String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  orderId            String
+  provider           PaymentMethod
+  status             PaymentStatus @default(CREATED)
+  amountPaise        Int
+  razorpayOrderId    String?
+  razorpayPaymentId  String?
+  razorpaySignature  String?
+  /// COD shipping upfront (2026-09-28) — for a COD Payment, the portion charged online through Razorpay (the delivery fee); null for every other payment. `amountPaise` stays the order total; the cash still owed at delivery is amountPaise - upfrontAmountPaise.
+  upfrontAmountPaise Int?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

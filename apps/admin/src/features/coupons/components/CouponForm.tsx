@@ -1,10 +1,12 @@
 "use client";
 
-import { Button, FormField, RadioGroup, RadioGroupItem } from "@woobe/ui";
+import { FormField, RadioGroup, RadioGroupItem } from "@woobe/ui";
 import { paiseToRupees, rupeesToPaise } from "@woobe/utils";
 import { useState } from "react";
 import { useFormError } from "@/lib/use-form-error";
 import type { CouponPayload, CouponType } from "../api/admin-coupons.client";
+import { FormActions } from "@/features/shell/components/FormActions";
+import { FormSection } from "@/features/shell/components/FormSection";
 
 export interface CouponFormValues {
   code: string;
@@ -96,102 +98,108 @@ export function CouponForm({
   // fieldErrors handling already surface real messages — native HTML validation was
   // intercepting submission before either ran, showing the browser's own generic bubble.
   return (
-    <form onSubmit={onFormSubmit} className="flex flex-col gap-4" noValidate>
-      <FormField
-        label="Coupon code"
-        value={values.code}
-        onChange={(e) => set("code", e.target.value.toUpperCase())}
-        placeholder="SUMMER20"
-        required
-        error={fieldErrors.code}
-      />
-
-      <div className="flex flex-col gap-2">
-        <span className="font-body text-sm font-medium text-text-primary">Discount type</span>
-        <RadioGroup value={values.type} onValueChange={(next) => set("type", next as CouponType)} className="flex flex-col gap-2 sm:flex-row">
-          <RadioGroupItem value="PERCENTAGE" label="Percentage" description="e.g. 20% off the eligible total" className="flex-1" />
-          <RadioGroupItem value="FLAT" label="Flat amount" description="e.g. ₹100 off, regardless of cart size" className="flex-1" />
-        </RadioGroup>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
+    <form onSubmit={onFormSubmit} className="flex flex-col gap-6" noValidate>
+      <FormSection title="Discount">
         <FormField
-          label={values.type === "PERCENTAGE" ? "Percentage (%)" : "Discount amount (₹)"}
-          type="number"
-          min={values.type === "PERCENTAGE" ? 1 : 1}
-          max={values.type === "PERCENTAGE" ? 100 : undefined}
-          step="1"
-          value={values.value}
-          onChange={(e) => set("value", e.target.value)}
+          label="Coupon code"
+          value={values.code}
+          onChange={(e) => set("code", e.target.value.toUpperCase())}
+          placeholder="SUMMER20"
           required
-          error={fieldErrors.value}
+          error={fieldErrors.code}
         />
-        {values.type === "PERCENTAGE" ? (
+
+        <div className="flex flex-col gap-2">
+          <span className="font-body text-sm font-medium text-text-primary">Discount type</span>
+          <RadioGroup value={values.type} onValueChange={(next) => set("type", next as CouponType)} className="flex flex-col gap-2 sm:flex-row">
+            <RadioGroupItem value="PERCENTAGE" label="Percentage" description="e.g. 20% off the eligible total" className="flex-1" />
+            <RadioGroupItem value="FLAT" label="Flat amount" description="e.g. ₹100 off, regardless of cart size" className="flex-1" />
+          </RadioGroup>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label="Max discount (₹, optional)"
+            label={values.type === "PERCENTAGE" ? "Percentage (%)" : "Discount amount (₹)"}
+            type="number"
+            min={values.type === "PERCENTAGE" ? 1 : 1}
+            max={values.type === "PERCENTAGE" ? 100 : undefined}
+            step="1"
+            value={values.value}
+            onChange={(e) => set("value", e.target.value)}
+            required
+            error={fieldErrors.value}
+          />
+          {values.type === "PERCENTAGE" ? (
+            <FormField
+              label="Max discount (₹, optional)"
+              type="number"
+              min={1}
+              step="1"
+              value={values.maxDiscountRupees}
+              onChange={(e) => set("maxDiscountRupees", e.target.value)}
+              helperText="Caps the percentage discount at this amount."
+              error={fieldErrors.maxDiscountPaise}
+            />
+          ) : null}
+        </div>
+      </FormSection>
+
+      <FormSection title="Conditions & limits">
+        <FormField
+          label="Minimum cart value (₹, optional)"
+          type="number"
+          min={0}
+          step="1"
+          value={values.minCartValueRupees}
+          onChange={(e) => set("minCartValueRupees", e.target.value)}
+          helperText="Leave blank for no minimum."
+          error={fieldErrors.minCartValuePaise}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField
+            label="Overall usage limit (optional)"
             type="number"
             min={1}
             step="1"
-            value={values.maxDiscountRupees}
-            onChange={(e) => set("maxDiscountRupees", e.target.value)}
-            helperText="Caps the percentage discount at this amount."
-            error={fieldErrors.maxDiscountPaise}
+            value={values.usageLimit}
+            onChange={(e) => set("usageLimit", e.target.value)}
+            helperText="Total redemptions across every customer. Blank = unlimited."
+            error={fieldErrors.usageLimit}
           />
-        ) : null}
-      </div>
+          <FormField
+            label="Per-customer limit (optional)"
+            type="number"
+            min={1}
+            step="1"
+            value={values.perUserLimit}
+            onChange={(e) => set("perUserLimit", e.target.value)}
+            helperText="Times any one customer can use this. Blank = unlimited."
+            error={fieldErrors.perUserLimit}
+          />
+        </div>
+      </FormSection>
 
-      <FormField
-        label="Minimum cart value (₹, optional)"
-        type="number"
-        min={0}
-        step="1"
-        value={values.minCartValueRupees}
-        onChange={(e) => set("minCartValueRupees", e.target.value)}
-        helperText="Leave blank for no minimum."
-        error={fieldErrors.minCartValuePaise}
-      />
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField
-          label="Overall usage limit (optional)"
-          type="number"
-          min={1}
-          step="1"
-          value={values.usageLimit}
-          onChange={(e) => set("usageLimit", e.target.value)}
-          helperText="Total redemptions across every customer. Blank = unlimited."
-          error={fieldErrors.usageLimit}
-        />
-        <FormField
-          label="Per-customer limit (optional)"
-          type="number"
-          min={1}
-          step="1"
-          value={values.perUserLimit}
-          onChange={(e) => set("perUserLimit", e.target.value)}
-          helperText="Times any one customer can use this. Blank = unlimited."
-          error={fieldErrors.perUserLimit}
-        />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField
-          label="Start"
-          type="datetime-local"
-          value={values.validFrom}
-          onChange={(e) => set("validFrom", e.target.value)}
-          required
-          error={fieldErrors.validFrom}
-        />
-        <FormField
-          label="Expiry"
-          type="datetime-local"
-          value={values.validTo}
-          onChange={(e) => set("validTo", e.target.value)}
-          required
-          error={fieldErrors.validTo}
-        />
-      </div>
+      <FormSection title="Schedule">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField
+            label="Start"
+            type="datetime-local"
+            value={values.validFrom}
+            onChange={(e) => set("validFrom", e.target.value)}
+            required
+            error={fieldErrors.validFrom}
+          />
+          <FormField
+            label="Expiry"
+            type="datetime-local"
+            value={values.validTo}
+            onChange={(e) => set("validTo", e.target.value)}
+            required
+            error={fieldErrors.validTo}
+          />
+        </div>
+      </FormSection>
 
       {formError ? (
         <p role="alert" className="font-body text-sm text-error">
@@ -199,9 +207,7 @@ export function CouponForm({
         </p>
       ) : null}
 
-      <Button type="submit" isLoading={isSubmitting} className="self-start">
-        {submitLabel}
-      </Button>
+      <FormActions isSubmitting={isSubmitting} submitLabel={submitLabel} cancelHref="/coupons" />
     </form>
   );
 }

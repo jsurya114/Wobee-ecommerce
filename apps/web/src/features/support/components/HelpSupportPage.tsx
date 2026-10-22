@@ -3,6 +3,7 @@
 import { Card } from "@woobe/ui";
 import { ChevronLeft, ChevronRight, CreditCard, MessageCircle, Package, RotateCcw, UserCircle, Search, Wallet } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { usePublicStoreConfig } from "@/features/settings/hooks/usePublicStoreConfig";
 import { useMemo, useState, type ComponentType, type SVGProps } from "react";
 import { ContactSupportSection } from "./ContactSupportSection";
 import { HelpOrderQueries } from "./HelpOrderQueries";
@@ -99,12 +100,21 @@ export function HelpSupportPage() {
   const initialScreen: Screen = (topicParam && TOPIC_TO_SCREEN[topicParam]) || "hub";
   const [screen, setScreen] = useState<Screen>(initialScreen);
   const [query, setQuery] = useState("");
+  // Returns feature flag (2026-09-28) — while returns are off, the Returns
+  // topic explains open-box delivery instead of a return process that doesn't exist.
+  const { config: storeConfig } = usePublicStoreConfig();
+  const returnsEnabled = storeConfig?.returnsEnabled ?? false;
 
   const filteredTopics = useMemo(() => {
+    const topics = TOPICS.map((topic) =>
+      topic.screen === "returns" && !returnsEnabled
+        ? { ...topic, title: "Returns & open-box delivery", description: "Verify your order at the doorstep", keywords: `${topic.keywords} open box delivery doorstep check` }
+        : topic,
+    );
     const q = query.trim().toLowerCase();
-    if (!q) return TOPICS;
-    return TOPICS.filter((topic) => `${topic.title} ${topic.description} ${topic.keywords}`.toLowerCase().includes(q));
-  }, [query]);
+    if (!q) return topics;
+    return topics.filter((topic) => `${topic.title} ${topic.description} ${topic.keywords}`.toLowerCase().includes(q));
+  }, [query, returnsEnabled]);
 
   if (screen !== "hub") {
     return (
@@ -119,7 +129,7 @@ export function HelpSupportPage() {
         </button>
 
         {screen === "orders" ? <HelpOrderQueries /> : null}
-        {screen === "returns" ? <ReturnsPolicyContent /> : null}
+        {screen === "returns" ? <ReturnsPolicyContent returnsEnabled={returnsEnabled} /> : null}
         {screen === "refunds" ? <RefundPolicyContent /> : null}
         {screen === "payments" ? <PaymentsHelpContent /> : null}
         {screen === "account" ? <AccountHelpContent /> : null}

@@ -7,6 +7,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { CustomerFilters } from "@/features/customers/components/CustomerFilters";
 import { CustomersTable } from "@/features/customers/components/CustomersTable";
 import { useAdminCustomers } from "@/features/customers/hooks/useAdminCustomers";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 const PAGE_SIZE = 50;
 
@@ -28,10 +29,7 @@ export default function CustomersPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="font-display text-xl text-text-primary">Customers</h1>
-        <p className="font-body text-sm text-text-secondary">View accounts and manage access.</p>
-      </div>
+      <PageHeader title="Customers" description="View accounts and manage access." />
       <CustomerFilters search={search} isActive={isActive} onSearchChange={setSearch} onActiveChange={setIsActive} />
       {loading ? (
         <LoadingState />

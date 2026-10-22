@@ -9,10 +9,11 @@ import type { PricingSettingView } from "./get-pricing-setting.use-case";
  * snapshots the rate it used at checkout, independent of this table's
  * current value). Every subsequent price calculation (product display,
  * cart, checkout) picks up the new rate the moment this resolves, because
- * CalculateEffectivePriceUseCase always reads the latest row live — there
- * is no cache to invalidate here beyond the ADR-017 display cache, which
- * `Product.recomputeMinPrice`/`effectivePricePaiseCache` already refresh on
- * their own read paths.
+ * CalculateEffectivePriceUseCase always reads the latest row live. The
+ * listing's price caches (`effectivePricePaiseCache`/`minPricePaiseCache`)
+ * are NOT refreshed by any read path — the admin module re-prices them right
+ * after this runs (2026-09-30, RefreshWeightBasedPriceCachesUseCase; before
+ * that they silently kept the old rate).
  */
 export class UpdatePricingSettingUseCase {
   constructor(private readonly pricingRepository: PricingRepositoryPort) {}

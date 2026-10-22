@@ -18,6 +18,10 @@ export default defineConfig({
     // starts (see vitest.global-setup.ts) — added alongside the new
     // Redis-backed auth rate limiting (2026-09-04, security audit).
     globalSetup: ["./vitest.global-setup.ts"],
+    // Per-file counterpart: resets the cart limiter's counters before every
+    // test file so one file's cart traffic can't exhaust another's 120/5min
+    // budget (see vitest.setup.ts).
+    setupFiles: ["./vitest.setup.ts"],
     env: {
       // Vitest's `test.env` is injected into `process.env` for the run. Force
       // NODE_ENV, but let an already-supplied value win for everything that

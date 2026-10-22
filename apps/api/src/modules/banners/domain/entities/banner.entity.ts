@@ -18,5 +18,11 @@ export interface BannerSummaryEntity {
   title: string | null;
   subtitle: string | null;
   ctaLabel: string | null;
+  /** The stored action reference (e.g. "category:<id>"), kept for backwards compatibility — link to `resolvedCtaUrl`, not this. */
   ctaUrl: string | null;
+  /** 2026-09-28 — the CTA resolved to a live storefront path (null = no link / target gone). */
+  resolvedCtaUrl: string | null;
 }
+
+/** A banner row as stored — the repository never resolves links. */
+export type StoredBannerSummary = Omit<BannerSummaryEntity, "resolvedCtaUrl">;

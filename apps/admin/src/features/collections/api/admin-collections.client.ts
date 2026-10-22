@@ -6,6 +6,8 @@ export interface AdminCollection {
   slug: string;
   description: string | null;
   isActive: boolean;
+  /** Admin-uploaded cover (2026-09-29); null = the storefront derives one from the first product's photo. */
+  coverImageUrl: string | null;
 }
 
 export interface AdminCollectionDetail extends AdminCollection {
@@ -16,6 +18,8 @@ export interface CollectionPayload {
   name: string;
   slug: string;
   description?: string;
+  /** null clears the cover (reverts to the auto-derived product image). */
+  coverImageUrl?: string | null;
 }
 
 export function listCollections(accessToken: string): Promise<{ collections: AdminCollection[] }> {

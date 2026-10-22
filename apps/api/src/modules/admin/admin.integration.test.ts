@@ -556,6 +556,8 @@ describe("cancellation + refund", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.refundIssued).toBe(false);
+    // A COD order has nothing to refund — reported as NOT_APPLICABLE, never as a failed refund.
+    expect(res.body.refundOutcome).toBe("NOT_APPLICABLE");
     expect(res.body.order.status).toBe("CANCELLED");
 
     // Week 2 Day 0 remediation's own regression coverage: re-query
@@ -614,6 +616,7 @@ describe("cancellation + refund", () => {
     expect(res.status).toBe(200);
     expect(res.body.order.status).toBe("CANCELLED");
     expect(res.body.refundIssued).toBe(false); // Razorpay unconfigured in this test env — gateway-error branch
+    expect(res.body.refundOutcome).toBe("FAILED");
 
     const refund = await prisma.refund.findFirstOrThrow({ where: { orderId: order.id } });
     expect(refund.status).toBe("FAILED");

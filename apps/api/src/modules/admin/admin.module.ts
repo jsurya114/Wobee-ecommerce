@@ -57,13 +57,7 @@ import {
 } from "../coupons/coupons.module";
 import { adjustInventoryUseCase, listInventoryAdminUseCase } from "../inventory/inventory.module";
 import { bestEffortEnqueueNotificationUseCase as enqueueNotificationUseCase } from "../notifications/notifications.module";
-import {
-  createOfferUseCase,
-  getOfferAdminUseCase,
-  listOffersAdminUseCase,
-  setOfferActiveUseCase,
-  updateOfferUseCase,
-} from "../offers/offers.module";
+import { getOfferAdminUseCase, listOffersAdminUseCase, setOfferActiveUseCase } from "../offers/offers.module";
 import {
   cancelOrderUseCase,
   deliverOrderUseCase,
@@ -79,21 +73,26 @@ import {
 } from "../orders/orders.module";
 import {
   addProductImageUseCase,
+  createOfferWithPriceValidationUseCase,
   createProductUseCase,
   createProductVariantUseCase,
   getProductAdminUseCase,
   getProductCostsUseCase,
   listProductsAdminUseCase,
+  refreshWeightBasedPriceCachesUseCase,
   removeProductImageUseCase,
   reorderProductImagesUseCase,
   setProductActiveUseCase,
   setProductCostsUseCase,
   setProductVariantActiveUseCase,
+  updateOfferWithPriceValidationUseCase,
   updateProductUseCase,
   updateProductVariantUseCase,
 } from "../products/products.module";
 import { getPaymentForOrderUseCase, markCodPaymentCapturedUseCase } from "../payments/payments.module";
 import { getPricingSettingUseCase, updatePricingSettingUseCase } from "../pricing/pricing.module";
+import { getAppConfigUseCase, updateAppConfigUseCase } from "../settings/settings.module";
+import { getShippingRuleUseCase, updateShippingRuleUseCase } from "../shipping/shipping.module";
 import { issueRefundForCancelledOrderUseCase } from "../refunds/refunds.module";
 import {
   approveReturnUseCase,
@@ -213,11 +212,17 @@ const adminCouponsController = new AdminCouponsController(
   setCouponActiveUseCase,
   deleteCouponUseCase,
 );
+// createOfferWithPriceValidationUseCase/updateOfferWithPriceValidationUseCase
+// (from `products`, fix: admin offer discount validation) IN PLACE OF
+// offers.module's raw createOfferUseCase/updateOfferUseCase — offers can't
+// depend on products itself (no-circular), so this cross-module discount
+// check is wired in from the other side; see products.module.ts's own
+// comment and ValidateOfferDiscountUseCase's doc comment.
 const adminOffersController = new AdminOffersController(
   listOffersAdminUseCase,
   getOfferAdminUseCase,
-  createOfferUseCase,
-  updateOfferUseCase,
+  createOfferWithPriceValidationUseCase,
+  updateOfferWithPriceValidationUseCase,
   setOfferActiveUseCase,
 );
 
@@ -246,7 +251,30 @@ const adminProductsController = new AdminProductsController(
   setProductCostsUseCase,
 );
 const adminInventoryController = new AdminInventoryController(listInventoryAdminUseCase, adjustInventoryUseCase);
-const adminSettingsController = new AdminSettingsController(getPricingSettingUseCase, updatePricingSettingUseCase);
+/**
+ * Changing the global ₹/kg rate (2026-09-30) also re-prices the listing
+ * price caches of every weight-priced product — without it, the shop's price
+ * filter ("Shop by Budget"), sort and cards kept using the old rate. Composed
+ * here, same "compose in admin, nothing imports it back" reasoning as
+ * CancelOrderWithRefundUseCase: `products` already depends on `pricing`, so
+ * pricing can't call products itself. The rate is saved first; if the
+ * refresh fails the request fails, and saving again re-runs it.
+ */
+const changePricingRateUseCase = {
+  execute: async (ratePerKgPaise: number) => {
+    const setting = await updatePricingSettingUseCase.execute(ratePerKgPaise);
+    await refreshWeightBasedPriceCachesUseCase.execute();
+    return setting;
+  },
+};
+const adminSettingsController = new AdminSettingsController(
+  getPricingSettingUseCase,
+  changePricingRateUseCase,
+  getAppConfigUseCase,
+  updateAppConfigUseCase,
+  getShippingRuleUseCase,
+  updateShippingRuleUseCase,
+);
 
 // Cross-module customer detail (week2 (1).md §19) — same "compose in admin,
 // nothing imports it back" reasoning as CancelOrderWithRefundUseCase above,

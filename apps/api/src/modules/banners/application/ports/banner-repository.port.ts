@@ -1,4 +1,4 @@
-import type { BannerEntity, BannerSummaryEntity } from "../../domain/entities/banner.entity";
+import type { BannerEntity, StoredBannerSummary } from "../../domain/entities/banner.entity";
 
 export interface CreateBannerInput {
   imageUrl: string;
@@ -26,7 +26,7 @@ export interface UpdateBannerInput {
  */
 export interface BannerRepositoryPort {
   /** Active, in-schedule (see isBannerVisible.ts), ordered by sortOrder — what the storefront shows. */
-  findVisible(now: Date): Promise<BannerSummaryEntity[]>;
+  findVisible(now: Date): Promise<StoredBannerSummary[]>;
 
   findAllForAdmin(): Promise<BannerEntity[]>;
   findByIdForAdmin(id: string): Promise<BannerEntity | null>;

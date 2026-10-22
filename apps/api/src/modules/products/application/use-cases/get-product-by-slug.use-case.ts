@@ -106,6 +106,7 @@ export class GetProductBySlugUseCase {
       variants,
       metaTitle: product.metaTitle,
       metaDescription: product.metaDescription,
+      highlights: product.highlights,
     };
   }
 }

@@ -1,6 +1,6 @@
 import { Prisma, prisma } from "@woobe/database";
 import { NotFoundError } from "../../../../shared/errors";
-import type { BannerEntity, BannerSummaryEntity } from "../../domain/entities/banner.entity";
+import type { BannerEntity, StoredBannerSummary } from "../../domain/entities/banner.entity";
 import type {
   BannerRepositoryPort,
   CreateBannerInput,
@@ -35,7 +35,7 @@ function toEntity(row: AdminRow): BannerEntity {
  * @woobe/database (enforced by apps/api/.dependency-cruiser.cjs).
  */
 export class BannerRepository implements BannerRepositoryPort {
-  async findVisible(now: Date): Promise<BannerSummaryEntity[]> {
+  async findVisible(now: Date): Promise<StoredBannerSummary[]> {
     const rows = await prisma.banner.findMany({
       where: {
         isActive: true,

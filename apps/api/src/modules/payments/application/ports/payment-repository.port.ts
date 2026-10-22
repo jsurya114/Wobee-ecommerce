@@ -6,6 +6,8 @@ export interface CreatePaymentInput {
   status: PaymentStatus;
   amountPaise: number;
   razorpayOrderId?: string;
+  /** COD shipping upfront — the portion of a COD payment charged online through Razorpay. */
+  upfrontAmountPaise?: number;
 }
 
 export interface UpdatePaymentInput {

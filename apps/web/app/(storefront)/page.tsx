@@ -79,6 +79,10 @@ export default async function HomePage() {
       <ProductRail title="New arrivals" seeAllHref="/products?sort=newest">
         {home.newArrivals.map(railItem)}
       </ProductRail>
+      {/* Fashion by Weight (2026-09-29): same server-built rail as New Arrivals, so it adds no client JS. Each card already shows its price and weight · ₹/kg. */}
+      <ProductRail id="fashion-by-weight" title="Fashion by weight" seeAllHref="/products?pricingMode=WEIGHT_BASED&sort=newest">
+        {(home.fashionByWeight ?? []).map(railItem)}
+      </ProductRail>
       <ShopByBudget tiles={home.budgetTiles} />
       <ProductRail id="loved-by-customers" title="Loved by customers">
         {home.bestSellers.map(railItem)}

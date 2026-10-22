@@ -1,10 +1,12 @@
 import { UnprocessableEntityError } from "../../../../shared/errors";
 import type { ReturnEntity } from "../../domain/entities/return.entity";
+import { ReturnsDisabledError } from "../../domain/errors/returns-disabled.error";
 import { resolveReturnEligibility } from "../../domain/resolve-return-eligibility";
 import type { NotificationEnqueuerPort } from "../ports/notification-enqueuer.port";
 import type { OrderReaderPort } from "../ports/order-reader.port";
 import type { OrderReturnFlagWriterPort } from "../ports/order-return-flag-writer.port";
 import type { CreateReturnItemInput, ReturnRepositoryPort } from "../ports/return-repository.port";
+import type { ReturnsPolicyPort } from "../ports/returns-policy.port";
 
 export interface RequestReturnInput {
   orderId: string;
@@ -26,9 +28,17 @@ export class RequestReturnUseCase {
     private readonly returnRepository: ReturnRepositoryPort,
     private readonly orderReturnFlagWriter: OrderReturnFlagWriterPort,
     private readonly notificationEnqueuer: NotificationEnqueuerPort,
+    private readonly returnsPolicy: ReturnsPolicyPort,
   ) {}
 
   async execute(input: RequestReturnInput): Promise<ReturnEntity> {
+    // Feature flag (Settings → Store policies, 2026-09-28) — checked here, in
+    // the one use-case that creates returns, so no route can bypass it. Only
+    // NEW requests are refused: existing returns stay readable and admin can
+    // still process them to completion.
+    if (!(await this.returnsPolicy.isEnabled())) {
+      throw new ReturnsDisabledError();
+    }
     const order = await this.orderReader.forCustomer(input.orderId, input.userId);
     const existingReturnLines = await this.returnRepository.findLinesByOrderId(input.orderId);
 

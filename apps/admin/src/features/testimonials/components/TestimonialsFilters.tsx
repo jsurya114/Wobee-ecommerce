@@ -17,7 +17,7 @@ export function TestimonialsFilters({
       aria-label="Filter by testimonial status"
       value={status ?? ""}
       onChange={(e) => onStatusChange((e.target.value || undefined) as TestimonialStatus | undefined)}
-      className="rounded-md border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary"
+      className="w-full rounded-md border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary sm:w-56"
     >
       <option value="">All statuses</option>
       {STATUSES.map((s) => (

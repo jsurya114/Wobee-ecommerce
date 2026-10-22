@@ -25,8 +25,14 @@ const createdProductIds: string[] = [];
 const createdVariantIds: string[] = [];
 const createdOrderIds: string[] = [];
 const createdCouponIds: string[] = [];
+// Returns are feature-flagged (AppConfig.returnsEnabled, default OFF since
+// 2026-09-28). This suite exercises the returns flow itself, so it switches
+// the flag ON for its own run and restores the previous row afterwards.
+let previousReturnsEnabled: boolean | null = null;
 
 beforeAll(async () => {
+  previousReturnsEnabled = (await prisma.appConfig.findUnique({ where: { id: "singleton" } }))?.returnsEnabled ?? null;
+  await prisma.appConfig.upsert({ where: { id: "singleton" }, create: { returnsEnabled: true }, update: { returnsEnabled: true } });
   const category = await prisma.category.findFirstOrThrow({ where: { isActive: true } });
   categoryId = category.id;
   const warehouse = await prisma.warehouse.findFirstOrThrow({ where: { isActive: true } });
@@ -34,6 +40,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (previousReturnsEnabled === null) {
+    await prisma.appConfig.deleteMany({ where: { id: "singleton" } });
+  } else {
+    await prisma.appConfig.update({ where: { id: "singleton" }, data: { returnsEnabled: previousReturnsEnabled } });
+  }
   if (createdOrderIds.length > 0) {
     await prisma.adminAuditLog.deleteMany({ where: { entityId: { in: (await prisma.return.findMany({ where: { orderId: { in: createdOrderIds } }, select: { id: true } })).map((r) => r.id) } } });
     await prisma.return.deleteMany({ where: { orderId: { in: createdOrderIds } } }); // cascades ReturnItem
@@ -150,6 +161,32 @@ async function deliverOrder(orderId: string, adminAuth: string): Promise<void> {
   expect((await request(app).post(`/api/v1/admin/orders/${orderId}/ship`).set(auth).send({ trackingNumber: "TRK1", carrier: "BlueDart" })).status).toBe(200);
   expect((await request(app).post(`/api/v1/admin/orders/${orderId}/deliver`).set(auth)).status).toBe(200);
 }
+
+describe("returns: feature flag (Settings → Store policies, 2026-09-28)", () => {
+  it("refuses NEW return requests with 403 RETURNS_DISABLED while switched off, but keeps existing returns readable", async () => {
+    const { agent } = await createTestCustomer();
+    const { variantId } = await createTestVariant();
+    const order = await checkoutCodOrder(agent, variantId, 2);
+    const adminAuth = await loginAdmin("orders@woobe.in", "Staff@12345");
+    await deliverOrder(order.id, adminAuth);
+    const lines = [{ orderItemId: order.items[0]!.id, quantity: 1 }];
+    const before = await agent.post("/api/v1/returns").send({ orderId: order.id, reason: "Wrong size", items: lines });
+    expect(before.status).toBe(201);
+
+    await prisma.appConfig.update({ where: { id: "singleton" }, data: { returnsEnabled: false } });
+    try {
+      const blocked = await agent.post("/api/v1/returns").send({ orderId: order.id, reason: "Changed mind", items: lines });
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.error).toEqual({ code: "RETURNS_DISABLED", message: "Returns are not available" });
+
+      // The already-created return stays visible to the customer.
+      expect((await agent.get(`/api/v1/returns/${before.body.id}`)).status).toBe(200);
+      expect(await prisma.return.count({ where: { orderId: order.id } })).toBe(1);
+    } finally {
+      await prisma.appConfig.update({ where: { id: "singleton" }, data: { returnsEnabled: true } });
+    }
+  });
+});
 
 describe("returns: customer request + eligibility", () => {
   it("requests a return on a delivered order and it appears in the customer's own list and detail", async () => {

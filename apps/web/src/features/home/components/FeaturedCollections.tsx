@@ -11,8 +11,11 @@ import { SITE_HEADER_HEIGHT_REM } from "@/lib/layout-constants";
  * priority flag and no drop-date lifecycle, so "curated" is the honest name
  * for what this actually is; a real "New Drops" mechanic is future work,
  * not this pass). 2026-08-31: image cards, not text-only — `coverImageUrl`
- * is the collection's own top-sorted assigned product's real photo (see
- * CollectionRepository.findActiveCollections), never invented art. A
+ * is the admin-uploaded cover when set (2026-09-29), else the collection's
+ * own top-sorted assigned product's real photo (see
+ * CollectionRepository.findActiveCollections), never invented art. Every
+ * active collection is shown (2026-09-29, no cap), so the grid steps
+ * 2 → 3 → 4 columns to keep 7 or 12 cards tidy. A
  * collection with no products assigned yet falls back to a tinted panel
  * with its name, same "no fake imagery" rule as before.
  */
@@ -23,7 +26,7 @@ export function FeaturedCollections({ collections }: { collections: Collection[]
     <section id="curated-collections" style={{ scrollMarginTop: SITE_HEADER_HEIGHT_REM }} className="px-4 py-section sm:px-6">
       <div className="mx-auto max-w-6xl">
         <SectionHeader>Curated collections</SectionHeader>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {collections.map((collection) => (
             <Link key={collection.id} href={`/collections/${collection.slug}`} className="group block overflow-hidden rounded-card bg-surface-2">
               <div className="relative aspect-[4/3] overflow-hidden">

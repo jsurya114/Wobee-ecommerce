@@ -1,15 +1,26 @@
 "use client";
 
 import { Button, FormField } from "@woobe/ui";
+import {
+  calculateWeightBasedPricePaise,
+  formatGrams,
+  formatPaiseAsInr,
+  formatPaiseAsInrCompact,
+  paiseToRupeeInput,
+  parseRupeeInputToPaise,
+} from "@woobe/utils";
 import { useState } from "react";
+import { usePublicAppConfig } from "@/features/settings/hooks/usePublicAppConfig";
 import { useFormError } from "@/lib/use-form-error";
 import type { AdminProductVariant, UpdateVariantPayload, VariantPayload } from "../api/admin-products.client";
+import { PresetSelect } from "./PresetSelect";
 
 export interface VariantFormValues {
   color: string;
   size: string;
   weightGrams: string;
-  fixedPricePaise: string;
+  /** Typed in rupees (2026-09-28); converted to integer paise only at submit. */
+  fixedPriceRupees: string;
   fabric: string;
   fit: string;
   measurements: string;
@@ -20,8 +31,9 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
   return {
     color: variant?.color ?? "",
     size: variant?.size ?? "",
-    weightGrams: variant ? String(variant.weightGrams) : "",
-    fixedPricePaise: variant?.fixedPricePaise != null ? String(variant.fixedPricePaise) : "",
+    // 0 = "weight not tracked" (FIXED products only, 2026-09-29) — shown as blank.
+    weightGrams: variant && variant.weightGrams > 0 ? String(variant.weightGrams) : "",
+    fixedPriceRupees: variant?.fixedPricePaise != null ? paiseToRupeeInput(variant.fixedPricePaise) : "",
     fabric: variant?.fabric ?? "",
     fit: variant?.fit ?? "",
     measurements: variant?.measurements ?? "",
@@ -41,8 +53,9 @@ function toValues(variant?: AdminProductVariant): VariantFormValues {
  * that field is deprecated, see resolve-effective-rate.ts); a FIXED
  * product's variants take a required fixed price instead (ornaments/
  * footwear/accessories aren't priced by weight, see PricingMode's own doc
- * comment in schema.prisma). Weight stays required in both modes — it's
- * real shipping weight either way.
+ * comment in schema.prisma). Weight is required for WEIGHT_BASED (it IS the
+ * price input) and optional for FIXED (2026-09-29) — blank is sent as 0,
+ * "not tracked"; the server enforces the same split.
  */
 export function VariantForm({
   variant,
@@ -60,13 +73,16 @@ export function VariantForm({
   const { fieldErrors, formError, handle, setFieldError, clear } = useFormError();
   const isEditing = Boolean(variant);
   const isFixed = pricingMode === "FIXED";
+  // Presets are optional — if they can't load, PresetSelect falls back to a free-text field.
+  const { config: presets, loading: presetsLoading } = usePublicAppConfig();
+
+  const weightInput = parseWeightInput(values.weightGrams);
 
   const set = <K extends keyof VariantFormValues>(key: K, value: VariantFormValues[K]) => setValues((prev) => ({ ...prev, [key]: value }));
 
   const onFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clear();
-    const weightGrams = Number(values.weightGrams);
     if (!values.color.trim()) {
       setFieldError("color", "Colour is required");
       return;
@@ -75,14 +91,28 @@ export function VariantForm({
       setFieldError("size", "Size is required");
       return;
     }
-    if (!weightGrams) {
-      setFieldError("weightGrams", "Weight is required");
+    if (weightInput.kind === "invalid") {
+      setFieldError("weightGrams", "Weight must be a whole number of grams");
       return;
     }
-    const fixedPricePaise = values.fixedPricePaise ? Number(values.fixedPricePaise) : null;
-    if (isFixed && !fixedPricePaise) {
-      setFieldError("fixedPricePaise", "This product is fixed-price — enter a price");
+    if (!isFixed && weightInput.kind !== "grams") {
+      setFieldError("weightGrams", "Weight is required — this product is priced by weight");
       return;
+    }
+    const weightGrams = weightInput.kind === "grams" ? weightInput.grams : 0;
+    let fixedPricePaise: number | null = null;
+    if (isFixed) {
+      if (!values.fixedPriceRupees.trim()) {
+        setFieldError("fixedPricePaise", "This product is fixed-price — enter a price");
+        return;
+      }
+      // Display boundary only: the admin types rupees, the API still receives integer paise.
+      const parsed = parseRupeeInputToPaise(values.fixedPriceRupees);
+      if (!parsed.ok) {
+        setFieldError("fixedPricePaise", parsed.error);
+        return;
+      }
+      fixedPricePaise = parsed.paise;
     }
     setIsSubmitting(true);
     try {
@@ -91,8 +121,8 @@ export function VariantForm({
         size: values.size.trim(),
         weightGrams,
         fixedPricePaise: isFixed ? fixedPricePaise : null,
-        fabric: values.fabric || null,
-        fit: values.fit || null,
+        fabric: values.fabric.trim() || null,
+        fit: values.fit.trim() || null,
         measurements: values.measurements || null,
         ...(isEditing ? {} : { initialQuantity: values.initialQuantity ? Number(values.initialQuantity) : 0 }),
       });
@@ -117,27 +147,38 @@ export function VariantForm({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <FormField
-          label="Weight (grams)"
+          label={isFixed ? "Weight (grams, optional)" : "Weight (grams)"}
           type="number"
+          min={0}
+          step={1}
           value={values.weightGrams}
           onChange={(e) => set("weightGrams", e.target.value)}
           error={fieldErrors.weightGrams}
         />
         <FormField label="Colour" value={values.color} onChange={(e) => set("color", e.target.value)} error={fieldErrors.color} />
-        <FormField label="Size" value={values.size} onChange={(e) => set("size", e.target.value)} error={fieldErrors.size} />
+        {presetsLoading ? (
+          <FormField label="Size" value={values.size} disabled readOnly />
+        ) : (
+          <PresetSelect
+            label="Size"
+            required
+            value={values.size}
+            options={presets?.presetSizes ?? []}
+            onChange={(value) => set("size", value)}
+            error={fieldErrors.size}
+          />
+        )}
         {isFixed ? (
           <FormField
-            label="Fixed price (paise)"
-            type="number"
-            value={values.fixedPricePaise}
-            onChange={(e) => set("fixedPricePaise", e.target.value)}
+            label="Fixed price (₹)"
+            inputMode="decimal"
+            placeholder="e.g. 499 or 499.50"
+            value={values.fixedPriceRupees}
+            onChange={(e) => set("fixedPriceRupees", e.target.value)}
             error={fieldErrors.fixedPricePaise}
           />
         ) : (
-          <div className="flex flex-col gap-1.5">
-            <span className="font-body text-sm font-medium text-text-primary">Price</span>
-            <span className="font-body text-sm text-text-secondary">Weight × the global ₹/kg rate — set in Settings, not per variant.</span>
-          </div>
+          <WeightBasedPricePreview weightInput={weightInput} ratePerKgPaise={presets?.ratePerKgPaise ?? null} rateLoading={presetsLoading} />
         )}
         {!isEditing ? (
           <FormField
@@ -150,8 +191,29 @@ export function VariantForm({
         ) : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <FormField label="Fabric (optional)" value={values.fabric} onChange={(e) => set("fabric", e.target.value)} error={fieldErrors.fabric} />
-        <FormField label="Fit (optional)" value={values.fit} onChange={(e) => set("fit", e.target.value)} error={fieldErrors.fit} />
+        {presetsLoading ? (
+          <>
+            <FormField label="Fabric (optional)" value={values.fabric} disabled readOnly />
+            <FormField label="Fit (optional)" value={values.fit} disabled readOnly />
+          </>
+        ) : (
+          <>
+            <PresetSelect
+              label="Fabric (optional)"
+              value={values.fabric}
+              options={presets?.presetFabrics ?? []}
+              onChange={(value) => set("fabric", value)}
+              error={fieldErrors.fabric}
+            />
+            <PresetSelect
+              label="Fit (optional)"
+              value={values.fit}
+              options={presets?.presetFits ?? []}
+              onChange={(value) => set("fit", value)}
+              error={fieldErrors.fit}
+            />
+          </>
+        )}
         <FormField
           label="Measurements (optional)"
           value={values.measurements}
@@ -166,7 +228,7 @@ export function VariantForm({
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" isLoading={isSubmitting}>
-          {isEditing ? "Save variant" : "Add variant"}
+          {isSubmitting ? "Saving…" : isEditing ? "Save variant" : "Add variant"}
         </Button>
         {onCancel ? (
           <Button type="button" variant="secondary" size="sm" onClick={onCancel} disabled={isSubmitting}>
@@ -175,5 +237,60 @@ export function VariantForm({
         ) : null}
       </div>
     </form>
+  );
+}
+
+type WeightInput = { kind: "empty" } | { kind: "invalid" } | { kind: "grams"; grams: number };
+
+/** Blank or 0 = no weight; otherwise a positive whole number of grams (the API rejects anything else). */
+function parseWeightInput(raw: string): WeightInput {
+  const trimmed = raw.trim();
+  if (!trimmed) return { kind: "empty" };
+  const grams = Number(trimmed);
+  if (!Number.isInteger(grams) || grams < 0) return { kind: "invalid" };
+  return grams === 0 ? { kind: "empty" } : { kind: "grams", grams };
+}
+
+/**
+ * Live preview for a WEIGHT_BASED variant (2026-09-29). Display only: the form
+ * still sends just `weightGrams` and the server prices it. Uses the same
+ * `calculateWeightBasedPricePaise` as the server with the same global rate,
+ * so the numbers match.
+ */
+function WeightBasedPricePreview({
+  weightInput,
+  ratePerKgPaise,
+  rateLoading,
+}: {
+  weightInput: WeightInput;
+  ratePerKgPaise: number | null;
+  rateLoading: boolean;
+}) {
+  let body: React.ReactNode;
+  if (rateLoading) {
+    body = <span className="text-text-secondary">Loading rate…</span>;
+  } else if (ratePerKgPaise === null) {
+    body = <span className="text-text-secondary">Couldn&apos;t load the ₹/kg rate — the price is weight × the rate set in Settings.</span>;
+  } else if (weightInput.kind === "invalid") {
+    body = <span className="text-text-secondary">Enter weight in whole grams to see the price</span>;
+  } else if (weightInput.kind === "empty") {
+    body = <span className="text-text-secondary">Enter weight to see price</span>;
+  } else {
+    const pricePaise = calculateWeightBasedPricePaise(weightInput.grams, ratePerKgPaise);
+    body = (
+      <>
+        <span className="font-medium text-text-primary">{formatPaiseAsInr(pricePaise)}</span>
+        <span className="text-xs text-text-secondary">
+          ({formatGrams(weightInput.grams)} × {formatPaiseAsInrCompact(ratePerKgPaise)}/kg)
+        </span>
+      </>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5" aria-live="polite">
+      <span className="font-body text-sm font-medium text-text-primary">Price</span>
+      <span className="flex flex-wrap items-baseline gap-x-2 font-body text-sm">{body}</span>
+      <span className="font-body text-xs text-text-secondary">Preview — actual price is always computed server-side.</span>
+    </div>
   );
 }

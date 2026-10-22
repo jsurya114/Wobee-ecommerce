@@ -43,6 +43,8 @@ export interface CreateOrderInput {
   totalPaise: number;
   totalWeightGrams: number;
   paymentMethod: OrderEntity["paymentMethod"];
+  /** COD shipping upfront (2026-09-28) — set only when this COD order must prepay its delivery fee online. */
+  payableOnDeliveryPaise?: number | null;
   /** Anonymous analytics session that placed the order (funnel linkage); null when unknown. */
   analyticsSessionId?: string | null;
   items: CreateOrderItemInput[];
@@ -105,7 +107,10 @@ export interface OrderRepositoryPort {
     to: OrderEntity["status"],
     tx: unknown,
     extraFields?: Partial<
-      Pick<OrderEntity, "trackingNumber" | "carrier" | "carrierCode" | "trackingUrl" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason">
+      Pick<
+        OrderEntity,
+        "trackingNumber" | "carrier" | "carrierCode" | "trackingUrl" | "shippedAt" | "deliveredAt" | "cancelledAt" | "cancellationReason" | "shippingPaidUpfront"
+      >
     >,
   ): Promise<TransitionOrderStatusResult>;
   /** Rewrites the courier/tracking fields of an already-SHIPPED order (`WHERE status = 'SHIPPED'`); `changed: false` if it is no longer shipped. */

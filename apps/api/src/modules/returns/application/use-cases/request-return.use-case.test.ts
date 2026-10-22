@@ -14,7 +14,7 @@ const deliveredOrder = {
   items: [{ id: "item-1", variantId: "v1", productNameSnapshot: "Scarf", quantity: 2, unitPricePaise: 1000, taxAmountPaise: 100, discountPaise: 0 }],
 };
 
-function buildUseCase(overrides: { orderReader?: Partial<OrderReaderPort>; existingLines?: unknown[] } = {}) {
+function buildUseCase(overrides: { orderReader?: Partial<OrderReaderPort>; existingLines?: unknown[]; returnsEnabled?: boolean } = {}) {
   const orderReader = { forCustomer: vi.fn().mockResolvedValue(deliveredOrder), forAdmin: vi.fn(), ...overrides.orderReader } as unknown as OrderReaderPort;
   const returnRepository = {
     findLinesByOrderId: vi.fn().mockResolvedValue(overrides.existingLines ?? []),
@@ -22,11 +22,22 @@ function buildUseCase(overrides: { orderReader?: Partial<OrderReaderPort>; exist
   } as unknown as ReturnRepositoryPort;
   const orderReturnFlagWriter = { setHasActiveReturn: vi.fn() } as unknown as OrderReturnFlagWriterPort;
   const notificationEnqueuer = { enqueue: vi.fn().mockResolvedValue(undefined) };
-  const useCase = new RequestReturnUseCase(orderReader, returnRepository, orderReturnFlagWriter, notificationEnqueuer);
+  const returnsPolicy = { isEnabled: vi.fn().mockResolvedValue(overrides.returnsEnabled ?? true) };
+  const useCase = new RequestReturnUseCase(orderReader, returnRepository, orderReturnFlagWriter, notificationEnqueuer, returnsPolicy);
   return { useCase, orderReader, returnRepository, orderReturnFlagWriter, notificationEnqueuer };
 }
 
 describe("RequestReturnUseCase", () => {
+  it("refuses with RETURNS_DISABLED (403) when returns are switched off — before reading the order or writing anything", async () => {
+    const { useCase, orderReader, returnRepository } = buildUseCase({ returnsEnabled: false });
+
+    await expect(
+      useCase.execute({ orderId: "order-1", userId: "user-1", reason: "wrong size", items: [{ orderItemId: "item-1", quantity: 1 }] }),
+    ).rejects.toMatchObject({ code: "RETURNS_DISABLED", httpStatus: 403 });
+    expect(orderReader.forCustomer).not.toHaveBeenCalled();
+    expect(returnRepository.create).not.toHaveBeenCalled();
+  });
+
   it("creates the return and flags the order as having an active return", async () => {
     const { useCase, returnRepository, orderReturnFlagWriter } = buildUseCase();
 

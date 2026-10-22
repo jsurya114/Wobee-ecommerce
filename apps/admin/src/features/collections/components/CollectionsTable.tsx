@@ -11,7 +11,7 @@ export function CollectionsTable({ items }: { items: AdminCollection[] }) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[560px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">

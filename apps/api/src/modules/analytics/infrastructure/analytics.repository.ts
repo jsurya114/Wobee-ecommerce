@@ -218,8 +218,11 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
   }
 
   async getCodOutstanding(): Promise<CodOutstandingAggregate> {
+    // Cash still owed at the door: a COD payment whose delivery fee was
+    // prepaid online (COD shipping upfront, 2026-09-28 — only ever PENDING
+    // once that fee was captured) owes its total minus upfrontAmountPaise.
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
-      SELECT COUNT(*)::float8 AS orders, COALESCE(SUM(p."amountPaise"), 0)::float8 AS amount
+      SELECT COUNT(*)::float8 AS orders, COALESCE(SUM(p."amountPaise" - COALESCE(p."upfrontAmountPaise", 0)), 0)::float8 AS amount
       FROM orders o JOIN payments p ON p."orderId" = o.id
       WHERE o."paymentMethod" = 'COD' AND p.status = 'PENDING'
         AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED')`);

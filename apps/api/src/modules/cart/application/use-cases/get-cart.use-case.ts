@@ -174,7 +174,8 @@ export class GetCartUseCase {
     const totals = computeCartTotals(
       lines.map((l) => ({ quantity: l.quantity, unitPricePaise: l.unitPricePaise, weightGrams: l.weightGrams, pricingMode: l.pricingMode })),
     );
-    const shipping = await this.shippingReader.evaluate(totals.weightBasedTotalGrams);
+    // Items subtotal (offer-adjusted, pre-coupon) feeds free delivery by price (admin settings, 2026-09-28).
+    const shipping = await this.shippingReader.evaluate(totals.weightBasedTotalGrams, totals.totalPaise);
 
     let discountPaise = 0;
     let appliedCoupon: AppliedCouponView | null = null;

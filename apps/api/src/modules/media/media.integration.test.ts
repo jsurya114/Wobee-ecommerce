@@ -67,6 +67,24 @@ describe("media: upload", () => {
     expect(Buffer.compare(fileRes.body as Buffer, FAKE_JPEG_BYTES)).toBe(0);
   });
 
+  it("accepts an animated GIF (banners, 2026-09-28) and serves it back byte-for-byte with its .gif key", async () => {
+    // Smallest valid GIF89a (1x1 transparent) — real bytes, so the served file can be compared exactly.
+    const gif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+    const staffToken = await loginStaff("catalog@woobe.in", "Staff@12345");
+    const res = await request(app)
+      .post("/api/v1/media")
+      .set("Authorization", `Bearer ${staffToken}`)
+      .attach("file", gif, { filename: "sale.gif", contentType: "image/gif" });
+    expect(res.status).toBe(201);
+    createdMediaIds.push(res.body.media.id);
+    expect(res.body.media.mimeType).toBe("image/gif");
+    expect(res.body.media.url).toMatch(/\.gif$/);
+
+    const fileRes = await request(app).get(new URL(res.body.media.url).pathname);
+    expect(fileRes.status).toBe(200);
+    expect(Buffer.compare(fileRes.body as Buffer, gif)).toBe(0);
+  });
+
   it("rejects a disallowed mime type with 400, no file left behind", async () => {
     const staffToken = await loginStaff("catalog@woobe.in", "Staff@12345");
     const before = await readdir(env.MEDIA_UPLOAD_DIR).catch(() => [] as string[]);

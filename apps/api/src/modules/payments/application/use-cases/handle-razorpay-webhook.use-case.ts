@@ -127,8 +127,14 @@ export class HandleRazorpayWebhookUseCase {
       return { result: "ignored" }; // no local record of this Razorpay order — nothing to reconcile
     }
 
+    // COD shipping upfront (2026-09-28): a COD Payment's Razorpay order only
+    // ever charged the delivery fee (upfrontAmountPaise); the rest is cash
+    // owed at delivery. Everything below is otherwise the same confirmation path.
+    const isCodDeliveryFee = payment.provider === "COD";
+    const expectedOnlineAmountPaise = isCodDeliveryFee ? payment.upfrontAmountPaise : payment.amountPaise;
+
     if (params.payload.event === "payment.captured") {
-      if (paymentEntity.amount !== payment.amountPaise) {
+      if (expectedOnlineAmountPaise === null || paymentEntity.amount !== expectedOnlineAmountPaise) {
         // Integrity mismatch — don't confirm on a number that doesn't match
         // what we charged for. Ack the webhook regardless (retrying won't
         // fix a data mismatch); this needs a human, not a retry storm.
@@ -140,9 +146,16 @@ export class HandleRazorpayWebhookUseCase {
       let changed = false;
       try {
         ({ changed } = await this.transaction.run(async (tx) => {
-          const transitioned = await this.orderPort.confirm(order.id, tx);
+          const transitioned = await this.orderPort.confirm(order.id, tx, isCodDeliveryFee ? { shippingPaidUpfront: true } : undefined);
           if (transitioned.changed) {
-            await this.paymentRepository.update(payment.id, { status: "CAPTURED", razorpayPaymentId: paymentEntity.id }, tx);
+            // A COD payment stays PENDING after its delivery fee is captured —
+            // the rest is still owed in cash and only reaches CAPTURED at
+            // delivery (MarkCodPaymentCapturedUseCase), exactly like ordinary COD.
+            await this.paymentRepository.update(
+              payment.id,
+              { status: isCodDeliveryFee ? "PENDING" : "CAPTURED", razorpayPaymentId: paymentEntity.id },
+              tx,
+            );
             await this.inventoryFinalization.finalize(order.items, tx);
           }
           return transitioned;

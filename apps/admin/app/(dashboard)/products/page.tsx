@@ -10,6 +10,7 @@ import type { CategoryOption } from "@/features/products/api/admin-categories.cl
 import { ProductFilters } from "@/features/products/components/ProductFilters";
 import { ProductsTable } from "@/features/products/components/ProductsTable";
 import { useAdminProducts } from "@/features/products/hooks/useAdminProducts";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 const PAGE_SIZE = 50;
 
@@ -39,10 +40,7 @@ export default function ProductsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="font-display text-xl text-text-primary">Products</h1>
-        <p className="font-body text-sm text-text-secondary">Manage your catalogue and variants.</p>
-      </div>
+      <PageHeader title="Products" description="Manage your catalogue and variants." />
       <ProductFilters search={search} categoryId={categoryId} categories={categories} onSearchChange={setSearch} onCategoryChange={setCategoryId} />
       {loading ? (
         <LoadingState />

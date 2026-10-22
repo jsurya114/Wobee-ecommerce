@@ -31,22 +31,41 @@ export function ProductImages({
 }) {
   const { withFreshToken } = useAdminAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  // Bulk upload (2026-09-28): files go up ONE AT A TIME — never in parallel — so a
+  // 20-image selection can't flood the API or trip its rate limits.
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const isUploading = progress !== null;
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file later
-    if (!file) return;
-    setIsUploading(true);
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // allow re-selecting the same file(s) later
+    if (files.length === 0) return;
+
+    let succeeded = 0;
     try {
-      const media = await withFreshToken((token) => uploadMedia(file, `Product image`, token));
-      await onAdd(media.url, media.altText ?? "Product image");
-      toast.success("Image added");
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Upload failed. Please try again.");
+      for (const [index, file] of files.entries()) {
+        setProgress({ current: index + 1, total: files.length });
+        try {
+          const media = await withFreshToken((token) => uploadMedia(file, `Product image`, token));
+          await onAdd(media.url, media.altText ?? "Product image");
+          succeeded += 1;
+        } catch (error) {
+          // One bad file never aborts the rest of the batch.
+          const reason = error instanceof ApiError ? error.message : "Upload failed.";
+          toast.error(files.length > 1 ? `${file.name}: ${reason}` : reason);
+        }
+      }
     } finally {
-      setIsUploading(false);
+      setProgress(null);
+    }
+
+    if (files.length === 1) {
+      if (succeeded === 1) toast.success("Image added");
+    } else if (succeeded === files.length) {
+      toast.success(`${succeeded} images uploaded successfully`);
+    } else if (succeeded > 0) {
+      toast.warning(`${succeeded} of ${files.length} images uploaded`);
     }
   };
 
@@ -110,10 +129,34 @@ export function ProductImages({
         ))}
       </div>
 
-      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => void onFileSelected(e)} />
-      <Button type="button" variant="secondary" size="sm" isLoading={isUploading} onClick={() => fileInputRef.current?.click()} className="self-start">
-        Upload image
-      </Button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => void onFileSelected(e)}
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" variant="secondary" size="sm" isLoading={isUploading} onClick={() => fileInputRef.current?.click()}>
+          {isUploading ? "Uploading…" : "Upload images"}
+        </Button>
+        {progress ? (
+          <div className="flex min-w-40 flex-col gap-1" role="status" aria-live="polite">
+            <span className="font-body text-sm text-text-secondary">
+              Uploading {progress.current} of {progress.total}…
+            </span>
+            <progress
+              className="h-1.5 w-full overflow-hidden rounded-full accent-primary"
+              max={progress.total}
+              value={progress.current - 1}
+              aria-label="Upload progress"
+            />
+          </div>
+        ) : (
+          <span className="font-body text-xs text-text-secondary">You can select several images at once.</span>
+        )}
+      </div>
     </div>
   );
 }

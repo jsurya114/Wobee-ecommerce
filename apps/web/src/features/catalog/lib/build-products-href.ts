@@ -19,6 +19,8 @@ export interface ProductsQueryParams {
   onOffer?: string;
   /** Offer merchandising pass (2026-09-15) — pins the listing to one specific Offer's own winning products (homepage campaign "See all" / offer-strip click-through). */
   offerId?: string;
+  /** "Fashion by Weight" (2026-09-29) — `"WEIGHT_BASED"` or absent. */
+  pricingMode?: string;
   sort?: string;
 }
 
@@ -33,6 +35,7 @@ const PARAM_ORDER: (keyof ProductsQueryParams)[] = [
   "maxPrice",
   "onOffer",
   "offerId",
+  "pricingMode",
   "sort",
 ];
 
@@ -65,6 +68,7 @@ export function parseProductsQueryParams(params: ProductsQueryParams): {
   maxPrice?: number;
   onOffer?: boolean;
   offerId?: string;
+  pricingMode?: "WEIGHT_BASED" | "FIXED";
   // Loosely typed here (this module has no dependency on the catalog
   // feature's `ProductSort` union) — callers that feed this into
   // `listProducts` already receive validated values from the server page,
@@ -82,6 +86,7 @@ export function parseProductsQueryParams(params: ProductsQueryParams): {
     maxPrice: params.maxPrice ? Number(params.maxPrice) : undefined,
     onOffer: params.onOffer === "true" ? true : undefined,
     offerId: params.offerId,
+    pricingMode: params.pricingMode === "WEIGHT_BASED" || params.pricingMode === "FIXED" ? params.pricingMode : undefined,
     sort: params.sort,
   };
 }

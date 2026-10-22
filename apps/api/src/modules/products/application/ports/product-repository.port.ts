@@ -10,12 +10,21 @@ import type {
   ProductSummaryEntity,
   ProductVariantEntity,
 } from "../../domain/entities/product.entity";
+import type { SearchMatchTerms } from "../../domain/parse-search-query";
 
 export interface ListProductsFilter {
   categoryId?: string;
   collectionId?: string;
   /** Matched against Product.name — see ListProductsUseCase's own comment on ILIKE + the pg_trgm index. */
   search?: string;
+  /**
+   * Smart search (2026-09-29) — the parsed shopper query (see
+   * `parse-search-query.ts`). A product qualifies when it matches ANY name
+   * word or ANY mentioned attribute; products matching ALL of them rank
+   * first, ahead of the requested sort ("strict first, then widen").
+   * Used instead of `search` when present.
+   */
+  smartSearch?: SearchMatchTerms;
   /** Independent facets — OR within each, AND across (see ListProductsUseCase). */
   sizes?: string[];
   colors?: string[];
@@ -54,6 +63,8 @@ export interface ListProductsFilter {
    * that matches nothing — never a 404/error.
    */
   offerId?: string;
+  /** "Fashion by Weight" (2026-09-29) — Product.pricingMode equals this; absent = no restriction. */
+  pricingMode?: "WEIGHT_BASED" | "FIXED";
   sort: ProductSort;
   page: number;
   limit: number;
@@ -104,6 +115,16 @@ export interface ProductSummaryWithStatus extends ProductSummaryEntity {
 /** What `findByIds` returns from the repository — the projection (unresolved `from*` pricing) plus the active flag. `GetProductsByIdsUseCase` resolves it into `ProductSummaryWithStatus`. */
 export type ProductSummaryProjectionWithStatus = ProductSummaryProjection & { isActive: boolean };
 
+/**
+ * Admin offer-discount validation support (fix: admin offer discount
+ * validation) — the same three shapes `OfferEntity.scope` can take, used to
+ * ask "what's the cheapest product this offer's target would apply to."
+ */
+export type OfferPriceFloorTarget =
+  | { scope: "ALL_PRODUCTS" }
+  | { scope: "CATEGORY"; categoryId: string }
+  | { scope: "PRODUCTS"; productIds: string[] };
+
 export interface ListProductsAdminFilter {
   search?: string;
   categoryId?: string;
@@ -127,6 +148,7 @@ export interface CreateProductInput {
   pricingMode: PricingMode;
   metaTitle?: string;
   metaDescription?: string;
+  highlights?: { label: string; value: string }[];
 }
 
 export interface UpdateProductInput {
@@ -139,6 +161,7 @@ export interface UpdateProductInput {
   pricingMode?: PricingMode;
   metaTitle?: string | null;
   metaDescription?: string | null;
+  highlights?: { label: string; value: string }[];
 }
 
 export interface CreateVariantInput {
@@ -203,7 +226,7 @@ export interface ProductRepositoryPort {
    * `findMany`'s search), capped at `limit`, lean projection. Callers pass a
    * pre-trimmed non-empty query; an empty one returns `[]`.
    */
-  searchSuggestions(query: string, limit: number): Promise<ProductSuggestionEntity[]>;
+  searchSuggestions(terms: SearchMatchTerms, limit: number): Promise<ProductSuggestionEntity[]>;
   /**
    * Related-products candidates for the PDP "Related Products" section —
    * ACTIVE products in the SAME `categoryId`, never the product itself, in
@@ -259,6 +282,13 @@ export interface ProductRepositoryPort {
   /** Week 2 Day 8 Part 2 (week2 (1).md §12) — batched variantId→productId lookup for `home`'s Best Sellers rail (orders' OrderItem only has variantId; resolving to the product it belongs to is `products`' own data). Missing/unknown variant ids are simply absent from the returned map, never an error — a variant sold in the past can be deleted or reassigned since. */
   findProductIdsForVariantIds(variantIds: string[]): Promise<Map<string, string>>;
   /**
+   * 2026-09-30 — the ids of products that have at least one ACTIVE variant
+   * among `variantIds` (the live in-stock variant set). The same "an active
+   * variant with stock" rule `findMany`'s in-stock filter applies in SQL, for
+   * callers that need a product-level sold-out answer (wishlist, home).
+   */
+  findProductIdsWithActiveVariants(variantIds: string[]): Promise<Set<string>>;
+  /**
    * Redesign O-3 — one representative product image per category id, for
    * the homepage's compact category rail (the schema has no `Category`
    * image field). Cheapest active product with at least one image wins per
@@ -299,6 +329,36 @@ export interface ProductRepositoryPort {
   findVariantForAdmin(variantId: string): Promise<(AdminProductVariantEntity & { productId: string }) | null>;
   /** Recomputes `Product.minPricePaiseCache` from its currently-active variants (or 0 if none) — called after any variant create/update/activation-change, since that cache drives the customer-facing listing's price display and sort. */
   recomputeMinPrice(productId: string): Promise<void>;
+  /**
+   * 2026-09-30 — every variant (active or not) of every WEIGHT_BASED product,
+   * with what its price depends on and its current `effectivePricePaiseCache`,
+   * for RefreshWeightBasedPriceCachesUseCase after the global ₹/kg rate changes.
+   */
+  findWeightBasedVariantsForRepricing(): Promise<
+    { id: string; productId: string; weightGrams: number; ratePerKgOverridePaise: number | null; effectivePricePaiseCache: number }[]
+  >;
+  /**
+   * 2026-09-30 — writes new `effectivePricePaiseCache` values and recomputes
+   * `minPricePaiseCache` for each product they belong to, in one transaction,
+   * so the listing's price filter/sort never sees half a repricing.
+   */
+  updateVariantPriceCaches(updates: { id: string; productId: string; effectivePricePaiseCache: number }[]): Promise<void>;
+  /**
+   * Admin offer-discount validation support (fix: admin offer discount
+   * validation) — the lowest `minPricePaiseCache` among the products an
+   * offer with this scope/target would actually apply to, so a
+   * FIXED_AMOUNT discount larger than any one of them can be rejected
+   * before the offer is ever saved (see products'
+   * `ValidateOfferDiscountUseCase` for why this check lives in `products`
+   * rather than `offers` itself). Only considers products with a positive
+   * `minPricePaiseCache` — a product with no active variant has nothing
+   * currently purchasable for a discount to exceed, and would otherwise
+   * make every FIXED_AMOUNT offer touching it look invalid. `null` when
+   * the target currently has no such product at all (an empty category,
+   * every listed id inactive, or an empty catalogue) — the caller treats
+   * that as "nothing to validate against yet," never a rejection.
+   */
+  getMinPricePaiseForOfferTarget(target: OfferPriceFloorTarget): Promise<number | null>;
 
   addImage(productId: string, input: AddProductImageInput): Promise<AdminProductImageEntity>;
   removeImage(productId: string, imageId: string): Promise<void>;

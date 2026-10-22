@@ -165,7 +165,7 @@ This is the **current** architecture: **one EC2 instance, no load balancer.** De
 | Preserved / set | `Host` (kept), `X-Forwarded-Proto` (`https`), `X-Forwarded-Host`, `X-Real-IP` and `X-Forwarded-For` (both = the real client address; any client-sent value is **overwritten**, not appended). |
 | Real client IP | `CF-Connecting-IP` is believed **only** from Cloudflare's IPv4 ranges (the same list as the security group, one Terraform variable). From anyone else it is ignored. |
 | Timeouts | connect 5 s, send 60 s, read 60 s (below Cloudflare's 100 s, so slow upstreams answer `504` from nginx, not Cloudflare's `524`); no retry to another upstream. |
-| Body limit | `client_max_body_size 6m` (the API accepts images up to 5 MB; nginx's 1 MB default would 413 every upload). |
+| Body limit | `client_max_body_size 6m` (set when the API accepted images up to 5 MB; nginx's 1 MB default would 413 every upload). Since 2026-09-28 the API accepts up to 10 MB (animated GIF banners) — see *Raising the upload size limit* below. |
 | TLS | TLS 1.2 and 1.3, no session tickets. |
 | `/health`, `/ready` | Proxied, GET and HEAD only. |
 
@@ -244,6 +244,15 @@ Register **`https://api.woobe.in/api/v1/payments/razorpay/webhook`** in the Razo
 
 ### Changing the nginx configuration
 The config is applied at **first boot** from `user_data`, and Terraform replaces the instance when `user_data` changes (`user_data_replace_on_change`) — a new instance means re-creating `api.env` and the certificate by hand. For a small change on a running host: edit `/opt/woobe/nginx/conf.d/api.conf` over Session Manager, run `sudo docker exec woobe-nginx nginx -t && sudo docker exec woobe-nginx nginx -s reload`, and make the same change in `api.conf.tpl` so Terraform and the host do not drift.
+
+### Raising the upload size limit (GIF banners, 2026-09-28)
+
+The API's admin media upload accepts files up to **10 MB** (was 5 MB), but nginx still refuses request bodies over **6 MB** with `413` before they reach the API; the admin shows "too large for the server to accept". To let 6–10 MB uploads through in production, raise nginx's limit **on the running host only**:
+
+1. Over Session Manager, edit `/opt/woobe/nginx/conf.d/api.conf`: `client_max_body_size 6m;` → `client_max_body_size 11m;` (a little headroom above 10 MB for the multipart envelope).
+2. `sudo docker exec woobe-nginx nginx -t && sudo docker exec woobe-nginx nginx -s reload` — no dropped connections.
+
+**Do not change `infra/terraform/modules/ec2/templates/nginx/api.conf.tpl` as part of this.** That template is rendered into the instance's `user_data`, and `aws_instance.backend` has `user_data_replace_on_change = true` (its `lifecycle` only ignores `ami`), so the next `terraform apply` would **destroy and recreate the production instance** — losing `/opt/woobe/app/api.env` and the Origin CA certificate. Make the template match the host only as part of a deliberately planned instance replacement (or after adding `user_data` to `ignore_changes`). The same caution applies to the "make the same change in `api.conf.tpl`" advice in *Changing the nginx configuration* above. The nginx test suite (`run-nginx-tests.sh`) still asserts the template's 6m / 7 MB-refused behaviour and should be updated together with the template.
 
 ### Troubleshooting
 | Symptom | Likely cause |

@@ -76,6 +76,8 @@ export interface RefreshTokenRecord {
   userId: string;
   expiresAt: Date;
   revokedAt: Date | null;
+  /** Set only when this token was rotated — the id of its replacement (see RefreshTokenUseCase). */
+  replacedByTokenId: string | null;
 }
 
 /** "Continue with Google" — creates a brand-new customer with a GOOGLE AuthCredential (no password). */
@@ -203,6 +205,17 @@ export interface AuthRepositoryPort {
   createRefreshToken(params: { userId: string; tokenHash: string; expiresAt: Date }): Promise<RefreshTokenRecord>;
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;
   revokeRefreshToken(id: string): Promise<void>;
+  findRefreshTokenById(id: string): Promise<RefreshTokenRecord | null>;
+  /**
+   * Atomically revokes `id` IF it is still active, recording its replacement.
+   * Returns false when it was already revoked — i.e. another request rotated
+   * it first — so two concurrent refreshes can never both succeed.
+   */
+  rotateRefreshToken(id: string, replacedByTokenId: string): Promise<boolean>;
+  /** Atomically revokes `id` if still active; true if this call revoked it. */
+  revokeRefreshTokenIfActive(id: string): Promise<boolean>;
+  /** Re-points an already-rotated token at a newer replacement (grace-window recovery only). */
+  setRefreshTokenReplacement(id: string, replacedByTokenId: string): Promise<void>;
   /** Reuse-detection response: a presented-but-already-revoked token means the token leaked — kill every session for that user. `tx` lets the Staff module's role-change/deactivate use-cases revoke atomically alongside the User update + audit write (see runWithLockedActiveSuperAdmins). */
   revokeAllRefreshTokensForUser(userId: string, tx?: unknown): Promise<void>;
 

@@ -12,6 +12,7 @@ export * from "./primitives/Sheet";
 export * from "./primitives/Skeleton";
 export * from "./primitives/Spinner";
 export * from "./primitives/Textarea";
+export * from "./components/ConfirmationDialog";
 export * from "./components/EmptyState";
 export * from "./components/FormField";
 export * from "./components/PriceTag";

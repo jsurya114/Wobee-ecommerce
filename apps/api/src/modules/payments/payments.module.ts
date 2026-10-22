@@ -29,7 +29,7 @@ const razorpayService = new RazorpayService();
 
 const orderPort: OrderPort = {
   getOrder: (orderId) => getOrderForPaymentUseCase.execute(orderId),
-  confirm: (orderId, tx) => confirmOrderUseCase.execute(orderId, tx),
+  confirm: (orderId, tx, options) => confirmOrderUseCase.execute(orderId, tx, options),
   markPaymentFailed: (orderId, tx) => markOrderPaymentFailedUseCase.execute(orderId, tx),
   notifyOrderEvent: (orderId, type) => notifyOrderEventUseCase.execute(orderId, type),
 };

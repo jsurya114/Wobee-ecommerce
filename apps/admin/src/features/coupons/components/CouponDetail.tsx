@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api-client";
 import { useSaveAndRedirect } from "@/lib/use-save-and-redirect";
 import { useAdminCoupon } from "../hooks/useAdminCoupon";
 import { CouponForm, toDatetimeLocalValue, toRupeesValue } from "./CouponForm";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function CouponDetail({ couponId }: { couponId: string }) {
   const router = useRouter();
@@ -66,15 +67,18 @@ export function CouponDetail({ couponId }: { couponId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-xl">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-xl text-text-primary">{coupon.code}</h1>
-        <div className="flex items-center gap-2">
-          <Badge variant={coupon.isActive ? "success" : "neutral"}>{coupon.isActive ? "active" : "inactive"}</Badge>
-          <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
-            {coupon.isActive ? "Deactivate" : "Activate"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/coupons", label: "Coupons" }}
+        title={coupon.code}
+        meta={<Badge variant={coupon.isActive ? "success" : "neutral"}>{coupon.isActive ? "active" : "inactive"}</Badge>}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" isLoading={isTogglingActive} onClick={() => void toggleActive()}>
+              {coupon.isActive ? "Deactivate" : "Activate"}
+            </Button>
+          </>
+        }
+      />
 
       <Card flat className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
         <Stat label="Redeemed" value={String(coupon.redemptionCount)} />

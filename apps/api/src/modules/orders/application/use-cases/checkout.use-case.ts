@@ -1,5 +1,6 @@
 import type { CheckoutAddressInput } from "@woobe/validation";
 import type { ObservabilityPort } from "../../../../shared/application/ports/observability.port";
+import { formatGrams } from "@woobe/utils";
 import { ConflictError, UnprocessableEntityError, ValidationError } from "../../../../shared/errors";
 import { allocateCouponDiscount } from "../../domain/allocate-coupon-discount";
 import type { OrderEntity } from "../../domain/entities/order.entity";
@@ -9,6 +10,7 @@ import type { AddressSaverPort } from "../ports/address-saver.port";
 import type { CartReaderPort, CheckoutCartLine } from "../ports/cart-reader.port";
 import type { CartResolverPort } from "../ports/cart-resolver.port";
 import type { CartWriterPort } from "../ports/cart-writer.port";
+import type { CheckoutRulesReaderPort } from "../ports/checkout-rules-reader.port";
 import type { CouponRedeemerPort } from "../ports/coupon-redeemer.port";
 import type { GstReaderPort } from "../ports/gst-reader.port";
 import type { InventoryReservationPort } from "../ports/inventory-reservation.port";
@@ -79,6 +81,7 @@ export class CheckoutUseCase {
     private readonly couponRedeemer: CouponRedeemerPort,
     private readonly addressSaver: AddressSaverPort,
     private readonly observability: ObservabilityPort,
+    private readonly checkoutRules: CheckoutRulesReaderPort,
   ) {}
 
   async execute(input: PlaceOrderInput): Promise<OrderEntity> {
@@ -115,10 +118,24 @@ export class CheckoutUseCase {
     // reservation below plus the in-transaction shipping re-read; this can
     // still race and lose to them, which is fine (the transaction's own
     // checks are the real, always-correct guards).
-    const preCheckShipping = await this.shippingReader.evaluate(cart.weightBasedTotalGrams);
+    const [preCheckShipping, rules] = await Promise.all([
+      this.shippingReader.evaluate(cart.weightBasedTotalGrams, cart.totalPaise),
+      this.checkoutRules.getRules(),
+    ]);
+    const { minCartQuantity } = rules;
     if (!preCheckShipping.meetsMinimum) {
+      // ADR-021 minimum order weight (ShippingRule.minWeightGramsForCheckout, admin-editable).
+      const minimumGrams = cart.weightBasedTotalGrams + preCheckShipping.gramsToMinimum;
       throw new UnprocessableEntityError(
-        `Add ${preCheckShipping.gramsToMinimum}g more to your bag to check out (ADR-021 minimum order weight)`,
+        `Minimum cart weight is ${formatGrams(minimumGrams)} to place an order — add ${formatGrams(preCheckShipping.gramsToMinimum)} more.`,
+      );
+    }
+    // Admin settings (2026-09-28) — store-wide minimum item count (AppConfig.minCartQuantity).
+    const totalQuantity = cart.items.reduce((sum, line) => sum + line.quantity, 0);
+    if (totalQuantity < minCartQuantity) {
+      const missing = minCartQuantity - totalQuantity;
+      throw new UnprocessableEntityError(
+        `Minimum ${minCartQuantity} items to place an order — add ${missing} more item${missing === 1 ? "" : "s"}.`,
       );
     }
 
@@ -171,11 +188,21 @@ export class CheckoutUseCase {
       // minimum-weight rule; using its fee here would let an admin editing
       // ShippingRule mid-checkout commit an order against a stale fee. §9's own
       // flow is "Calculate discount -> Recalculate tax/shipping -> Final total".
-      const shipping = await this.shippingReader.evaluate(cart.weightBasedTotalGrams);
+      // `cart.totalPaise` is the offer-adjusted, PRE-coupon items subtotal — the
+      // same figure the cart page evaluated free-delivery-by-price against, so a
+      // coupon applied afterwards can never take free delivery away at checkout.
+      const shipping = await this.shippingReader.evaluate(cart.weightBasedTotalGrams, cart.totalPaise);
 
       const items = await this.buildOrderItems(cart.items, lineDiscounts);
       const subtotalPaise = items.reduce((sum, item) => sum + item.lineTotalPaise, 0);
       const taxPaise = items.reduce((sum, item) => sum + item.taxAmountPaise, 0);
+
+      const totalPaise = subtotalPaise + taxPaise + shipping.shippingFeePaise - discountPaise;
+      // COD shipping upfront (2026-09-28): with the setting on, a COD order that
+      // carries a delivery fee prepays exactly that fee online; the courier
+      // collects the rest. Recorded now so confirmation can require the
+      // prepayment (ConfirmCodOrderUseCase) even if the setting changes later.
+      const requiresUpfrontShipping = input.paymentMethod === "COD" && rules.codShippingUpfront && shipping.shippingFeePaise > 0;
 
       const orderBase: Omit<CreateOrderInput, "orderNumber"> = {
         userId: input.userId ?? null,
@@ -187,7 +214,8 @@ export class CheckoutUseCase {
         discountPaise,
         shippingFeePaise: shipping.shippingFeePaise,
         taxPaise,
-        totalPaise: subtotalPaise + taxPaise + shipping.shippingFeePaise - discountPaise,
+        totalPaise,
+        payableOnDeliveryPaise: requiresUpfrontShipping ? totalPaise - shipping.shippingFeePaise : null,
         totalWeightGrams: cart.totalWeightGrams,
         paymentMethod: input.paymentMethod,
         analyticsSessionId: input.analyticsSessionId ?? null,

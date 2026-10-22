@@ -8,6 +8,11 @@ import type { ShippingRepositoryPort } from "../../application/ports/shipping-re
  */
 export class ShippingRepository implements ShippingRepositoryPort {
   async findCurrentRule(): Promise<ShippingRuleValues> {
+    const { effectiveFrom: _effectiveFrom, ...values } = await this.findCurrentRuleWithEffectiveFrom();
+    return values;
+  }
+
+  async findCurrentRuleWithEffectiveFrom(): Promise<ShippingRuleValues & { effectiveFrom: Date }> {
     const rule = await prisma.shippingRule.findFirst({
       where: { effectiveFrom: { lte: new Date() } },
       orderBy: { effectiveFrom: "desc" },
@@ -21,6 +26,21 @@ export class ShippingRepository implements ShippingRepositoryPort {
       standardFeePaise: rule.standardFeePaise,
       estimatedDeliveryDaysMin: rule.estimatedDeliveryDaysMin,
       estimatedDeliveryDaysMax: rule.estimatedDeliveryDaysMax,
+      freeDeliveryMinSubtotalPaise: rule.freeDeliveryMinSubtotalPaise,
+      effectiveFrom: rule.effectiveFrom,
+    };
+  }
+
+  async insertRule(values: ShippingRuleValues): Promise<ShippingRuleValues & { effectiveFrom: Date }> {
+    const created = await prisma.shippingRule.create({ data: { ...values, effectiveFrom: new Date() } });
+    return {
+      minWeightGramsForCheckout: created.minWeightGramsForCheckout,
+      freeDeliveryThresholdGrams: created.freeDeliveryThresholdGrams,
+      standardFeePaise: created.standardFeePaise,
+      estimatedDeliveryDaysMin: created.estimatedDeliveryDaysMin,
+      estimatedDeliveryDaysMax: created.estimatedDeliveryDaysMax,
+      freeDeliveryMinSubtotalPaise: created.freeDeliveryMinSubtotalPaise,
+      effectiveFrom: created.effectiveFrom,
     };
   }
 }

@@ -54,6 +54,14 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(1, "JWT_REFRESH_SECRET is required"),
   JWT_ACCESS_TOKEN_TTL: z.string().default("15m"),
   JWT_REFRESH_TOKEN_TTL: z.string().default("30d"),
+  /**
+   * How long (seconds) after a refresh token is rotated a client may still
+   * present it, provided its replacement has never been used — covers a
+   * client that never received the rotation response (tab closed/reloaded
+   * mid-refresh, dropped mobile connection). 0 = strict (any reuse revokes
+   * every session). See RefreshTokenUseCase. 2026-09-29.
+   */
+  REFRESH_TOKEN_REUSE_GRACE_SECONDS: z.coerce.number().int().min(0).max(300).default(30),
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().positive().default(12),
 
   WEB_ORIGIN: z.string().url().default("http://localhost:3000"),

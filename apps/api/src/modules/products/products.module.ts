@@ -9,8 +9,9 @@
 import { findCategoryBySlugUseCase } from "../categories/categories.module";
 import { findCollectionBySlugUseCase } from "../collections/collections.module";
 import { findInStockVariantIdsUseCase, getAvailableQuantitiesUseCase, initializeInventoryForVariantUseCase } from "../inventory/inventory.module";
-import { resolveApplicableOffersUseCase } from "../offers/offers.module";
+import { createOfferUseCase, getOfferAdminUseCase, resolveApplicableOffersUseCase, updateOfferUseCase } from "../offers/offers.module";
 import { calculateEffectivePriceUseCase } from "../pricing/pricing.module";
+import { getAppConfigUseCase } from "../settings/settings.module";
 import { env } from "../../config/env";
 import type { CategoryReaderPort } from "./application/ports/category-reader.port";
 import type { CollectionReaderPort } from "./application/ports/collection-reader.port";
@@ -19,7 +20,10 @@ import type { InventoryReaderPort } from "./application/ports/inventory-reader.p
 import type { OfferReaderPort } from "./application/ports/offer-reader.port";
 import type { PricingReaderPort } from "./application/ports/pricing-reader.port";
 import type { ProductRepositoryPort } from "./application/ports/product-repository.port";
+import type { SearchVocabularyReaderPort } from "./application/ports/search-vocabulary-reader.port";
+import type { SearchVocabularyExtras } from "./domain/parse-search-query";
 import { AddProductImageUseCase } from "./application/use-cases/admin/add-product-image.use-case";
+import { CreateOfferWithPriceValidationUseCase } from "./application/use-cases/admin/create-offer-with-price-validation.use-case";
 import { CreateProductUseCase } from "./application/use-cases/admin/create-product.use-case";
 import { CreateProductVariantUseCase } from "./application/use-cases/admin/create-product-variant.use-case";
 import { GetProductAdminUseCase } from "./application/use-cases/admin/get-product-admin.use-case";
@@ -30,11 +34,15 @@ import { SetProductActiveUseCase } from "./application/use-cases/admin/set-produ
 import { SetProductVariantActiveUseCase } from "./application/use-cases/admin/set-product-variant-active.use-case";
 import { GetProductCostsUseCase } from "./application/use-cases/admin/get-product-costs.use-case";
 import { SetProductCostsUseCase } from "./application/use-cases/admin/set-product-costs.use-case";
+import { UpdateOfferWithPriceValidationUseCase } from "./application/use-cases/admin/update-offer-with-price-validation.use-case";
 import { UpdateProductUseCase } from "./application/use-cases/admin/update-product.use-case";
 import { UpdateProductVariantUseCase } from "./application/use-cases/admin/update-product-variant.use-case";
+import { ValidateOfferDiscountUseCase } from "./application/use-cases/admin/validate-offer-discount.use-case";
 import { CountActiveProductsBySizeUseCase } from "./application/use-cases/count-active-products-by-size.use-case";
 import { GetCategoryImagesUseCase } from "./application/use-cases/get-category-images.use-case";
 import { GetProductBySlugUseCase } from "./application/use-cases/get-product-by-slug.use-case";
+import { RefreshWeightBasedPriceCachesUseCase } from "./application/use-cases/admin/refresh-weight-based-price-caches.use-case";
+import { FindInStockProductIdsUseCase } from "./application/use-cases/find-in-stock-product-ids.use-case";
 import { GetProductsByIdsUseCase } from "./application/use-cases/get-products-by-ids.use-case";
 import { GetRelatedProductsUseCase } from "./application/use-cases/get-related-products.use-case";
 import { GetVariantsForCartUseCase } from "./application/use-cases/get-variants-for-cart.use-case";
@@ -75,7 +83,31 @@ const inventoryInitializer: InventoryInitializerPort = {
 const offerReader: OfferReaderPort = { resolveMany: (inputs) => resolveApplicableOffersUseCase.executeMany(inputs) };
 
 const getProductBySlugUseCase = new GetProductBySlugUseCase(productRepository, pricingReader, inventoryReader, offerReader);
-const searchProductSuggestionsUseCase = new SearchProductSuggestionsUseCase(productRepository);
+/**
+ * Smart search vocabulary (2026-09-29) — the admin's size / fabric / fit
+ * presets on top of the built-in dictionary. Memoised in-process for a
+ * minute: the typeahead fires on every debounced keystroke, and a preset
+ * edit showing up in search a minute later is harmless. A failed read
+ * falls back to the built-in dictionary rather than failing the search.
+ */
+const SEARCH_VOCABULARY_TTL_MS = 60_000;
+let cachedSearchVocabulary: { value: SearchVocabularyExtras; expiresAt: number } | null = null;
+const searchVocabularyReader: SearchVocabularyReaderPort = {
+  get: async () => {
+    const now = Date.now();
+    if (cachedSearchVocabulary && cachedSearchVocabulary.expiresAt > now) return cachedSearchVocabulary.value;
+    try {
+      const config = await getAppConfigUseCase.execute();
+      const value = { sizes: config.presetSizes, fabrics: config.presetFabrics, fits: config.presetFits };
+      cachedSearchVocabulary = { value, expiresAt: now + SEARCH_VOCABULARY_TTL_MS };
+      return value;
+    } catch {
+      return {};
+    }
+  },
+};
+
+const searchProductSuggestionsUseCase = new SearchProductSuggestionsUseCase(productRepository, searchVocabularyReader);
 const getRelatedProductsUseCase = new GetRelatedProductsUseCase(productRepository, pricingReader, offerReader);
 
 /** Exported for cross-module use — `home`'s New Arrivals rail (Week 2 Day 8 Part 2) calls this with `sort: "newest"` instead of duplicating catalogue-listing logic. */
@@ -86,6 +118,7 @@ export const listProductsUseCase = new ListProductsUseCase(
   inventoryReader,
   pricingReader,
   offerReader,
+  searchVocabularyReader,
 );
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRepository);
@@ -93,12 +126,32 @@ export const getVariantsForCartUseCase = new GetVariantsForCartUseCase(productRe
 export const getProductsByIdsUseCase = new GetProductsByIdsUseCase(productRepository, pricingReader, offerReader);
 /** Exported for cross-module use — see the use-case's own doc comment. */
 export const resolveProductIdsForVariantsUseCase = new ResolveProductIdsForVariantsUseCase(productRepository);
+/** Exported for cross-module use (2026-09-30) — `wishlist`'s SOLD OUT flag and `home`'s "Loved by Customers" rail; see the use-case's own doc comment. */
+export const findInStockProductIdsUseCase = new FindInStockProductIdsUseCase(inventoryReader, productRepository);
+/** Exported for `admin`'s pricing-rate change (2026-09-30) — see the use-case's own doc comment. */
+export const refreshWeightBasedPriceCachesUseCase = new RefreshWeightBasedPriceCachesUseCase(productRepository, pricingReader);
 /** Exported for cross-module use (redesign O-3) — `home` composes this into the category-rail payload. */
 export const getCategoryImagesUseCase = new GetCategoryImagesUseCase(productRepository);
 /** Exported for cross-module use (merchandising logic corrections, 2026-09-06) — `home`'s "Shop your size" rail. */
 export const countActiveProductsBySizeUseCase = new CountActiveProductsBySizeUseCase(productRepository);
 /** Exported for cross-module use (offer merchandising pass, 2026-09-15) — `home`'s per-Offer campaign sections. */
 export const groupProductsByOfferUseCase = new GroupProductsByOfferUseCase(productRepository, inventoryReader, pricingReader, offerReader);
+
+/**
+ * Fix: admin offer discount validation — cross-module guards in front of
+ * `offers`' own create/update use-cases (see
+ * `ValidateOfferDiscountUseCase`'s own doc comment for why this lives
+ * here). Exported for `admin`'s HTTP layer (ADR-025) IN PLACE OF
+ * `offers.module`'s raw `createOfferUseCase`/`updateOfferUseCase` — see
+ * admin.module.ts's own comment on why it imports these from here instead.
+ */
+const validateOfferDiscountUseCase = new ValidateOfferDiscountUseCase(productRepository);
+export const createOfferWithPriceValidationUseCase = new CreateOfferWithPriceValidationUseCase(validateOfferDiscountUseCase, createOfferUseCase);
+export const updateOfferWithPriceValidationUseCase = new UpdateOfferWithPriceValidationUseCase(
+  getOfferAdminUseCase,
+  validateOfferDiscountUseCase,
+  updateOfferUseCase,
+);
 
 /** Exported for `admin`'s HTTP layer (ADR-025) — Week 2 Day 7 admin product management. */
 export const listProductsAdminUseCase = new ListProductsAdminUseCase(productRepository);

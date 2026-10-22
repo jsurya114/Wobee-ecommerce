@@ -10,4 +10,6 @@ export interface PaymentEntity {
   razorpayOrderId: string | null;
   razorpayPaymentId: string | null;
   razorpaySignature: string | null;
+  /** COD shipping upfront (2026-09-28) — for a COD payment, the part charged online (the delivery fee); null otherwise. */
+  upfrontAmountPaise: number | null;
 }

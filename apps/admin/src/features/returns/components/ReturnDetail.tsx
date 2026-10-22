@@ -5,6 +5,7 @@ import { formatPaiseAsInr } from "@woobe/utils";
 import { Badge, Card } from "@woobe/ui";
 import { useAdminReturn } from "../hooks/useAdminReturn";
 import { ReturnStatusActions } from "./ReturnStatusActions";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function ReturnDetail({ returnId }: { returnId: string }) {
   const { detail, loading, error, approve, reject, issueRefund, markRefunded, lastRefundOutcome } = useAdminReturn(returnId);
@@ -23,10 +24,11 @@ export function ReturnDetail({ returnId }: { returnId: string }) {
 
   return (
     <div className="flex flex-col gap-6 md:max-w-2xl">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl text-text-primary">Return request</h1>
-        <Badge variant="neutral">{ret.status.replace(/_/g, " ").toLowerCase()}</Badge>
-      </div>
+      <PageHeader
+        back={{ href: "/returns", label: "Returns" }}
+        title={"Return request"}
+        meta={<Badge variant="neutral">{ret.status.replace(/_/g, " ").toLowerCase()}</Badge>}
+      />
 
       <Card className="p-4">
         <h2 className="mb-3 font-body text-sm font-medium text-text-primary">Requested items</h2>

@@ -24,14 +24,17 @@ export interface ChartPoint {
 const PAD = { top: 12, right: 12, bottom: 26, left: 52 };
 
 /** Round axis ticks (1, 2, 2.5, 5 × 10^n steps) that always include 0 and bracket the data, so labels read ₹2K, ₹4K … not ₹1.8K, ₹4.5K. */
-export function niceTicks(min: number, max: number, count = 4): number[] {
+export function niceTicks(min: number, max: number, count = 4, integerOnly = false): number[] {
   const lo = Math.min(0, min);
   const hi = Math.max(0, max);
   if (hi === lo) return [0, 1];
   const rawStep = (hi - lo) / count;
   const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
   const norm = rawStep / mag;
-  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
+  const niceStep = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
+  // Counts (orders, sessions) can't be fractional — a max of 1 otherwise yields
+  // 0 / 0.25 / 0.5 / 0.75 / 1, which an integer formatter renders "0 0 1 1 1".
+  const step = integerOnly ? Math.max(1, Math.ceil(niceStep)) : niceStep;
   const start = Math.floor(lo / step) * step;
   const end = Math.ceil(hi / step) * step;
   const ticks: number[] = [];
@@ -52,21 +55,24 @@ export function TimeSeriesChart({
   axisFormat,
   height = 240,
   ariaLabel,
+  integerAxis = false,
 }: {
   points: ChartPoint[];
   series: ChartSeries[];
   axisFormat: (value: number) => string;
   height?: number;
   ariaLabel: string;
+  /** Whole-number y-axis steps, for count series (orders, sessions). */
+  integerAxis?: boolean;
 }) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
 
   const geometry = useMemo(() => {
     const all = points.flatMap((p) => series.map((s) => p.values[s.key])).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-    const ticks = niceTicks(Math.min(0, ...all), Math.max(0, ...all));
+    const ticks = niceTicks(Math.min(0, ...all), Math.max(0, ...all), 4, integerAxis);
     return { ticks, yMin: ticks[0]!, yMax: ticks[ticks.length - 1]! };
-  }, [points, series]);
+  }, [points, series, integerAxis]);
 
   const plotW = Math.max(40, width - PAD.left - PAD.right);
   const plotH = height - PAD.top - PAD.bottom;

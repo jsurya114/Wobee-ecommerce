@@ -4,12 +4,15 @@ export interface CreateCollectionInput {
   name: string;
   slug: string;
   description?: string;
+  coverImageUrl?: string | null;
 }
 
 export interface UpdateCollectionInput {
   name?: string;
   slug?: string;
   description?: string | null;
+  /** null clears the admin cover (the storefront falls back to the derived product image); undefined leaves it untouched. */
+  coverImageUrl?: string | null;
 }
 
 /**

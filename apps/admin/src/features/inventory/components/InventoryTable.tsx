@@ -54,7 +54,7 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
   };
 
   return (
-    <div ref={scrollContainerRef} className="overflow-x-auto">
+    <div ref={scrollContainerRef} className="relative overflow-x-auto">
       <table className="w-full min-w-[720px] border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left text-text-secondary">
@@ -118,26 +118,53 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
                   <tr className="border-b border-border bg-primary-tint/20">
                     {/* This is the one row in this table with an active input, unlike every other read-only row — `max-w` (well under the table's own >=720px rendered width) is what actually forces `flex-wrap` to kick in at a narrow viewport; flex-wrap alone never sees this as constrained, since the table itself is always wide enough to fit everything on one line. `startAdjusting` resets the container's own scroll to 0 on open so this form doesn't appear off-screen if "Adjust" was clicked from a scrolled-right position — `position: sticky` was tried first and doesn't work here: it's a no-op on a <td> inside a `border-collapse` table (confirmed live), not a viable fix. */}
                     <td colSpan={7} className="p-3">
-                      <div className="flex max-w-[320px] flex-wrap items-end gap-2 sm:max-w-none">
+                      {/* A real <form> (2026-09-29 admin UX pass): Enter confirms, Escape cancels; the preview line shows the resulting stock before saving. Same submitAdjustment as before. */}
+                      <form
+                        noValidate
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void submitAdjustment(row.variantId);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape" && !isSubmitting) setAdjustingId(null);
+                        }}
+                        className="flex max-w-[320px] flex-wrap items-end gap-2 sm:max-w-none"
+                      >
                         <div className="flex flex-col gap-1">
                           <label className="font-body text-xs text-text-secondary" htmlFor={`delta-${row.variantId}`}>
                             Adjustment (+/-)
                           </label>
-                          <Input id={`delta-${row.variantId}`} type="number" value={delta} onChange={(e) => setDelta(e.target.value)} className="h-9 w-28" />
+                          <Input
+                            id={`delta-${row.variantId}`}
+                            type="number"
+                            step={1}
+                            autoFocus
+                            placeholder="+10 or -3"
+                            value={delta}
+                            onChange={(e) => setDelta(e.target.value)}
+                            className="h-9 w-28"
+                          />
                         </div>
                         <div className="flex min-w-[200px] flex-1 flex-col gap-1">
                           <label className="font-body text-xs text-text-secondary" htmlFor={`reason-${row.variantId}`}>
                             Reason
                           </label>
-                          <Input id={`reason-${row.variantId}`} value={reason} onChange={(e) => setReason(e.target.value)} className="h-9" />
+                          <Input
+                            id={`reason-${row.variantId}`}
+                            placeholder="e.g. New stock arrived"
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            className="h-9"
+                          />
                         </div>
-                        <Button size="sm" isLoading={isSubmitting} onClick={() => void submitAdjustment(row.variantId)}>
-                          Confirm
+                        <Button type="submit" size="sm" isLoading={isSubmitting}>
+                          {isSubmitting ? "Saving…" : "Confirm"}
                         </Button>
-                        <Button variant="secondary" size="sm" onClick={() => setAdjustingId(null)} disabled={isSubmitting}>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => setAdjustingId(null)} disabled={isSubmitting}>
                           Cancel
                         </Button>
-                      </div>
+                        <AdjustmentPreview available={row.quantityAvailable} delta={delta} />
+                      </form>
                     </td>
                   </tr>
                 ) : null}
@@ -147,5 +174,18 @@ export function InventoryTable({ items, onAdjust }: { items: AdminInventoryRow[]
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** "Available: 33 → 43" while typing — display only; the server still validates and applies the adjustment. */
+function AdjustmentPreview({ available, delta }: { available: number; delta: string }) {
+  const change = Number(delta);
+  if (!delta.trim() || !Number.isInteger(change) || change === 0) return null;
+  const next = available + change;
+  return (
+    <p className="basis-full font-body text-xs text-text-secondary" aria-live="polite">
+      Available: {available} → <span className={next < 0 ? "font-medium text-error" : "font-medium text-text-primary"}>{next}</span>
+      {next < 0 ? " (can't go below zero)" : null}
+    </p>
   );
 }

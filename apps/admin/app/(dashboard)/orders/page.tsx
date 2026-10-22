@@ -8,6 +8,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { OrderFilters } from "@/features/order-management/components/OrderFilters";
 import { OrdersTable } from "@/features/order-management/components/OrdersTable";
 import { useAdminOrders } from "@/features/order-management/hooks/useAdminOrders";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 const PAGE_SIZE = 50;
 
@@ -29,10 +30,7 @@ export default function OrdersPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="font-display text-xl text-text-primary">Orders</h1>
-        <p className="font-body text-sm text-text-secondary">Track and fulfil customer orders.</p>
-      </div>
+      <PageHeader title="Orders" description="Track and fulfil customer orders." />
       <OrderFilters status={status} search={search} onStatusChange={setStatus} onSearchChange={setSearch} />
       {loading ? (
         <LoadingState />

@@ -52,6 +52,21 @@ describe("email templates — every queue event has a defensive renderer", () =>
     }
   });
 
+  it("order-confirmed shows the cash still due when a COD delivery fee was prepaid online (2026-09-28)", () => {
+    const out = EMAIL_TEMPLATES.ORDER_CONFIRMED({
+      contactEmail: "c@example.com",
+      orderNumber: "WOOBE-2",
+      paymentMethod: "COD",
+      paymentStatus: "PAY_ON_DELIVERY",
+      payableOnDeliveryPaise: 60000,
+      items: [],
+    });
+    for (const blob of [out.html, out.text]) {
+      expect(blob).toContain("Delivery fee paid online");
+      expect(blob).toContain("₹600.00 cash on delivery");
+    }
+  });
+
   it("order-confirmed invoice carries every figure in both html and text", () => {
     const payload = {
       contactEmail: "c@example.com",

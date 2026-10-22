@@ -34,11 +34,11 @@ export function CustomersTrafficPanel({ d }: { d: BusinessDashboard }) {
           <div className="grid gap-6 lg:grid-cols-2">
             <div>
               <p className="mb-1 font-body text-xs font-medium text-text-secondary">Visitors (sessions)</p>
-              <TimeSeriesChart points={sessionPoints} series={[{ key: "sessions", label: "Sessions", color: "#786D68", kind: "area", format: (v) => int(v) }]} axisFormat={(v) => int(v)} height={160} ariaLabel={`Visitor sessions per ${bucket}`} />
+              <TimeSeriesChart points={sessionPoints} series={[{ key: "sessions", label: "Sessions", color: "#786D68", kind: "area", format: (v) => int(v) }]} axisFormat={(v) => int(v)} integerAxis height={160} ariaLabel={`Visitor sessions per ${bucket}`} />
             </div>
             <div>
               <p className="mb-1 font-body text-xs font-medium text-text-secondary">Orders</p>
-              <TimeSeriesChart points={orderPoints} series={[{ key: "orders", label: "Orders", color: colors.brand.primary, kind: "bar", format: (v) => int(v) }]} axisFormat={(v) => int(v)} height={160} ariaLabel={`Orders per ${bucket}`} />
+              <TimeSeriesChart points={orderPoints} series={[{ key: "orders", label: "Orders", color: colors.brand.primary, kind: "bar", format: (v) => int(v) }]} axisFormat={(v) => int(v)} integerAxis height={160} ariaLabel={`Orders per ${bucket}`} />
             </div>
           </div>
         ) : (

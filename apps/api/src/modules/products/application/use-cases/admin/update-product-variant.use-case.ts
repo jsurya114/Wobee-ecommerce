@@ -48,6 +48,13 @@ export class UpdateProductVariantUseCase {
           fixedPricePaise: ["Required for a fixed-price product"],
         });
       }
+      // 0 = weight not tracked — fine for FIXED, never for WEIGHT_BASED
+      // (it would reprice the variant to ₹0). See CreateProductVariantUseCase.
+      if (pricingMode === "WEIGHT_BASED" && weightGrams <= 0) {
+        throw new ValidationError("This product is priced by weight — enter the variant's weight", {
+          weightGrams: ["Required for a weight-priced product"],
+        });
+      }
 
       const [price] = await this.pricingReader.calculateMany([{ pricingMode, weightGrams, ratePerKgOverridePaise: null, fixedPricePaise }]);
       effectivePricePaiseCache = price!.pricePaise;

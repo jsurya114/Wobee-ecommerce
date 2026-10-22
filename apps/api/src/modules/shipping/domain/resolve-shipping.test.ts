@@ -7,6 +7,7 @@ const rule = {
   standardFeePaise: 5000,
   estimatedDeliveryDaysMin: 3,
   estimatedDeliveryDaysMax: 7,
+  freeDeliveryMinSubtotalPaise: 0,
 };
 
 describe("resolveShippingEvaluation", () => {
@@ -51,6 +52,52 @@ describe("resolveShippingEvaluation", () => {
     expect(result.shippingFeePaise).toBe(rule.standardFeePaise);
     expect(result.gramsToMinimum).toBe(0);
     expect(result.gramsToFreeDelivery).toBe(0);
+  });
+
+  describe("free delivery by items subtotal (admin settings, 2026-09-28)", () => {
+    const withPriceRule = { ...rule, freeDeliveryMinSubtotalPaise: 200_000 }; // ₹2,000
+
+    it("is off by default (0) — a large subtotal alone never waives the fee", () => {
+      const result = resolveShippingEvaluation(1200, rule, 9_999_900);
+      expect(result.isFreeDelivery).toBe(false);
+      expect(result.shippingFeePaise).toBe(5000);
+      expect(result.paiseToFreeDelivery).toBe(0);
+    });
+
+    it("waives the fee once the subtotal reaches the threshold, even below the weight threshold", () => {
+      const result = resolveShippingEvaluation(1200, withPriceRule, 200_000);
+      expect(result.meetsMinimum).toBe(true);
+      expect(result.isFreeDelivery).toBe(true);
+      expect(result.shippingFeePaise).toBe(0);
+      expect(result.gramsToFreeDelivery).toBe(0);
+      expect(result.paiseToFreeDelivery).toBe(0);
+    });
+
+    it("reports how much more subtotal is needed while under the threshold", () => {
+      const result = resolveShippingEvaluation(1200, withPriceRule, 150_000);
+      expect(result.isFreeDelivery).toBe(false);
+      expect(result.shippingFeePaise).toBe(5000);
+      expect(result.paiseToFreeDelivery).toBe(50_000);
+    });
+
+    it("still grants free delivery by weight alone (either condition qualifies)", () => {
+      const result = resolveShippingEvaluation(1500, withPriceRule, 10_000);
+      expect(result.isFreeDelivery).toBe(true);
+      expect(result.paiseToFreeDelivery).toBe(0);
+    });
+
+    it("applies to an all-fixed-price cart too (no weight-based items)", () => {
+      const result = resolveShippingEvaluation(0, withPriceRule, 250_000);
+      expect(result.meetsMinimum).toBe(true);
+      expect(result.isFreeDelivery).toBe(true);
+      expect(result.shippingFeePaise).toBe(0);
+    });
+
+    it("never lifts the minimum-weight block — free delivery is not permission to check out", () => {
+      const result = resolveShippingEvaluation(700, withPriceRule, 500_000);
+      expect(result.meetsMinimum).toBe(false);
+      expect(result.gramsToMinimum).toBe(300);
+    });
   });
 });
 

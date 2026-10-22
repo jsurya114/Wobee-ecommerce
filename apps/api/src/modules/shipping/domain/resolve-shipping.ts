@@ -5,6 +5,8 @@ export interface ShippingRuleValues {
   /** Week 2 Day 5 (week2 (1).md §10) — admin-configurable, see ShippingRule's own schema comment for why these are placeholders, not an approved SLA. */
   estimatedDeliveryDaysMin: number;
   estimatedDeliveryDaysMax: number;
+  /** Admin settings (2026-09-28) — free delivery once the items subtotal reaches this, independent of weight. 0 = disabled. */
+  freeDeliveryMinSubtotalPaise: number;
 }
 
 export interface ShippingEvaluation {
@@ -16,6 +18,10 @@ export interface ShippingEvaluation {
   gramsToMinimum: number;
   /** How many more grams the cart needs for free delivery, 0 once isFreeDelivery. */
   gramsToFreeDelivery: number;
+  /** How much more (items subtotal, paise) unlocks free delivery by price; 0 once isFreeDelivery or when that rule is disabled. */
+  paiseToFreeDelivery: number;
+  /** Echo of the live rule so the storefront can explain the threshold without a second request (0 = disabled). */
+  freeDeliveryMinSubtotalPaise: number;
   /** Week 2 Day 5 — passed through from the live rule so cart/checkout never need a second round-trip just to show "arrives in N-M days". */
   estimatedDeliveryDaysMin: number;
   estimatedDeliveryDaysMax: number;
@@ -39,17 +45,33 @@ export interface ShippingEvaluation {
  * never reaches free delivery either — it falls to the standard flat fee,
  * the same band a 1,000-1,499g weight-based cart pays today, not a new tier.
  */
-export function resolveShippingEvaluation(weightBasedTotalGrams: number, rule: ShippingRuleValues): ShippingEvaluation {
+export function resolveShippingEvaluation(
+  weightBasedTotalGrams: number,
+  rule: ShippingRuleValues,
+  /**
+   * Admin settings (2026-09-28) — the cart's items subtotal in paise, AFTER
+   * automatic offers and BEFORE any coupon (a coupon never takes free
+   * delivery away). Omitted = 0, so callers that only know the weight get
+   * exactly the weight-only behaviour they always had.
+   */
+  itemsSubtotalPaise = 0,
+): ShippingEvaluation {
   const hasWeightBasedItems = weightBasedTotalGrams > 0;
   const meetsMinimum = !hasWeightBasedItems || weightBasedTotalGrams >= rule.minWeightGramsForCheckout;
-  const isFreeDelivery = hasWeightBasedItems && weightBasedTotalGrams >= rule.freeDeliveryThresholdGrams;
+  const freeByWeight = hasWeightBasedItems && weightBasedTotalGrams >= rule.freeDeliveryThresholdGrams;
+  const priceRuleEnabled = rule.freeDeliveryMinSubtotalPaise > 0;
+  const freeBySubtotal = priceRuleEnabled && itemsSubtotalPaise > 0 && itemsSubtotalPaise >= rule.freeDeliveryMinSubtotalPaise;
+  // Either condition qualifies (they are independent thresholds, not a combined one).
+  const isFreeDelivery = freeByWeight || freeBySubtotal;
 
   return {
     meetsMinimum,
     isFreeDelivery,
     shippingFeePaise: meetsMinimum && !isFreeDelivery ? rule.standardFeePaise : 0,
     gramsToMinimum: hasWeightBasedItems ? Math.max(0, rule.minWeightGramsForCheckout - weightBasedTotalGrams) : 0,
-    gramsToFreeDelivery: hasWeightBasedItems ? Math.max(0, rule.freeDeliveryThresholdGrams - weightBasedTotalGrams) : 0,
+    gramsToFreeDelivery: hasWeightBasedItems && !isFreeDelivery ? Math.max(0, rule.freeDeliveryThresholdGrams - weightBasedTotalGrams) : 0,
+    paiseToFreeDelivery: priceRuleEnabled && !isFreeDelivery ? Math.max(0, rule.freeDeliveryMinSubtotalPaise - itemsSubtotalPaise) : 0,
+    freeDeliveryMinSubtotalPaise: rule.freeDeliveryMinSubtotalPaise,
     estimatedDeliveryDaysMin: rule.estimatedDeliveryDaysMin,
     estimatedDeliveryDaysMax: rule.estimatedDeliveryDaysMax,
   };

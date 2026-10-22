@@ -1,6 +1,6 @@
 import { bumpCatalogCacheVersion, cacheAside } from "../../../../shared/cache/catalog-cache";
 import type { BannerRepositoryPort, CreateBannerInput, UpdateBannerInput } from "../../application/ports/banner-repository.port";
-import type { BannerEntity, BannerSummaryEntity } from "../../domain/entities/banner.entity";
+import type { BannerEntity, StoredBannerSummary } from "../../domain/entities/banner.entity";
 
 const VISIBLE_TTL_SECONDS = 60;
 
@@ -17,7 +17,7 @@ const VISIBLE_TTL_SECONDS = 60;
 export class CachedBannerRepository implements BannerRepositoryPort {
   constructor(private readonly inner: BannerRepositoryPort) {}
 
-  findVisible(now: Date): Promise<BannerSummaryEntity[]> {
+  findVisible(now: Date): Promise<StoredBannerSummary[]> {
     return cacheAside("banners:visible", VISIBLE_TTL_SECONDS, () => this.inner.findVisible(now));
   }
 

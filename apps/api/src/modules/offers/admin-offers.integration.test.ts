@@ -17,6 +17,10 @@ const app = createApp();
 let categoryId: string;
 let otherCategoryId: string;
 let productId: string;
+/** Fix: admin offer discount validation — a product with a REAL, priced, active variant (`productId` above has none, so its `minPricePaiseCache` stays 0 and is excluded from the price-floor check entirely — see ValidateOfferDiscountUseCase's own doc comment). Its own dedicated category (`pricedCategoryId`) so it never perturbs the CATEGORY-scope tests above, which already assert a ₹300 FIXED_AMOUNT offer succeeds against `categoryId`. */
+let pricedProductId: string;
+let pricedCategoryId: string;
+const PRICED_PRODUCT_PRICE_PAISE = 200_00;
 const createdOfferIds: string[] = [];
 const createdCategoryIds: string[] = [];
 const createdProductIds: string[] = [];
@@ -24,15 +28,41 @@ const createdProductIds: string[] = [];
 beforeAll(async () => {
   const category = await prisma.category.create({ data: { name: `${TEST_PREFIX} Category`, slug: `${TEST_PREFIX}-cat` } });
   const otherCategory = await prisma.category.create({ data: { name: `${TEST_PREFIX} Other Category`, slug: `${TEST_PREFIX}-other-cat` } });
+  const pricedCategory = await prisma.category.create({ data: { name: `${TEST_PREFIX} Priced Category`, slug: `${TEST_PREFIX}-priced-cat` } });
   categoryId = category.id;
   otherCategoryId = otherCategory.id;
-  createdCategoryIds.push(category.id, otherCategory.id);
+  pricedCategoryId = pricedCategory.id;
+  createdCategoryIds.push(category.id, otherCategory.id, pricedCategory.id);
 
   const product = await prisma.product.create({
     data: { name: `${TEST_PREFIX} Product`, slug: `${TEST_PREFIX}-product`, categoryId, pricingMode: "WEIGHT_BASED", isActive: true },
   });
   productId = product.id;
   createdProductIds.push(product.id);
+
+  const pricedProduct = await prisma.product.create({
+    data: {
+      name: `${TEST_PREFIX} Priced Product`,
+      slug: `${TEST_PREFIX}-priced-product`,
+      categoryId: pricedCategoryId,
+      pricingMode: "WEIGHT_BASED",
+      isActive: true,
+      minPricePaiseCache: PRICED_PRODUCT_PRICE_PAISE,
+    },
+  });
+  pricedProductId = pricedProduct.id;
+  createdProductIds.push(pricedProduct.id);
+  await prisma.productVariant.create({
+    data: {
+      productId: pricedProductId,
+      sku: `${TEST_PREFIX}-PRICED-SKU`,
+      color: "Black",
+      size: "One Size",
+      weightGrams: 300,
+      isActive: true,
+      effectivePricePaiseCache: PRICED_PRODUCT_PRICE_PAISE,
+    },
+  });
 });
 
 afterAll(async () => {
@@ -257,5 +287,139 @@ describe("admin offers: validation", () => {
         endsAt: FUTURE_END,
       });
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * Fix: admin offer discount validation — a FIXED_AMOUNT offer must never
+ * be saveable with a discount larger than the price of any product it
+ * targets. Deliberately never exercises ALL_PRODUCTS scope here: that
+ * validates against the store's live global minimum price, which is
+ * shared, unpredictable state across every other test file's own
+ * fixtures in this DB — same reasoning products-on-offer.integration.test.ts's
+ * own doc comment already gives for never creating an ALL_PRODUCTS-scope
+ * offer in an integration test. ALL_PRODUCTS is covered instead at the
+ * unit level (validate-offer-discount.use-case.test.ts).
+ */
+describe("admin offers: discount vs. product price validation", () => {
+  const token = () => loginAdmin("catalog@woobe.in", "Staff@12345");
+
+  it("rejects a FIXED_AMOUNT discount larger than the only targeted product's price", async () => {
+    const auth = { Authorization: `Bearer ${await token()}` };
+    const res = await request(app)
+      .post("/api/v1/admin/offers")
+      .set(auth)
+      .send({
+        name: `${TEST_PREFIX} too-big-fixed-discount`,
+        discountType: "FIXED_AMOUNT",
+        discountValue: PRICED_PRODUCT_PRICE_PAISE + 100,
+        scope: "PRODUCTS",
+        productIds: [pricedProductId],
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error.fieldErrors?.discountValue?.[0]).toMatch(/cannot exceed/i);
+  });
+
+  it("rejects the same discount when the product is targeted via its CATEGORY instead", async () => {
+    const auth = { Authorization: `Bearer ${await token()}` };
+    const res = await request(app)
+      .post("/api/v1/admin/offers")
+      .set(auth)
+      .send({
+        name: `${TEST_PREFIX} too-big-fixed-discount-category`,
+        discountType: "FIXED_AMOUNT",
+        discountValue: PRICED_PRODUCT_PRICE_PAISE + 100,
+        scope: "CATEGORY",
+        categoryId: pricedCategoryId,
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error.fieldErrors?.discountValue?.[0]).toMatch(/cannot exceed/i);
+  });
+
+  it("allows a FIXED_AMOUNT discount exactly equal to the product's price — final price ₹0", async () => {
+    const auth = { Authorization: `Bearer ${await token()}` };
+    const res = await request(app)
+      .post("/api/v1/admin/offers")
+      .set(auth)
+      .send({
+        name: `${TEST_PREFIX} exact-fixed-discount`,
+        discountType: "FIXED_AMOUNT",
+        discountValue: PRICED_PRODUCT_PRICE_PAISE,
+        scope: "PRODUCTS",
+        productIds: [pricedProductId],
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+      });
+    expect(res.status).toBe(201);
+    createdOfferIds.push(res.body.offer.id);
+  });
+
+  it("allows a FIXED_AMOUNT discount less than the product's price", async () => {
+    const auth = { Authorization: `Bearer ${await token()}` };
+    const res = await request(app)
+      .post("/api/v1/admin/offers")
+      .set(auth)
+      .send({
+        name: `${TEST_PREFIX} smaller-fixed-discount`,
+        discountType: "FIXED_AMOUNT",
+        discountValue: PRICED_PRODUCT_PRICE_PAISE - 100,
+        scope: "PRODUCTS",
+        productIds: [pricedProductId],
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+      });
+    expect(res.status).toBe(201);
+    createdOfferIds.push(res.body.offer.id);
+  });
+
+  it("still allows a 100% PERCENTAGE offer on the same product — the ₹200/₹250 rule is FIXED_AMOUNT-only", async () => {
+    const auth = { Authorization: `Bearer ${await token()}` };
+    const res = await request(app)
+      .post("/api/v1/admin/offers")
+      .set(auth)
+      .send({
+        name: `${TEST_PREFIX} full-percentage-discount`,
+        discountType: "PERCENTAGE",
+        discountValue: 100,
+        scope: "PRODUCTS",
+        productIds: [pricedProductId],
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+      });
+    expect(res.status).toBe(201);
+    createdOfferIds.push(res.body.offer.id);
+  });
+
+  it("re-validates on UPDATE against the merged shape, even when only discountValue is resent", async () => {
+    const auth = { Authorization: `Bearer ${await token()}` };
+    const created = await request(app)
+      .post("/api/v1/admin/offers")
+      .set(auth)
+      .send({
+        name: `${TEST_PREFIX} update-target`,
+        discountType: "FIXED_AMOUNT",
+        discountValue: 50_00,
+        scope: "PRODUCTS",
+        productIds: [pricedProductId],
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+      });
+    expect(created.status).toBe(201);
+    createdOfferIds.push(created.body.offer.id);
+
+    const updated = await request(app)
+      .patch(`/api/v1/admin/offers/${created.body.offer.id}`)
+      .set(auth)
+      .send({ discountValue: PRICED_PRODUCT_PRICE_PAISE + 100 });
+    expect(updated.status).toBe(400);
+    expect(updated.body.error.fieldErrors?.discountValue?.[0]).toMatch(/cannot exceed/i);
+
+    // The offer itself must be untouched by the rejected update.
+    const unchanged = await request(app).get(`/api/v1/admin/offers/${created.body.offer.id}`).set(auth);
+    expect(unchanged.body.offer.discountValue).toBe(50_00);
   });
 });

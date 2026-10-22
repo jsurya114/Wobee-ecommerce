@@ -1,6 +1,6 @@
 "use client";
 
-import { GoogleAuthButton } from "./GoogleAuthButton";
+import { GoogleAuthButton, IS_GOOGLE_AUTH_CONFIGURED } from "./GoogleAuthButton";
 
 export function GoogleGlyph() {
   return (
@@ -21,6 +21,8 @@ export function GoogleGlyph() {
  * auth entry point already uses.
  */
 export function SocialAuthButtons() {
+  if (!IS_GOOGLE_AUTH_CONFIGURED) return null;
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3" aria-hidden="true">

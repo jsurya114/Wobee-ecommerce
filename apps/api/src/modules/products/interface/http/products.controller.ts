@@ -29,11 +29,17 @@ export class ProductsController {
       q: query.q,
       sizes: query.size,
       colors: query.color,
-      inStockOnly: query.inStock,
+      // The storefront never lists sold-out products (2026-09-30): a product
+      // appears only while at least one active variant has live stock, same
+      // rule the `inStock` filter always applied. The PDP (getBySlug) and the
+      // wishlist still show a sold-out product. `query.inStock` is still
+      // accepted — it's simply always satisfied now.
+      inStockOnly: true,
       minPricePaise: query.minPrice,
       maxPricePaise: query.maxPrice,
       onOffer: query.onOffer,
       offerId: query.offerId,
+      pricingMode: query.pricingMode,
       sort: query.sort,
       page: query.page,
       limit: query.limit,

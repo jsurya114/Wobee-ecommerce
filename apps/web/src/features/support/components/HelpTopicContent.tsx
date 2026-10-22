@@ -66,7 +66,24 @@ export function RefundPolicyContent() {
   );
 }
 
-export function ReturnsPolicyContent() {
+export function ReturnsPolicyContent({ returnsEnabled }: { returnsEnabled: boolean }) {
+  if (!returnsEnabled) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h2 className="font-display text-lg text-text-primary">Returns &amp; open-box delivery</h2>
+        <Card className="flex flex-col gap-4 p-4">
+          <PolicyRow title="Open box delivery">
+            Open box delivery — verify your order at the doorstep. Check your items with the delivery partner before you accept
+            the parcel.
+          </PolicyRow>
+          <PolicyRow title="Returns">We don&apos;t accept returns at the moment.</PolicyRow>
+          <PolicyRow title="Something wrong with your order?">
+            If an item is damaged or not what you ordered, don&apos;t accept it at the door — or contact support straight away.
+          </PolicyRow>
+        </Card>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-4">
       <h2 className="font-display text-lg text-text-primary">Returns</h2>

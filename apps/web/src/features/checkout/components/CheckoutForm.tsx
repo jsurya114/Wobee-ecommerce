@@ -23,6 +23,8 @@ import * as addressesApi from "@/features/addresses/api/addresses.client";
 import type { Address } from "@/features/addresses/api/addresses.client";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useCart } from "@/features/cart/hooks/useCart";
+import { requiresOnlinePayment } from "@/features/payments/lib/online-payment";
+import { usePublicStoreConfig } from "@/features/settings/hooks/usePublicStoreConfig";
 import * as shippingApi from "@/features/shipping/api/shipping.client";
 import type { ShippingEstimate } from "@/features/shipping/api/shipping.client";
 import * as checkoutApi from "../api/checkout.client";
@@ -46,6 +48,9 @@ export function CheckoutForm() {
     resolver: zodResolver(checkoutSchema),
     defaultValues: { paymentMethod: "COD" },
   });
+  // COD shipping upfront (2026-09-28) — display only; checkout itself decides
+  // server-side (and records it on the order), this just explains the split.
+  const { config: storeConfig } = usePublicStoreConfig();
 
   // week2 (1).md §10's pincode/serviceability check — informational only,
   // checked on blur so it doesn't block typing or submission itself
@@ -176,6 +181,34 @@ export function CheckoutForm() {
   const onSubmit = handleSubmit(async (data) => {
     try {
       const order = await checkoutApi.checkout(data, accessToken ?? undefined);
+
+      // A COD order whose delivery fee must be prepaid (COD shipping upfront,
+      // 2026-09-28) goes through the exact same hand-off: the server recorded
+      // the split on the order, and /payment/[id] charges only that fee.
+      if (data.paymentMethod === "RAZORPAY" || requiresOnlinePayment(order)) {
+        // Go straight to the payment gateway — no store on earth makes a
+        // shopper click "Place order", land on a separate page, then click
+        // "Pay now" again. The order row still has to exist first (Razorpay's
+        // own order needs a receipt/amount to reference — same requirement
+        // every gateway has), but that's a backend implementation detail;
+        // from here the flow is one continuous action. Skips the
+        // OrderPlacementCelebration entirely (celebrating "placed" before
+        // payment has even happened would be misleading) and hands off to
+        // the dedicated `/payment/[id]` page's `?autopay=1` handling, which
+        // opens the exact same Razorpay widget this page would have opened,
+        // via the same untouched payment functions. Bug fix (2026-09-22):
+        // this deliberately does NOT go to /order-confirmation — that route
+        // is confirmed-orders-only now, so a cancelled/failed payment can
+        // never show "Order placed" there; /payment/[id] itself navigates on
+        // to /order-confirmation only once the webhook-verified capture
+        // actually lands. ADR-014 is unaffected: the order stays
+        // PENDING_PAYMENT until then, exactly as before — only the UI
+        // trigger moved earlier.
+        void refreshCart().catch(() => {});
+        router.push(`/payment/${order.id}?autopay=1`);
+        return;
+      }
+
       // Order already placed successfully server-side — from this point on,
       // this component's own empty-cart/weight guards must stop reading
       // cart state (see the flag's doc comment above) regardless of what
@@ -288,6 +321,12 @@ export function CheckoutForm() {
     cart.totalPaise +
     (cart.shipping.isFreeDelivery ? 0 : cart.shipping.shippingFeePaise) -
     cart.discountPaise;
+  // Delivery fee paid online now, the rest (items + tax, computed server-side) in cash.
+  const codUpfrontFeePaise =
+    storeConfig?.codShippingUpfront && !cart.shipping.isFreeDelivery && cart.shipping.shippingFeePaise > 0
+      ? cart.shipping.shippingFeePaise
+      : null;
+  const payingCodWithUpfrontFee = watch("paymentMethod") === "COD" && codUpfrontFeePaise !== null;
 
   return (
     <div className="grid gap-6 pb-4 md:grid-cols-[1fr_320px] md:gap-8 md:pb-0">
@@ -418,7 +457,11 @@ export function CheckoutForm() {
                 <RadioGroupItem
                   value="COD"
                   label="Cash on delivery"
-                  description="Pay when your order arrives"
+                  description={
+                    codUpfrontFeePaise !== null
+                      ? `Pay the ${formatPaiseAsInr(codUpfrontFeePaise)} delivery fee online now, the rest in cash when it arrives`
+                      : "Pay when your order arrives"
+                  }
                 />
                 <RadioGroupItem
                   value="RAZORPAY"
@@ -433,7 +476,9 @@ export function CheckoutForm() {
         <Button type="submit" isLoading={isSubmitting} className="w-full">
           {isSubmitting
             ? "Placing order…"
-            : `Place order — ${formatPaiseAsInr(estimatedTotal)}`}
+            : payingCodWithUpfrontFee
+              ? `Place order & pay ${formatPaiseAsInr(codUpfrontFeePaise)} delivery fee`
+              : `Place order — ${formatPaiseAsInr(estimatedTotal)}`}
         </Button>
       </form>
 
@@ -479,6 +524,18 @@ export function CheckoutForm() {
               {formatPaiseAsInr(estimatedTotal)}
             </span>
           </div>
+          {payingCodWithUpfrontFee ? (
+            <dl className="mt-3 flex flex-col gap-1.5 rounded-control bg-surface-2 px-3 py-2.5 font-body text-sm">
+              <div className="flex justify-between">
+                <dt className="text-text-secondary">Shipping (pay now)</dt>
+                <dd className="font-medium text-text-primary">{formatPaiseAsInr(codUpfrontFeePaise)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-text-secondary">Items (pay on delivery)</dt>
+                <dd className="text-text-primary">{formatPaiseAsInr(estimatedTotal - codUpfrontFeePaise)} + tax</dd>
+              </div>
+            </dl>
+          ) : null}
           <p className="mt-3 font-body text-xs text-text-secondary">
             Tax is calculated server-side and shown on your final order
             confirmation.

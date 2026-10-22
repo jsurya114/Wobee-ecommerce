@@ -1,7 +1,7 @@
 import { env } from "../../../../config/env";
 import { ConflictError, NotFoundError } from "../../../../shared/errors";
 import { PaymentAlreadyExistsForOrderError } from "../../domain/errors/payment-already-exists-for-order.error";
-import type { OrderPort } from "../ports/order-port";
+import type { OrderForPayment, OrderPort } from "../ports/order-port";
 import type { PaymentRepositoryPort } from "../ports/payment-repository.port";
 import type { RazorpayGatewayPort, RazorpayOrder } from "../ports/razorpay-gateway.port";
 
@@ -10,6 +10,8 @@ export interface RazorpayCheckoutConfig {
   amountPaise: number;
   currency: string;
   orderNumber: string;
+  /** What `amountPaise` pays for (2026-09-28): the whole order, or only a COD order's delivery fee (the rest is cash on delivery). */
+  purpose: "ORDER_TOTAL" | "DELIVERY_FEE";
   /** `key_id` is meant to be public — embedded directly in the client-side Checkout widget, unlike `key_secret`. Reading `env` directly here matches auth's issue-token-pair.ts precedent for non-secret operational config. */
   keyId: string;
 }
@@ -35,6 +37,25 @@ export interface RazorpayCheckoutConfig {
  * call, an unused order on Razorpay's side) but harmless: nothing in this
  * system, or the customer's browser, ever sees or depends on it.
  */
+/**
+ * What this order pays online, decided purely from the order's own server-side
+ * snapshot (never a client value): a RAZORPAY order pays its full total; a COD
+ * order pays ONLY its delivery fee, and only when checkout recorded that it
+ * must (payableOnDeliveryPaise set — COD shipping upfront, 2026-09-28). The
+ * COD Payment row keeps `amountPaise` = the order total (so the existing
+ * "collect cash at delivery" and analytics paths are unchanged) and records
+ * the online part separately in `upfrontAmountPaise`.
+ */
+function resolveOnlineCharge(order: OrderForPayment): { provider: "RAZORPAY" | "COD"; chargePaise: number; purpose: RazorpayCheckoutConfig["purpose"] } {
+  if (order.paymentMethod === "RAZORPAY") {
+    return { provider: "RAZORPAY", chargePaise: order.totalPaise, purpose: "ORDER_TOTAL" };
+  }
+  if (order.payableOnDeliveryPaise !== null && order.shippingFeePaise > 0) {
+    return { provider: "COD", chargePaise: order.shippingFeePaise, purpose: "DELIVERY_FEE" };
+  }
+  throw new ConflictError("This order isn't set up for online payment");
+}
+
 export class CreateRazorpayOrderUseCase {
   constructor(
     private readonly orderPort: OrderPort,
@@ -47,9 +68,7 @@ export class CreateRazorpayOrderUseCase {
     if (!order || (order.userId && order.userId !== requesterUserId)) {
       throw new NotFoundError("Order not found"); // same "don't reveal ownership" posture as GetOrderUseCase
     }
-    if (order.paymentMethod !== "RAZORPAY") {
-      throw new ConflictError("This order isn't set up for Razorpay payment");
-    }
+    const charge = resolveOnlineCharge(order);
     if (order.status !== "PENDING_PAYMENT") {
       throw new ConflictError(`Cannot start payment for an order in status ${order.status}`);
     }
@@ -64,7 +83,8 @@ export class CreateRazorpayOrderUseCase {
     if (existingPayment?.razorpayOrderId) {
       return {
         razorpayOrderId: existingPayment.razorpayOrderId,
-        amountPaise: existingPayment.amountPaise,
+        amountPaise: existingPayment.upfrontAmountPaise ?? existingPayment.amountPaise,
+        purpose: charge.purpose,
         currency: "INR",
         orderNumber: order.orderNumber,
         keyId: env.RAZORPAY_KEY_ID,
@@ -72,17 +92,18 @@ export class CreateRazorpayOrderUseCase {
     }
 
     const razorpayOrder: RazorpayOrder = await this.gateway.createOrder({
-      amountPaise: order.totalPaise,
+      amountPaise: charge.chargePaise,
       receipt: order.orderNumber,
     });
 
     try {
       await this.paymentRepository.create({
         orderId: order.id,
-        provider: "RAZORPAY",
+        provider: charge.provider,
         status: "CREATED",
         amountPaise: order.totalPaise,
         razorpayOrderId: razorpayOrder.id,
+        ...(charge.provider === "COD" ? { upfrontAmountPaise: charge.chargePaise } : {}),
       });
     } catch (error) {
       if (error instanceof PaymentAlreadyExistsForOrderError) {
@@ -93,7 +114,8 @@ export class CreateRazorpayOrderUseCase {
         if (winner?.razorpayOrderId) {
           return {
             razorpayOrderId: winner.razorpayOrderId,
-            amountPaise: winner.amountPaise,
+            amountPaise: winner.upfrontAmountPaise ?? winner.amountPaise,
+            purpose: charge.purpose,
             currency: "INR",
             orderNumber: order.orderNumber,
             keyId: env.RAZORPAY_KEY_ID,
@@ -109,7 +131,8 @@ export class CreateRazorpayOrderUseCase {
 
     return {
       razorpayOrderId: razorpayOrder.id,
-      amountPaise: order.totalPaise,
+      amountPaise: charge.chargePaise,
+      purpose: charge.purpose,
       currency: "INR",
       orderNumber: order.orderNumber,
       keyId: env.RAZORPAY_KEY_ID,

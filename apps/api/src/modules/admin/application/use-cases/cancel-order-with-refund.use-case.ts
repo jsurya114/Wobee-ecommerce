@@ -4,9 +4,19 @@ import type { OrderEntity } from "../../../orders/domain/entities/order.entity";
 import type { TransitionOrderStatusResult } from "../../../orders/application/ports/order-repository.port";
 import type { IssueRefundResult } from "../../../refunds/application/use-cases/issue-refund-for-cancelled-order.use-case";
 
+/**
+ * What happened to the money on cancellation (2026-09-28). `refundIssued`
+ * alone couldn't tell "nothing to refund" (a COD order, no cash collected)
+ * from "the refund attempt failed" — both were `false` — so the admin UI
+ * showed "Refund needs manual follow-up" after every successful COD cancel,
+ * which read as the cancellation itself having failed.
+ */
+export type CancelRefundOutcome = "NOT_APPLICABLE" | "COMPLETED" | "FAILED";
+
 export interface CancelOrderWithRefundResult {
   order: OrderEntity;
   refundIssued: boolean;
+  refundOutcome: CancelRefundOutcome;
 }
 
 /** The one method this use-case actually calls on each collaborator — see the class doc comment for why the constructor depends on this shape rather than the concrete `CancelOrderUseCase` class. */
@@ -92,10 +102,12 @@ export class CancelOrderWithRefundUseCase {
     if (!changed) {
       // Already CANCELLED, or a concurrent cancel won the conditional
       // write — don't double-refund and don't write a second audit entry.
-      return { order, refundIssued: false };
+      return { order, refundIssued: false, refundOutcome: "NOT_APPLICABLE" };
     }
 
-    const { refundIssued } = await this.issueRefundForCancelledOrderUseCase.execute(orderId);
+    const refund = await this.issueRefundForCancelledOrderUseCase.execute(orderId);
+    const { refundIssued, amountPaise: refundedPaise } = refund;
+    const refundOutcome: CancelRefundOutcome = refundIssued ? "COMPLETED" : refund.reason === "not-applicable" ? "NOT_APPLICABLE" : "FAILED";
 
     await this.recordAuditLogUseCase.execute({
       actorId: actor.id,
@@ -103,7 +115,7 @@ export class CancelOrderWithRefundUseCase {
       action: "ORDER_CANCELLED",
       entityType: "Order",
       entityId: orderId,
-      metadata: { reason, refundIssued },
+      metadata: { reason, refundIssued, refundOutcome },
     });
 
     // Distinct cancellation email — always, on a genuine cancel. Never
@@ -132,11 +144,13 @@ export class CancelOrderWithRefundUseCase {
         payload: {
           contactEmail: order.contactEmail,
           orderNumber: order.orderNumber,
-          amountPaise: order.totalPaise,
+          // The amount actually refunded — the order total for a Razorpay order,
+          // only the prepaid delivery fee for a COD-with-upfront-shipping order.
+          amountPaise: refundedPaise ?? order.totalPaise,
         },
       });
     }
 
-    return { order, refundIssued };
+    return { order, refundIssued, refundOutcome };
   }
 }

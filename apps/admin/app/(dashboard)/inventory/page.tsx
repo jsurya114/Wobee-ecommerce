@@ -7,6 +7,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { InventoryFilters } from "@/features/inventory/components/InventoryFilters";
 import { InventoryTable } from "@/features/inventory/components/InventoryTable";
 import { useAdminInventory } from "@/features/inventory/hooks/useAdminInventory";
+import { PageHeader } from "@/features/shell/components/PageHeader";
 
 const PAGE_SIZE = 100;
 
@@ -30,10 +31,7 @@ export default function InventoryPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="font-display text-xl text-text-primary">Inventory</h1>
-        <p className="font-body text-sm text-text-secondary">Monitor stock levels and adjust quantities.</p>
-      </div>
+      <PageHeader title="Inventory" description="Monitor stock levels and adjust quantities." />
       <InventoryFilters
         search={search}
         lowStockOnly={lowStockOnly}

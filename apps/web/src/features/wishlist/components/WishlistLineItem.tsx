@@ -1,6 +1,6 @@
 "use client";
 
-import { PriceTag, buttonVariants, cn } from "@woobe/ui";
+import { Badge, PriceTag, buttonVariants, cn } from "@woobe/ui";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -42,19 +42,24 @@ export function WishlistLineItem({ line }: { line: WishlistLine }) {
     }
   }
 
+  // Sold out is shown as its own SOLD OUT label (2026-09-30), not as an unavailable reason.
   const unavailableReason = !line.isProductActive
     ? "No longer available"
     : line.variantId && !line.isVariantActive
       ? "This size is no longer available"
-      : line.variantId && (line.availableQuantity ?? 0) === 0
-        ? "Out of stock"
-        : null;
+      : null;
 
   return (
     <div className="flex gap-4 border-b border-border py-5 last:border-b-0">
       <Link href={`/products/${line.productSlug}`} className="h-28 w-24 shrink-0 overflow-hidden rounded-control bg-primary-tint/40">
         {line.image ? (
-          <img src={line.image} alt={line.productName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+          <img
+            src={line.image}
+            alt={line.productName}
+            loading="lazy"
+            decoding="async"
+            className={cn("h-full w-full object-cover", line.isSoldOut && "opacity-60")}
+          />
         ) : null}
       </Link>
 
@@ -85,11 +90,16 @@ export function WishlistLineItem({ line }: { line: WishlistLine }) {
           </button>
         </div>
 
+        {line.isSoldOut ? (
+          <Badge variant="error" className="w-fit uppercase tracking-wide">
+            Sold out
+          </Badge>
+        ) : null}
         {unavailableReason ? <p className="font-body text-xs text-error">{unavailableReason}</p> : null}
 
         <div className="mt-1 flex items-end justify-between gap-2">
           <PriceTag pricePaise={line.pricePaise} />
-          {line.variantId ? (
+          {line.isSoldOut ? null : line.variantId ? (
             <button
               type="button"
               onClick={() => void handleMoveToCart()}

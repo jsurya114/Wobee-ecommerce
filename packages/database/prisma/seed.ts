@@ -44,6 +44,10 @@ async function main() {
     },
   });
 
+  // ── Store settings singleton (2026-09-28) — upsert, so a re-seed never
+  // resets settings an admin already changed; every column keeps its schema default. ──
+  await prisma.appConfig.upsert({ where: { id: "singleton" }, create: {}, update: {} });
+
   // ── GST slabs (ADR-023) — tiered by per-piece price, matches India's
   // GST structure effective since the September 2025 reform. ──
   await prisma.gstSlab.create({ data: { maxPricePaise: 250_000, ratePercent: 5 } }); // <= ₹2,500

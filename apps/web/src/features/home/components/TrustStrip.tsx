@@ -1,8 +1,8 @@
-import { RefreshCw, Scale, ShieldCheck } from "lucide-react";
+import { PackageOpen, Scale, ShieldCheck } from "lucide-react";
 
 const ITEMS = [
   { icon: Scale, label: "Weight × rate, shown on every product" },
-  { icon: RefreshCw, label: "Easy exchanges" },
+  { icon: PackageOpen, label: "Open box delivery" },
   { icon: ShieldCheck, label: "Secure payments" },
 ] as const;
 

@@ -22,6 +22,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
+import { usePublicAppConfig } from "@/features/settings/hooks/usePublicAppConfig";
 import { navEntriesForRole } from "../nav-config";
 import { BrandMark } from "./BrandMark";
 
@@ -47,6 +48,11 @@ export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const entries = navEntriesForRole(user?.role ?? "CUSTOMER");
+  // Returns feature flag (2026-09-28): the section stays reachable — existing
+  // returns can still be processed — but is marked so staff know customers
+  // can't file new ones.
+  const { config: storeConfig } = usePublicAppConfig();
+  const returnsDisabled = storeConfig ? !storeConfig.returnsEnabled : false;
 
   // Collapse the mobile menu once a link has been followed.
   useEffect(() => {
@@ -161,6 +167,11 @@ export function Sidebar() {
             >
               {Icon ? <Icon className="h-4 w-4 shrink-0" aria-hidden="true" /> : null}
               {entry.label}
+              {entry.href === "/returns" && returnsDisabled ? (
+                <Badge variant="neutral" className="ml-auto" title="Customers can't request new returns — Settings → Store policies">
+                  Disabled
+                </Badge>
+              ) : null}
             </Link>
           );
         })}

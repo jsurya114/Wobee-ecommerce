@@ -66,6 +66,9 @@ export const productListQuerySchema = z
     // isn't sensitive, and an id that doesn't match any active offer simply
     // yields zero results, never a 400/404.
     offerId: z.string().uuid().optional(),
+    // "Fashion by Weight" (2026-09-29) — restrict to one pricing mode
+    // (`/products?pricingMode=WEIGHT_BASED`). Absent = both modes, as before.
+    pricingMode: z.enum(["WEIGHT_BASED", "FIXED"]).optional(),
     // Paise, inclusive bounds. Filters against Product.minPricePaiseCache —
     // the same display/sort cache Week 1 already uses for listing sort
     // (see product.repository.ts's own comment for why that's fine for a
@@ -123,6 +126,24 @@ const queryBooleanSchema = z
   .optional()
   .transform((value) => (value === undefined ? undefined : value === "true"));
 
+/**
+ * Admin-curated PDP "Key Highlights" (2026-09-29): ordered label/value pairs,
+ * e.g. { label: "Work", value: "Sequin" }. Kept short so they fit the image
+ * overlay; labels must be unique (case-insensitive) so a row isn't repeated.
+ */
+export const MAX_PRODUCT_HIGHLIGHTS = 8;
+export const productHighlightSchema = z.object({
+  label: z.string().trim().min(1, "Label is required").max(30, "Keep labels to 30 characters"),
+  value: z.string().trim().min(1, "Value is required").max(60, "Keep values to 60 characters"),
+});
+export const productHighlightsSchema = z
+  .array(productHighlightSchema)
+  .max(MAX_PRODUCT_HIGHLIGHTS, `At most ${MAX_PRODUCT_HIGHLIGHTS} highlights`)
+  .refine((rows) => new Set(rows.map((row) => row.label.toLowerCase())).size === rows.length, {
+    message: "Each highlight label can only be used once",
+  });
+export type ProductHighlightInput = z.infer<typeof productHighlightSchema>;
+
 export const createProductSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   slug: slugSchema,
@@ -134,6 +155,7 @@ export const createProductSchema = z.object({
   pricingMode: pricingModeSchema.default("WEIGHT_BASED"),
   metaTitle: z.string().trim().max(200).optional(),
   metaDescription: z.string().trim().max(500).optional(),
+  highlights: productHighlightsSchema.optional(),
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
@@ -150,6 +172,8 @@ export const updateProductSchema = z.object({
   pricingMode: pricingModeSchema.optional(),
   metaTitle: z.string().trim().max(200).nullable().optional(),
   metaDescription: z.string().trim().max(500).nullable().optional(),
+  /** Omitted = unchanged; [] clears them. */
+  highlights: productHighlightsSchema.optional(),
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
@@ -165,7 +189,12 @@ export const createVariantSchema = z.object({
   // resolveUniqueSku), stable, and immutable. The admin never types one.
   color: z.string().trim().min(1, "Colour is required").max(60),
   size: z.string().trim().min(1, "Size is required").max(30),
-  weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams"),
+  // Optional since 2026-09-29: a FIXED product's variant may leave weight
+  // blank (stored as 0 = "not tracked" — the column stays NOT NULL, no
+  // migration). Required-and-positive for a WEIGHT_BASED product is enforced
+  // by the use-case, which knows the product's pricingMode (same split as
+  // fixedPricePaise below) — weight is that product's price input.
+  weightGrams: z.coerce.number().int().min(0, "Weight can't be negative").optional(),
   // No `ratePerKgOverridePaise` field (deprecated) — pricing for a
   // WEIGHT_BASED product is always weight × the single global rate managed
   // in admin Settings (PricingSetting). The legacy per-variant override
@@ -187,7 +216,8 @@ export const updateVariantSchema = z.object({
   // thereafter (see createVariantSchema's own comment).
   color: z.string().trim().min(1, "Colour is required").max(60).optional(),
   size: z.string().trim().min(1, "Size is required").max(30).optional(),
-  weightGrams: z.coerce.number().int().positive("Weight must be a positive number of grams").optional(),
+  /** 0 = weight not tracked — only allowed for a FIXED product (enforced by the use-case, see createVariantSchema). */
+  weightGrams: z.coerce.number().int().min(0, "Weight can't be negative").optional(),
   // No `ratePerKgOverridePaise` field — see createVariantSchema's own comment.
   /** Authoritative price for a FIXED product (2026-08-31; pricingMode moved to Product 2026-09-14) — ignored for WEIGHT_BASED. */
   fixedPricePaise: z.coerce.number().int().positive().nullable().optional(),

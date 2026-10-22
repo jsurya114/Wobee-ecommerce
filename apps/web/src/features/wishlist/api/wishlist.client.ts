@@ -14,6 +14,8 @@ export interface WishlistLine {
   isVariantActive: boolean | null;
   availableQuantity: number | null;
   isAvailable: boolean;
+  /** Active but no live stock — shown as SOLD OUT, with nothing to add to the bag. */
+  isSoldOut: boolean;
   addedAt: string;
 }
 

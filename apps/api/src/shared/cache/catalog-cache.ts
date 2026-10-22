@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { redis } from "../../config/redis";
 import { logError } from "../logger";
 
@@ -118,4 +119,16 @@ export async function cacheAside<T>(key: string, ttlSeconds: number, load: () =>
   const result = await load();
   await safeSet(fullKey, result, ttlSeconds);
   return result;
+}
+
+/**
+ * Short, order-independent fingerprint of an id set, for folding LIVE data
+ * into a cache key without caching the live data itself (2026-09-30). The
+ * storefront listings are cached per in-stock variant set: the set is read
+ * live on every request (DEVELOPMENT_RULES.md #1), and the moment any
+ * variant sells out or is restocked the fingerprint — and so the key —
+ * changes, so a listing can never keep showing a product that sold out.
+ */
+export function fingerprintIds(ids: readonly string[]): string {
+  return createHash("sha1").update([...ids].sort().join(",")).digest("hex").slice(0, 16);
 }

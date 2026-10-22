@@ -9,7 +9,7 @@
 // wishlist — Wishlist.userId is non-null/unique).
 import { addItemUseCase, getOrCreateCartUseCase } from "../cart/cart.module";
 import { getAvailableQuantitiesUseCase } from "../inventory/inventory.module";
-import { getProductsByIdsUseCase, getVariantsForCartUseCase } from "../products/products.module";
+import { findInStockProductIdsUseCase, getProductsByIdsUseCase, getVariantsForCartUseCase } from "../products/products.module";
 import type { CartWriterPort } from "./application/ports/cart-writer.port";
 import type { InventoryReaderPort } from "./application/ports/inventory-reader.port";
 import type { ProductCatalogPort, WishlistProductDetail } from "./application/ports/product-catalog.port";
@@ -70,6 +70,7 @@ const variantCatalog: VariantCatalogPort = {
 
 const inventoryReader: InventoryReaderPort = {
   getAvailableQuantities: (variantIds) => getAvailableQuantitiesUseCase.execute(variantIds),
+  findInStockProductIds: () => findInStockProductIdsUseCase.execute(),
 };
 
 const cartWriter: CartWriterPort = {

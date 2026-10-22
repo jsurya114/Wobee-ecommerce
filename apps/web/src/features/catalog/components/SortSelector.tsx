@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ProductSort } from "../api/products.client";
 import { buildProductsHref, type ProductsQueryParams } from "../lib/build-products-href";
-import { PLP_CONTROL_BUTTON_CLASS, SORT_OPTIONS } from "../lib/filter-options";
+import { PLP_CONTROL_BUTTON_CLASS, PLP_CONTROL_INACTIVE_CLASS, SORT_OPTIONS } from "../lib/filter-options";
 
 /**
  * Compact sort control (redesign spec §16) — a single-select bottom sheet
@@ -41,7 +41,7 @@ export function SortSelector({ currentParams }: { currentParams: ProductsQueryPa
         type="button"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className={cn(PLP_CONTROL_BUTTON_CLASS, "border-border bg-surface text-text-primary hover:border-primary")}
+        className={cn(PLP_CONTROL_BUTTON_CLASS, PLP_CONTROL_INACTIVE_CLASS)}
       >
         <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
         {triggerLabel}

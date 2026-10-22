@@ -107,6 +107,28 @@ export class AuthRepository implements AuthRepositoryPort {
     });
   }
 
+  async findRefreshTokenById(id: string): Promise<RefreshTokenRecord | null> {
+    const row = await prisma.refreshToken.findUnique({ where: { id } });
+    return row ? toRefreshTokenRecord(row) : null;
+  }
+
+  async rotateRefreshToken(id: string, replacedByTokenId: string): Promise<boolean> {
+    const { count } = await prisma.refreshToken.updateMany({
+      where: { id, revokedAt: null },
+      data: { revokedAt: new Date(), replacedByTokenId },
+    });
+    return count === 1;
+  }
+
+  async revokeRefreshTokenIfActive(id: string): Promise<boolean> {
+    const { count } = await prisma.refreshToken.updateMany({ where: { id, revokedAt: null }, data: { revokedAt: new Date() } });
+    return count === 1;
+  }
+
+  async setRefreshTokenReplacement(id: string, replacedByTokenId: string): Promise<void> {
+    await prisma.refreshToken.update({ where: { id }, data: { replacedByTokenId } });
+  }
+
   async revokeAllRefreshTokensForUser(userId: string, tx?: unknown): Promise<void> {
     await client(tx).refreshToken.updateMany({
       where: { userId, revokedAt: null },
@@ -566,12 +588,14 @@ function toRefreshTokenRecord(row: {
   userId: string;
   expiresAt: Date;
   revokedAt: Date | null;
+  replacedByTokenId: string | null;
 }): RefreshTokenRecord {
   return {
     id: row.id,
     userId: row.userId,
     expiresAt: row.expiresAt,
     revokedAt: row.revokedAt,
+    replacedByTokenId: row.replacedByTokenId,
   };
 }
 
