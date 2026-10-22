@@ -13,7 +13,7 @@ function order(overrides: Partial<OrderEntity> = {}): OrderEntity {
     shippingSnapshot: { fullName: "A", phone: "1", line1: "L1", city: "C", state: "S", pincode: "1" },
     subtotalPaise: 100, discountPaise: 0, shippingFeePaise: 0, taxPaise: 0, totalPaise: 100, totalWeightGrams: 100,
     paymentMethod: "COD", placedAt: new Date(), items: [],
-    trackingNumber: null, carrier: null, shippedAt: null, deliveredAt: null, cancelledAt: null, cancellationReason: null, hasActiveReturn: false, shippingPaidUpfront: false, payableOnDeliveryPaise: null,
+    trackingNumber: null, carrier: null, carrierCode: null, trackingUrl: null, shippedAt: null, deliveredAt: null, cancelledAt: null, cancellationReason: null, hasActiveReturn: false, shippingPaidUpfront: false, payableOnDeliveryPaise: null,
     ...overrides,
   };
 }
@@ -97,5 +97,41 @@ describe("ShipOrderUseCase", () => {
       useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "T", carrier: "C" }),
     ).rejects.toThrow("provider unreachable");
     expect(orderRepository.transitionStatus).not.toHaveBeenCalled();
+  });
+
+  it("resolves a courier preset into its name, code and tracking page", async () => {
+    const orderRepository = {
+      findById: vi.fn().mockResolvedValue(order()),
+      transitionStatus: vi.fn().mockResolvedValue({ changed: true, order: order({ status: "SHIPPED" }) }),
+    } as unknown as OrderRepositoryPort;
+    const auditLogger = { log: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLoggerPort;
+    const shipmentCreator = echoShipmentCreator();
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, { run: (fn) => fn("tx") }, shipmentCreator, { execute: vi.fn() });
+
+    await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, { trackingNumber: "EE123456789IN", carrierCode: "INDIA_POST" });
+
+    expect(shipmentCreator.createShipment).toHaveBeenCalledWith(expect.objectContaining({ carrier: "India Post (Speed Post)" }));
+    expect(orderRepository.transitionStatus).toHaveBeenCalledWith(
+      "order-1", "PACKED", "SHIPPED", "tx",
+      expect.objectContaining({ carrierCode: "INDIA_POST", trackingUrl: "https://www.indiapost.gov.in/" }),
+    );
+  });
+
+  it("keeps an OTHER courier's typed name and per-shipment link", async () => {
+    const orderRepository = {
+      findById: vi.fn().mockResolvedValue(order()),
+      transitionStatus: vi.fn().mockResolvedValue({ changed: true, order: order({ status: "SHIPPED" }) }),
+    } as unknown as OrderRepositoryPort;
+    const auditLogger = { log: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLoggerPort;
+    const useCase = new ShipOrderUseCase(orderRepository, auditLogger, { run: (fn) => fn("tx") }, echoShipmentCreator(), { execute: vi.fn() });
+
+    await useCase.execute("order-1", { id: "s", role: "ORDER_PROCESSING_STAFF" }, {
+      trackingNumber: "X1", carrierCode: "OTHER", carrier: "Kerala Express", trackingUrl: "https://kerala.example/t/X1",
+    });
+
+    expect(orderRepository.transitionStatus).toHaveBeenCalledWith(
+      "order-1", "PACKED", "SHIPPED", "tx",
+      expect.objectContaining({ carrier: "Kerala Express", carrierCode: "OTHER", trackingUrl: "https://kerala.example/t/X1" }),
+    );
   });
 });

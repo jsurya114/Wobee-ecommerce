@@ -15,7 +15,7 @@
 // module's own boundaries:check run verifies.
 import { recordAuditLogUseCase } from "../audit/audit.module";
 import { getOrderForAdminUseCase, getOrderUseCase, setOrderHasActiveReturnUseCase } from "../orders/orders.module";
-import { enqueueNotificationUseCase } from "../notifications/notifications.module";
+import { bestEffortEnqueueNotificationUseCase as enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { issueRefundForReturnUseCase } from "../refunds/refunds.module";
 import { getAppConfigUseCase } from "../settings/settings.module";
 import type { AuditLoggerPort } from "./application/ports/audit-logger.port";

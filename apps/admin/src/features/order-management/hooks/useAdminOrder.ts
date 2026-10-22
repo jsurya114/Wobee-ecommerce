@@ -1,6 +1,6 @@
 "use client";
 
-import type { CancelOrderInput, ShipOrderInput } from "@woobe/validation";
+import type { CancelOrderInput, ShipOrderInput, UpdateTrackingInput } from "@woobe/validation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import * as ordersApi from "../api/admin-orders.client";
@@ -47,6 +47,18 @@ export function useAdminOrder(orderId: string) {
     },
   });
 
+  const updateTrackingMutation = useMutation({
+    mutationFn: (input: UpdateTrackingInput) => withFreshToken((token) => ordersApi.updateTracking(orderId, input, token)),
+    onSuccess: (order) => {
+      queryClient.setQueryData(orderQueryKey(orderId), order);
+      invalidate();
+    },
+  });
+
+  const outForDeliveryMutation = useMutation({
+    mutationFn: () => withFreshToken((token) => ordersApi.outForDelivery(orderId, token)),
+  });
+
   const deliverMutation = useMutation({
     mutationFn: () => withFreshToken((token) => ordersApi.deliver(orderId, token)),
     onSuccess: (order) => {
@@ -85,6 +97,12 @@ export function useAdminOrder(orderId: string) {
     },
     ship: async (input: ShipOrderInput) => {
       await shipMutation.mutateAsync(input);
+    },
+    updateTracking: async (input: UpdateTrackingInput) => {
+      await updateTrackingMutation.mutateAsync(input);
+    },
+    outForDelivery: async () => {
+      await outForDeliveryMutation.mutateAsync();
     },
     deliver: async () => {
       await deliverMutation.mutateAsync();

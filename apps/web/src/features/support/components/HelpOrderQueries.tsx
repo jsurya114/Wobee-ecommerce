@@ -263,7 +263,15 @@ function HelpOrderDetail({ orderId, onBack }: { orderId: string; onBack: () => v
             <Card className="flex justify-between p-4 font-body text-sm">
               <span className="text-text-secondary">Tracking</span>
               <span className="text-text-primary">
-                {order.carrier} · {order.trackingNumber}
+            {order.carrier} · {order.trackingNumber}
+            {order.trackingUrl && /^https?:\/\//i.test(order.trackingUrl) ? (
+              <>
+                {" "}
+                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">
+                  Track →
+                </a>
+              </>
+            ) : null}
               </span>
             </Card>
           ) : null}

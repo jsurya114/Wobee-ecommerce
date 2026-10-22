@@ -1037,6 +1037,9 @@ model Order {
 
   trackingNumber     String?
   carrier            String?
+  /// Courier registry code (see apps/api shared/couriers); null on orders shipped before couriers were presets.
+  carrierCode        String?
+  trackingUrl        String?
   shippedAt          DateTime?
   deliveredAt        DateTime?
   cancelledAt        DateTime?
@@ -1402,8 +1405,13 @@ model Notification {
   status    NotificationStatus  @default(PENDING)
   createdAt DateTime            @default(now())
   sentAt    DateTime?
+  /// Idempotency key, e.g. "ORDER_SHIPPED:<orderId>:v1". A second enqueue with the same key is a no-op.
+  dedupeKey String?             @unique
+  /// When a worker moved the row to SENDING. Stale-claim recovery measures from here, not createdAt.
+  claimedAt DateTime?
 
   @@index([userId])
+  @@index([status, createdAt])
   @@map("notifications")
 }
 

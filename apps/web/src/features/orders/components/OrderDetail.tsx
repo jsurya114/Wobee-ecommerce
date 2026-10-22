@@ -93,6 +93,14 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           <span className="text-text-secondary">Tracking</span>
           <span className="text-text-primary">
             {order.carrier} · {order.trackingNumber}
+            {order.trackingUrl && /^https?:\/\//i.test(order.trackingUrl) ? (
+              <>
+                {" "}
+                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">
+                  Track →
+                </a>
+              </>
+            ) : null}
           </span>
         </Card>
       ) : null}

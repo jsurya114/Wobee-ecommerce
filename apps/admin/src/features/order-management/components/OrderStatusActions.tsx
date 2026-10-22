@@ -1,18 +1,22 @@
 "use client";
 
 import { Button, ConfirmationDialog, Input } from "@woobe/ui";
+import { COURIERS, type ShipOrderInput, type UpdateTrackingInput } from "@woobe/validation";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 import { ApiError } from "@/lib/api-client";
 import { hasPermission } from "@/features/shell/nav-config";
 import type { AdminOrderView, CancelRefundOutcome } from "../api/admin-orders.client";
+import { ShipmentForm, type ShipmentValues } from "./ShipmentForm";
 
 interface Props {
   order: AdminOrderView;
   onStartProcessing: () => Promise<void>;
   onMarkPacked: () => Promise<void>;
-  onShip: (input: { trackingNumber: string; carrier: string }) => Promise<void>;
+  onShip: (input: ShipOrderInput) => Promise<void>;
+  onUpdateTracking: (input: UpdateTrackingInput) => Promise<void>;
+  onOutForDelivery: () => Promise<void>;
   onDeliver: () => Promise<void>;
   onCancel: (input: { reason?: string }) => Promise<void>;
   onReturnToOrigin: () => Promise<void>;
@@ -30,14 +34,13 @@ interface PendingAction {
   successMessage: string;
 }
 
-export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onDeliver, onCancel, onReturnToOrigin, lastRefundOutcome }: Props) {
+export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onShip, onUpdateTracking, onOutForDelivery, onDeliver, onCancel, onReturnToOrigin, lastRefundOutcome }: Props) {
   const { user } = useAdminAuth();
   const [busy, setBusy] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
-  const [trackingNumber, setTrackingNumber] = useState("");
-  const [carrier, setCarrier] = useState("");
+  const [editingTracking, setEditingTracking] = useState(false);
   const [reason, setReason] = useState("");
 
   if (!hasPermission(user?.role, "MANAGE_ORDERS")) {
@@ -54,6 +57,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
       toast.success(pending.successMessage);
       setShipping(false);
       setCancelling(false);
+      setEditingTracking(false);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "That didn't work.");
     } finally {
@@ -95,18 +99,37 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
       successMessage: "Order marked as packed",
     });
 
-  const confirmShipment = () => {
-    const tracking = trackingNumber.trim();
-    const via = carrier.trim();
+  const courierLabel = (values: ShipmentValues) => (values.carrier ? values.carrier : COURIERS[values.carrierCode].name);
+
+  const confirmShipment = (values: ShipmentValues) =>
     setPending({
       title: "Confirm shipment?",
-      description: `Ship #${ref} with tracking ${tracking} via ${via}? Customer will be notified.`,
+      description: `Ship #${ref} with tracking ${values.trackingNumber} via ${courierLabel(values)}? Customer will be notified.`,
       confirmLabel: "Confirm shipment",
       variant: "default",
-      action: () => onShip({ trackingNumber: tracking, carrier: via }),
+      action: () => onShip(values),
       successMessage: "Order marked as shipped",
     });
-  };
+
+  const confirmTrackingUpdate = (values: ShipmentValues) =>
+    setPending({
+      title: "Update tracking and email the customer?",
+      description: `Change #${ref} to ${courierLabel(values)}, tracking ${values.trackingNumber}? The customer is emailed the corrected details.`,
+      confirmLabel: "Save and email",
+      variant: "default",
+      action: () => onUpdateTracking({ ...values, resend: true }),
+      successMessage: "Tracking updated and customer emailed",
+    });
+
+  const confirmOutForDelivery = () =>
+    setPending({
+      title: "Email: out for delivery?",
+      description: `Tell the customer #${ref} is out for delivery? This email is only sent once per order.`,
+      confirmLabel: "Send email",
+      variant: "default",
+      action: onOutForDelivery,
+      successMessage: "Out-for-delivery email sent",
+    });
 
   const confirmDelivered = () =>
     setPending({
@@ -205,13 +228,7 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
           Mark as shipped
         </Button>
         {shipping ? (
-          <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-            <Input placeholder="Tracking number" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
-            <Input placeholder="Carrier" value={carrier} onChange={(e) => setCarrier(e.target.value)} />
-            <Button onClick={confirmShipment} disabled={busy || !trackingNumber.trim() || !carrier.trim()}>
-              Confirm shipment
-            </Button>
-          </div>
+          <ShipmentForm submitLabel="Confirm shipment" busy={busy} onSubmit={confirmShipment} />
         ) : null}
         {dialog}
       </div>
@@ -225,10 +242,17 @@ export function OrderStatusActions({ order, onStartProcessing, onMarkPacked, onS
           <Button onClick={confirmDelivered} disabled={busy}>
             Mark as delivered
           </Button>
+          <Button variant="secondary" onClick={confirmOutForDelivery} disabled={busy}>
+            Email: out for delivery
+          </Button>
+          <Button variant="secondary" onClick={() => setEditingTracking((v) => !v)} disabled={busy}>
+            Edit tracking / resend email
+          </Button>
           <Button variant="secondary" onClick={confirmReturnToOrigin} disabled={busy}>
             Mark delivery failed / RTO
           </Button>
         </div>
+        {editingTracking ? <ShipmentForm initial={order} submitLabel="Save and email customer" busy={busy} onSubmit={confirmTrackingUpdate} /> : null}
         {dialog}
       </div>
     );

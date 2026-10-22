@@ -1,4 +1,4 @@
-import type { CancelOrderInput, ListOrdersQuery, ShipOrderInput } from "@woobe/validation";
+import type { CancelOrderInput, ListOrdersQuery, ShipOrderInput, UpdateTrackingInput } from "@woobe/validation";
 import type { Request, Response } from "express";
 import { ValidationError } from "../../../../shared/errors";
 import type { CancelOrderWithRefundUseCase } from "../../application/use-cases/cancel-order-with-refund.use-case";
@@ -7,6 +7,8 @@ import type { GetOrderDetailForAdminUseCase } from "../../application/use-cases/
 import type { ListOrdersUseCase } from "../../../orders/application/use-cases/list-orders.use-case";
 import type { MarkOrderPackedUseCase } from "../../../orders/application/use-cases/mark-order-packed.use-case";
 import type { MarkOrderReturnedToOriginUseCase } from "../../../orders/application/use-cases/mark-order-returned-to-origin.use-case";
+import type { NotifyOutForDeliveryUseCase } from "../../../orders/application/use-cases/notify-out-for-delivery.use-case";
+import type { UpdateTrackingUseCase } from "../../../orders/application/use-cases/update-tracking.use-case";
 import type { ShipOrderUseCase } from "../../../orders/application/use-cases/ship-order.use-case";
 import type { StartProcessingOrderUseCase } from "../../../orders/application/use-cases/start-processing-order.use-case";
 
@@ -20,6 +22,8 @@ export class AdminOrdersController {
     private readonly deliverOrderUseCase: DeliverOrderAndCapturePaymentUseCase,
     private readonly cancelOrderUseCase: CancelOrderWithRefundUseCase,
     private readonly markOrderReturnedToOriginUseCase: MarkOrderReturnedToOriginUseCase,
+    private readonly updateTrackingUseCase: UpdateTrackingUseCase,
+    private readonly notifyOutForDeliveryUseCase: NotifyOutForDeliveryUseCase,
   ) {}
 
   async list(req: Request, res: Response): Promise<void> {
@@ -51,6 +55,18 @@ export class AdminOrdersController {
     const input = req.body as ShipOrderInput;
     const result = await this.shipOrderUseCase.execute(orderId, req.user!, input);
     res.status(200).json(result.order);
+  }
+
+  async updateTracking(req: Request, res: Response): Promise<void> {
+    const orderId = requireOrderId(req);
+    const result = await this.updateTrackingUseCase.execute(orderId, req.user!, req.body as UpdateTrackingInput);
+    res.status(200).json(result.order);
+  }
+
+  async outForDelivery(req: Request, res: Response): Promise<void> {
+    const orderId = requireOrderId(req);
+    await this.notifyOutForDeliveryUseCase.execute(orderId, req.user!);
+    res.status(202).json({ queued: true });
   }
 
   async deliver(req: Request, res: Response): Promise<void> {
