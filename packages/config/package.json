@@ -8,10 +8,12 @@
     "typescript",
     "tailwind"
   ],
-  "dependencies": {
+  "devDependencies": {
     "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react-hooks": "^5.2.0",
+    "typescript": "^5.7.3",
     "typescript-eslint": "^8.19.1"
   },
   "peerDependencies": {
