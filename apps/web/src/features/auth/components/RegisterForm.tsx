@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   OTP_CODE_LENGTH,
   registerStartSchema,
+  type RegisterStartFormValues,
   type RegisterStartInput,
 } from "@woobe/validation";
 import { Button } from "@woobe/ui";
@@ -53,7 +54,7 @@ export function RegisterForm() {
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<RegisterStartInput>({
+  } = useForm<RegisterStartFormValues, unknown, RegisterStartInput>({
     resolver: zodResolver(registerStartSchema),
   });
 

@@ -3,7 +3,8 @@
 import useEmblaCarousel from "embla-carousel-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isAllowedBannerLink } from "@woobe/validation";
+// Deep import on purpose: the package barrel pulls in zod (~25 kB gz) for one helper.
+import { isAllowedBannerLink } from "@woobe/validation/src/banner-link";
 import type { HomeBanner } from "../api/home.client";
 
 const AUTOPLAY_INTERVAL_MS = 5000;
