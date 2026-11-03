@@ -5,15 +5,34 @@ import type { CreateNotificationInput, NotificationRepositoryPort } from "../../
 /** ADR-010: the only file in this module allowed to import @woobe/database. */
 export class NotificationRepository implements NotificationRepositoryPort {
   async create(input: CreateNotificationInput): Promise<NotificationEntity> {
-    const notification = await prisma.notification.create({
-      data: {
-        userId: input.userId,
-        type: input.type,
-        channel: input.channel,
-        payload: input.payload as Prisma.InputJsonValue,
-      },
+    try {
+      const notification = await prisma.notification.create({
+        data: {
+          userId: input.userId,
+          type: input.type,
+          channel: input.channel,
+          payload: input.payload as Prisma.InputJsonValue,
+          dedupeKey: input.dedupeKey ?? null,
+        },
+      });
+      return toEntity(notification);
+    } catch (error) {
+      // Unique violation on dedupeKey: the same logical email was already recorded — hand back that row.
+      if (input.dedupeKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const existing = await prisma.notification.findUnique({ where: { dedupeKey: input.dedupeKey } });
+        if (existing) return toEntity(existing);
+      }
+      throw error;
+    }
+  }
+
+  async findPendingOlderThan(olderThan: Date, limit: number): Promise<NotificationEntity[]> {
+    const rows = await prisma.notification.findMany({
+      where: { status: "PENDING", createdAt: { lt: olderThan } },
+      orderBy: { createdAt: "asc" },
+      take: limit,
     });
-    return toEntity(notification);
+    return rows.map(toEntity);
   }
 
   async findById(id: string): Promise<NotificationEntity | null> {
@@ -26,9 +45,16 @@ export class NotificationRepository implements NotificationRepositoryPort {
     const { count } = await prisma.notification.updateMany({
       where: {
         id,
-        OR: [{ status: "PENDING" }, { status: "SENDING", createdAt: { lt: staleCutoff } }],
+        // Stale = claimed long ago. claimedAt (not createdAt) so a row that waited in the queue
+        // is not instantly reclaimable while another worker is mid-send; legacy rows with no
+        // claimedAt fall back to createdAt.
+        OR: [
+          { status: "PENDING" },
+          { status: "SENDING", claimedAt: { lt: staleCutoff } },
+          { status: "SENDING", claimedAt: null, createdAt: { lt: staleCutoff } },
+        ],
       },
-      data: { status: "SENDING" },
+      data: { status: "SENDING", claimedAt: new Date() },
     });
     return count === 1;
   }
@@ -36,7 +62,7 @@ export class NotificationRepository implements NotificationRepositoryPort {
   async releaseClaim(id: string): Promise<void> {
     await prisma.notification.updateMany({
       where: { id, status: "SENDING" },
-      data: { status: "PENDING" },
+      data: { status: "PENDING", claimedAt: null },
     });
   }
 

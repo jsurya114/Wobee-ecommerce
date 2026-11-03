@@ -33,7 +33,12 @@ export class NotifyOrderEventUseCase {
     private readonly notificationEnqueuer: NotificationEnqueuerPort,
   ) {}
 
-  async execute(orderId: string, type: OrderNotificationEventType): Promise<void> {
+  /**
+   * `options.dedupeVersion` lets an admin deliberately re-send an event (e.g. the shipping email
+   * after correcting a tracking number); without it each (order, event type) is emailed at most
+   * once, which also stops a replayed webhook or a double click from producing a duplicate.
+   */
+  async execute(orderId: string, type: OrderNotificationEventType, options: { dedupeVersion?: string } = {}): Promise<void> {
     const order = await this.orderRepository.findById(orderId);
     if (!order) return;
 
@@ -42,6 +47,7 @@ export class NotifyOrderEventUseCase {
       type,
       channel: "EMAIL",
       payload: this.buildPayload(order, type),
+      dedupeKey: options.dedupeVersion ? `${type}:${orderId}:${options.dedupeVersion}` : `${type}:${orderId}`,
     });
   }
 
@@ -88,11 +94,17 @@ export class NotifyOrderEventUseCase {
       };
     }
 
-    if (type === "ORDER_SHIPPED") {
-      return { ...base, trackingNumber: order.trackingNumber, carrier: order.carrier };
+    if (type === "ORDER_SHIPPED" || type === "ORDER_OUT_FOR_DELIVERY") {
+      return {
+        ...base,
+        trackingNumber: order.trackingNumber,
+        carrier: order.carrier,
+        carrierCode: order.carrierCode,
+        trackingUrl: order.trackingUrl,
+      };
     }
 
-    // PAYMENT_FAILED, ORDER_DELIVERED — the base fields are all the template needs.
+    // PAYMENT_FAILED, ORDER_DELIVERED, ORDER_RETURNED_TO_ORIGIN — the base fields are all the template needs.
     return base;
   }
 }

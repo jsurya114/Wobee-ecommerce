@@ -14,7 +14,7 @@ import { OrderTimeline } from "./OrderTimeline";
 import { PageHeader } from "@/features/shell/components/PageHeader";
 
 export function OrderDetail({ orderId }: { orderId: string }) {
-  const { order, loading, error, startProcessing, markPacked, ship, deliver, cancel, returnToOrigin, lastRefundOutcome } = useAdminOrder(orderId);
+  const { order, loading, error, startProcessing, markPacked, ship, updateTracking, outForDelivery, deliver, cancel, returnToOrigin, lastRefundOutcome } = useAdminOrder(orderId);
   const { user } = useAdminAuth();
   const canViewCustomer = hasPermission(user?.role, "MANAGE_CUSTOMERS");
 
@@ -156,6 +156,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             onStartProcessing={startProcessing}
             onMarkPacked={markPacked}
             onShip={ship}
+            onUpdateTracking={updateTracking}
+            onOutForDelivery={outForDelivery}
             onDeliver={deliver}
             onCancel={cancel}
             onReturnToOrigin={returnToOrigin}

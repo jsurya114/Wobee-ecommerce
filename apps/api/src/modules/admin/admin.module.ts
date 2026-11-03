@@ -56,7 +56,7 @@ import {
   updateCouponUseCase,
 } from "../coupons/coupons.module";
 import { adjustInventoryUseCase, listInventoryAdminUseCase } from "../inventory/inventory.module";
-import { enqueueNotificationUseCase } from "../notifications/notifications.module";
+import { bestEffortEnqueueNotificationUseCase as enqueueNotificationUseCase } from "../notifications/notifications.module";
 import { getOfferAdminUseCase, listOffersAdminUseCase, setOfferActiveUseCase } from "../offers/offers.module";
 import {
   cancelOrderUseCase,
@@ -66,7 +66,9 @@ import {
   listOrdersUseCase,
   markOrderPackedUseCase,
   markOrderReturnedToOriginUseCase,
+  notifyOutForDeliveryUseCase,
   shipOrderUseCase,
+  updateTrackingUseCase,
   startProcessingOrderUseCase,
 } from "../orders/orders.module";
 import {
@@ -170,6 +172,8 @@ const adminOrdersController = new AdminOrdersController(
   deliverOrderAndCapturePaymentUseCase,
   cancelOrderWithRefundUseCase,
   markOrderReturnedToOriginUseCase,
+  updateTrackingUseCase,
+  notifyOutForDeliveryUseCase,
 );
 const adminCollectionsController = new AdminCollectionsController(
   listCollectionsAdminUseCase,

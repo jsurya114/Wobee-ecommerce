@@ -4899,3 +4899,22 @@ The frontend single-flight fix (`8ec6582`) was necessary but **not sufficient**.
 - The Shop's "In stock only" toggle is now always satisfied, so it's redundant; it was kept to avoid touching unrelated filter UI.
 - Every Home request and in-stock listing does one live inventory `groupBy` for the fingerprint. It's the same query the `inStock` filter always ran, and fine at this catalogue size.
 - **Local data only:** "Embroidered Top" shows ₹0 because a local ₹300-off offer applies to a ₹264 item. That's pre-existing offer data, not part of this task.
+
+---
+
+## 2026-10-22 — Notification reliability + courier-aware shipping emails (PR 1 of 4)
+
+**Scope:** first of four planned notification PRs (reliability + couriers → contacts/unsubscribe/scheduler → abandoned cart + coupon/offer emails → admin Campaigns). Nothing deployed; additive migration `20261022000000_notification_reliability_and_couriers`.
+
+**Reliability fixes (audit findings):**
+1. Post-commit enqueues are best-effort now (`bestEffortEnqueueNotificationUseCase`, used by orders/returns/auth/admin). Before, a Redis/DB error after ship/deliver/cancel/webhook committed threw: admins got a 500 and the retry saw `changed:false`, so the email was lost.
+2. `notifications.dedupeKey` (unique): `<EVENT>:<orderId>` per order event, so a replayed webhook or double click cannot send twice. Deliberate re-sends use `:<timestamp>`.
+3. Stale-claim bug: reclaim was measured from `createdAt`, so a long-queued row that was mid-send could be taken by a second worker. New `claimedAt` column.
+4. PENDING rows whose `queue.add` failed (or lost to a Redis flush) were stuck forever. The worker now re-queues rows PENDING > 5 min at start-up and every 5 min.
+5. `markNotificationFailed` in the worker had no `.catch`. `SMTP_FROM` placeholder is refused in production when `SMTP_HOST` is set.
+
+**Courier presets (`packages/validation/src/couriers.ts`):** Ekart, DTDC, India Post, Delhivery, Blue Dart, Xpressbees, Professional Couriers, ST Courier, Anjani, Sri Maruti, VRL, Other. Admin ship form has a courier dropdown, optional per-shipment tracking link and a link preview; shipped orders get "Edit tracking / resend email" and "Email: out for delivery". New emails: out for delivery (once per order, no status change), returned to origin. `Order.carrierCode`/`trackingUrl` added; the storefront shows a Track link.
+
+**Honest limit:** no courier's tracking deep link could be verified (their pages are JS/captcha-gated), so presets link to each courier's official tracking page and the email shows the tracking number prominently; the number is NOT pre-filled in the link. Anjani and Sri Maruti have no confirmed official page (link omitted). `deepLinkTemplate` exists on the preset for when someone tests one with a real consignment number. Courier "tips" are generic; no delay claims are asserted.
+
+**Not done / not verified:** API integration tests (need the test Postgres/Redis; not running here) — unit suites for orders, notifications, email templates and validation pass; the admin screen was typechecked, not clicked through; no real SMTP send. A customer-initiated cancel email from the plan does not exist because customers cannot cancel (admin cancel already emails).

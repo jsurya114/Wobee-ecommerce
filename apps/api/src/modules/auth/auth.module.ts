@@ -22,7 +22,7 @@ import { VerifyRegistrationOtpUseCase } from "./application/use-cases/verify-reg
 import { VerifyResetPasswordOtpUseCase } from "./application/use-cases/verify-reset-password-otp.use-case";
 import { env } from "../../config/env";
 import { getMailer } from "../../shared/email/get-mailer";
-import { enqueueNotificationUseCase } from "../notifications/notifications.module";
+import { bestEffortEnqueueNotificationUseCase as enqueueNotificationUseCase } from "../notifications/notifications.module";
 import type { NotificationEnqueuerPort } from "./application/ports/notification-enqueuer.port";
 import { AuthRepository } from "./infrastructure/repositories/auth.repository";
 import { BcryptService } from "./infrastructure/services/bcrypt.service";

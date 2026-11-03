@@ -157,6 +157,16 @@ const envSchemaWithRefinements = envSchema.superRefine((data, ctx) => {
     });
   }
 
+  // Real SMTP in production with the placeholder sender means every email leaves from an
+  // undeliverable @woobe.local address. Only enforced when SMTP is actually configured.
+  if (data.NODE_ENV === "production" && data.SMTP_HOST && data.SMTP_FROM.includes("@woobe.local")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["SMTP_FROM"],
+      message: "SMTP_FROM must be set to a real sender address when NODE_ENV=production and SMTP_HOST is set",
+    });
+  }
+
   if (data.MEDIA_STORAGE_DRIVER === "s3") {
     for (const key of ["AWS_REGION", "MEDIA_S3_BUCKET", "MEDIA_PUBLIC_BASE_URL"] as const) {
       if (!data[key]) {

@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { env } from "../../config/env";
 import { getMailer } from "../../shared/email/get-mailer";
-import { EnqueueNotificationUseCase } from "./application/use-cases/enqueue-notification.use-case";
+import { logError } from "../../shared/logger";
+import { EnqueueNotificationUseCase, type EnqueueNotificationInput } from "./application/use-cases/enqueue-notification.use-case";
+import { RecoverPendingNotificationsUseCase } from "./application/use-cases/recover-pending-notifications.use-case";
 import { MarkNotificationFailedUseCase } from "./application/use-cases/mark-notification-failed.use-case";
 import { ProcessNotificationJobUseCase } from "./application/use-cases/process-notification-job.use-case";
 import { NotificationRepository } from "./infrastructure/repositories/notification.repository";
@@ -42,6 +44,22 @@ const notificationQueue = new BullMqNotificationQueue();
 const notificationProvider = env.SMTP_HOST ? new NodemailerEmailProvider(getMailer()) : new StubEmailProvider();
 
 export const enqueueNotificationUseCase = new EnqueueNotificationUseCase(notificationRepository, notificationQueue);
+/**
+ * What every other module should call after its own transaction has committed: same as
+ * `enqueueNotificationUseCase` but an enqueue failure is logged, never thrown — the state change
+ * is already durable, so a Redis/DB hiccup must not turn into a 500 (or a lost webhook retry).
+ * A row that was written but not queued is picked up by RecoverPendingNotificationsUseCase.
+ */
+export const bestEffortEnqueueNotificationUseCase = {
+  async execute(input: EnqueueNotificationInput): Promise<void> {
+    try {
+      await enqueueNotificationUseCase.execute(input);
+    } catch (error) {
+      logError("notifications.enqueue_failed", { type: input.type, error });
+    }
+  },
+};
+export const recoverPendingNotificationsUseCase = new RecoverPendingNotificationsUseCase(notificationRepository, notificationQueue);
 /** Exported for worker.ts's own composition — the one place outside this module that needs either of these. */
 export const processNotificationJobUseCase = new ProcessNotificationJobUseCase(notificationRepository, notificationProvider);
 export const markNotificationFailedUseCase = new MarkNotificationFailedUseCase(notificationRepository);

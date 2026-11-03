@@ -5,6 +5,7 @@ import type { AuditLoggerPort } from "../ports/audit-logger.port";
 import type { InventoryRestockPort } from "../ports/inventory-restock.port";
 import type { OrderRepositoryPort, TransitionOrderStatusResult } from "../ports/order-repository.port";
 import type { TransactionPort } from "../ports/transaction.port";
+import type { OrderNotificationEventType } from "./notify-order-event.use-case";
 
 /**
  * `SHIPPED -> RETURNED_TO_ORIGIN` (2026-09-06 order-processing audit,
@@ -40,6 +41,7 @@ export class MarkOrderReturnedToOriginUseCase {
     private readonly auditLogger: AuditLoggerPort,
     private readonly transaction: TransactionPort,
     private readonly observability: ObservabilityPort,
+    private readonly notifyOrderEvent: { execute(orderId: string, type: OrderNotificationEventType): Promise<void> },
   ) {}
 
   async execute(orderId: string, actor: { id: string; role: Role }): Promise<TransitionOrderStatusResult> {
@@ -70,6 +72,7 @@ export class MarkOrderReturnedToOriginUseCase {
     });
     if (result.changed) {
       this.observability.recordOrderEvent({ event: "returned_to_origin" });
+      await this.notifyOrderEvent.execute(orderId, "ORDER_RETURNED_TO_ORIGIN");
     }
     return result;
   }

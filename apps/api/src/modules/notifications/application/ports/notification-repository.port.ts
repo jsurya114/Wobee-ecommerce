@@ -6,6 +6,8 @@ export interface CreateNotificationInput {
   type: NotificationEventType;
   channel: NotificationChannel;
   payload: Record<string, unknown>;
+  /** When set, a second `create` with the same key returns the existing row instead of inserting a duplicate. */
+  dedupeKey?: string;
 }
 
 /**
@@ -33,6 +35,8 @@ export interface NotificationRepositoryPort {
    * in-flight send (not yet stale) is never reclaimed out from under it.
    */
   claimForSending(id: string, staleAfterMs: number): Promise<boolean>;
+  /** PENDING rows created before `olderThan`, oldest first — candidates for re-enqueue after a lost `queue.add` or a Redis flush (ADR-017: Redis is disposable, this table is the source of truth). */
+  findPendingOlderThan(olderThan: Date, limit: number): Promise<NotificationEntity[]>;
   /** Releases a claim back to PENDING (`... WHERE id = ? AND status = 'SENDING'`) after a retryable send failure, so BullMQ's own retry can re-attempt it. */
   releaseClaim(id: string): Promise<void>;
   /** SENDING -> SENT. Guarded so it only advances a row this worker actually claimed. */

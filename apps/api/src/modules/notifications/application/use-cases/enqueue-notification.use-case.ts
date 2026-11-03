@@ -8,6 +8,8 @@ export interface EnqueueNotificationInput {
   type: NotificationEventType;
   channel: NotificationChannel;
   payload: Record<string, unknown>;
+  /** Idempotency key for "this exact email, once". Omit for emails that may legitimately repeat. */
+  dedupeKey?: string;
 }
 
 /**
@@ -27,6 +29,8 @@ export class EnqueueNotificationUseCase {
 
   async execute(input: EnqueueNotificationInput): Promise<void> {
     const notification = await this.notificationRepository.create(input);
+    // A deduped hit on a row that already left PENDING (sent, failed or mid-send) must not re-send.
+    if (notification.status !== "PENDING") return;
     await this.notificationQueue.enqueue(notification.id);
   }
 }

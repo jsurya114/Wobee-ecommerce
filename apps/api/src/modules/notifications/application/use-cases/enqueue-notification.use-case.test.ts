@@ -26,6 +26,7 @@ describe("EnqueueNotificationUseCase", () => {
         return created;
       }),
       findById: vi.fn(),
+      findPendingOlderThan: vi.fn(),
       claimForSending: vi.fn(),
       releaseClaim: vi.fn(),
       markSent: vi.fn(),
@@ -42,5 +43,24 @@ describe("EnqueueNotificationUseCase", () => {
 
     expect(calls).toEqual(["create", "enqueue"]);
     expect(notificationQueue.enqueue).toHaveBeenCalledWith(created.id);
+  });
+
+  it("does not enqueue when a deduped create returns a row that already left PENDING", async () => {
+    const sent = buildNotification({ status: "SENT" });
+    const notificationRepository = {
+      create: vi.fn().mockResolvedValue(sent),
+      findById: vi.fn(),
+      findPendingOlderThan: vi.fn(),
+      claimForSending: vi.fn(),
+      releaseClaim: vi.fn(),
+      markSent: vi.fn(),
+      markFailed: vi.fn(),
+    };
+    const notificationQueue = { enqueue: vi.fn() };
+    const useCase = new EnqueueNotificationUseCase(notificationRepository, notificationQueue);
+
+    await useCase.execute({ userId: "user-1", type: "ORDER_SHIPPED", channel: "EMAIL", payload: {}, dedupeKey: "ORDER_SHIPPED:o1" });
+
+    expect(notificationQueue.enqueue).not.toHaveBeenCalled();
   });
 });

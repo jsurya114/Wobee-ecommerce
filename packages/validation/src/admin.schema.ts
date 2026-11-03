@@ -1,12 +1,48 @@
 import { z } from "zod";
+import { COURIER_CODES } from "./couriers";
 
 /** Single source of truth (ADR-020) for the admin order-action request shapes — used by apps/admin's forms and apps/api's `validate` middleware. */
 
-export const shipOrderSchema = z.object({
-  trackingNumber: z.string().trim().min(1, "Tracking number is required"),
-  carrier: z.string().trim().min(1, "Carrier is required"),
-});
+const httpsUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .url("Tracking link must be a valid URL")
+  .refine((value) => /^https?:\/\//i.test(value), "Tracking link must start with http:// or https://");
+
+/**
+ * `carrierCode` picks a courier preset (name + tracking page). `carrier` is the free-text name, required only for
+ * "OTHER" or legacy callers that send no code. `trackingUrl` optionally overrides the link for this one shipment.
+ */
+export const shipOrderSchema = z
+  .object({
+    trackingNumber: z.string().trim().min(1, "Tracking number is required").max(100),
+    carrierCode: z.enum(COURIER_CODES).optional(),
+    carrier: z.string().trim().max(100).optional(),
+    trackingUrl: httpsUrl.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if ((!value.carrierCode || value.carrierCode === "OTHER") && !value.carrier) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["carrier"], message: "Courier name is required" });
+    }
+  });
 export type ShipOrderInput = z.infer<typeof shipOrderSchema>;
+
+/** Corrects the courier/tracking of an already-shipped order; `resend` also re-emails the customer. */
+export const updateTrackingSchema = z
+  .object({
+    trackingNumber: z.string().trim().min(1, "Tracking number is required").max(100),
+    carrierCode: z.enum(COURIER_CODES).optional(),
+    carrier: z.string().trim().max(100).optional(),
+    trackingUrl: httpsUrl.optional(),
+    resend: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    if ((!value.carrierCode || value.carrierCode === "OTHER") && !value.carrier) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["carrier"], message: "Courier name is required" });
+    }
+  });
+export type UpdateTrackingInput = z.infer<typeof updateTrackingSchema>;
 
 export const cancelOrderSchema = z.object({
   reason: z.string().trim().max(500).optional(),

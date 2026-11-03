@@ -1,4 +1,4 @@
-import { cancelOrderSchema, listOrdersQuerySchema, shipOrderSchema } from "@woobe/validation";
+import { cancelOrderSchema, listOrdersQuerySchema, shipOrderSchema, updateTrackingSchema } from "@woobe/validation";
 import { Router } from "express";
 import { asyncHandler } from "../../../../middleware/async-handler";
 import { authGuard } from "../../../../middleware/auth-guard";
@@ -16,6 +16,8 @@ export function createAdminOrdersRouter(controller: AdminOrdersController): Rout
   router.post("/:id/processing", asyncHandler((req, res) => controller.startProcessing(req, res)));
   router.post("/:id/packed", asyncHandler((req, res) => controller.markPacked(req, res)));
   router.post("/:id/ship", validate(shipOrderSchema), asyncHandler((req, res) => controller.ship(req, res)));
+  router.post("/:id/tracking", validate(updateTrackingSchema), asyncHandler((req, res) => controller.updateTracking(req, res)));
+  router.post("/:id/out-for-delivery", asyncHandler((req, res) => controller.outForDelivery(req, res)));
   router.post("/:id/deliver", asyncHandler((req, res) => controller.deliver(req, res)));
   router.post("/:id/cancel", validate(cancelOrderSchema), asyncHandler((req, res) => controller.cancel(req, res)));
   router.post("/:id/return-to-origin", asyncHandler((req, res) => controller.returnToOrigin(req, res)));

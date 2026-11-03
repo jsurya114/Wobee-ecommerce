@@ -21,6 +21,7 @@ function buildRepo(notification: NotificationEntity | null, claimResult = true) 
   return {
     create: vi.fn(),
     findById: vi.fn().mockResolvedValue(notification),
+    findPendingOlderThan: vi.fn(),
     claimForSending: vi.fn().mockResolvedValue(claimResult),
     releaseClaim: vi.fn(),
     markSent: vi.fn(),

@@ -1,3 +1,5 @@
+import { COURIERS, isCourierCode } from "@woobe/validation";
+import { env } from "../../../config/env";
 import type { EmailMessage } from "../email-message";
 import { emailBrand, esc, renderLayout, renderTextLayout, storefrontUrl } from "./layout";
 import { bool, greeting, money, num, str } from "./render-helpers";
@@ -181,38 +183,118 @@ export function renderPaymentFailedEmail(payload: Record<string, unknown>): Rend
   };
 }
 
-export function renderOrderShippedEmail(payload: Record<string, unknown>): Rendered {
+interface ShipmentDetails {
+  carrier?: string;
+  tracking?: string;
+  trackingUrl?: string;
+  tips: string[];
+  support: string[];
+}
+
+function readShipment(payload: Record<string, unknown>): ShipmentDetails {
+  const code = str(payload.carrierCode);
+  const preset = isCourierCode(code) ? COURIERS[code] : undefined;
+  const trackingUrl = str(payload.trackingUrl);
+  return {
+    carrier: str(payload.carrier) ?? preset?.name,
+    tracking: str(payload.trackingNumber),
+    // Only ever link http(s): the value is staff-entered.
+    trackingUrl: trackingUrl && /^https?:\/\//i.test(trackingUrl) ? trackingUrl : undefined,
+    tips: preset?.tips ?? [],
+    support: [preset?.supportPhone, preset?.supportEmail].filter((v): v is string => Boolean(v)),
+  };
+}
+
+/** Courier, tracking number (copy-friendly, monospace), tips and support — shared by the shipped and out-for-delivery emails. */
+function shipmentBlockHtml(d: ShipmentDetails): string {
+  const rows: string[] = [];
+  if (d.carrier) rows.push(`<p style="margin:0 0 4px;color:#786d68;font-size:13px">Courier</p><p style="margin:0 0 12px;font-weight:600">${esc(d.carrier)}</p>`);
+  if (d.tracking) {
+    rows.push(
+      `<p style="margin:0 0 4px;color:#786d68;font-size:13px">Tracking number</p><p style="margin:0 0 12px;font-family:Menlo,Consolas,monospace;font-size:18px;font-weight:700;letter-spacing:.5px">${esc(d.tracking)}</p>`,
+    );
+  }
+  const tips = d.tips.map((t) => `<li style="margin:0 0 4px">${esc(t)}</li>`).join("");
+  if (tips) rows.push(`<ul style="margin:0 0 12px;padding-left:18px;color:#786d68;font-size:14px">${tips}</ul>`);
+  if (d.support.length > 0) rows.push(`<p style="margin:0;color:#786d68;font-size:13px">Courier help: ${d.support.map((v) => esc(v)).join(" · ")}</p>`);
+  return rows.join("");
+}
+
+function shipmentBlockText(d: ShipmentDetails): string[] {
+  return [
+    d.carrier ? `Courier: ${d.carrier}` : "",
+    d.tracking ? `Tracking number: ${d.tracking}` : "",
+    d.trackingUrl ? `Track: ${d.trackingUrl}` : "",
+    ...d.tips.map((t) => `- ${t}`),
+    d.support.length > 0 ? `Courier help: ${d.support.join(" / ")}` : "",
+  ].filter((l) => l !== "");
+}
+
+function renderShipmentEmail(
+  payload: Record<string, unknown>,
+  copy: { subject: (orderNumber: string) => string; heading: (orderNumber: string) => string; lead: (orderNumber: string) => string; preview: string },
+): Rendered {
   const orderNumber = str(payload.orderNumber) ?? "";
   const name = str(payload.contactName);
-  const carrier = str(payload.carrier);
-  const tracking = str(payload.trackingNumber);
-  const trackingUrl = str(payload.trackingUrl);
-  const href = storefrontUrl("/account/orders");
-
-  const trackingBits: string[] = [];
-  if (carrier) trackingBits.push(`Carrier: <strong>${esc(carrier)}</strong>`);
-  if (tracking) trackingBits.push(`Tracking number: <strong>${esc(tracking)}</strong>`);
-  const trackingHtml = trackingBits.length > 0 ? `<p style="margin:0 0 12px">${trackingBits.join("<br />")}</p>` : "";
+  const d = readShipment(payload);
+  const ordersHref = storefrontUrl("/account/orders");
+  const courierName = d.carrier ?? "the courier";
+  const ctaLabel = d.trackingUrl ? `Track on ${courierName}` : "View your orders";
+  const ctaHref = d.trackingUrl ?? ordersHref;
 
   const bodyHtml = `
     <p style="margin:0 0 12px">${esc(greeting(name))}</p>
-    <p style="margin:0 0 12px">Good news — <strong>order #${esc(orderNumber)}</strong> is on its way.</p>
-    ${trackingHtml}
-    ${trackingUrl ? `<p style="margin:0"><a href="${esc(trackingUrl)}" style="color:${emailBrand.rose}">Track your parcel</a></p>` : ""}`;
-
-  const textBits = [
-    greeting(name),
-    "",
-    `Good news — order #${orderNumber} is on its way.`,
-    carrier ? `Carrier: ${carrier}` : "",
-    tracking ? `Tracking number: ${tracking}` : "",
-    trackingUrl ? `Track: ${trackingUrl}` : "",
-  ].filter((l) => l !== "");
+    <p style="margin:0 0 16px">${copy.lead(esc(orderNumber))}</p>
+    ${shipmentBlockHtml(d)}
+    ${d.trackingUrl ? `<p style="margin:16px 0 0;font-size:13px"><a href="${esc(ordersHref)}" style="color:${emailBrand.rose}">View this order on Woobe</a></p>` : ""}`;
 
   return {
-    subject: `Your order #${orderNumber} has shipped`,
-    html: renderLayout({ heading: `Order #${orderNumber} has shipped`, bodyHtml, previewText: "Your order is on its way.", ctaLabel: "View your orders", ctaHref: href }),
-    text: renderTextLayout({ heading: `Order #${orderNumber} has shipped`, bodyText: textBits.join("\n"), ctaLabel: "View your orders", ctaHref: href }),
+    subject: copy.subject(orderNumber),
+    html: renderLayout({ heading: copy.heading(orderNumber), bodyHtml, previewText: copy.preview, ctaLabel, ctaHref }),
+    text: renderTextLayout({
+      heading: copy.heading(orderNumber),
+      bodyText: [greeting(name), "", copy.lead(orderNumber).replace(/<[^>]+>/g, ""), "", ...shipmentBlockText(d)].join("\n"),
+      ctaLabel,
+      ctaHref,
+    }),
+  };
+}
+
+export function renderOrderShippedEmail(payload: Record<string, unknown>): Rendered {
+  return renderShipmentEmail(payload, {
+    subject: (n) => `Your order #${n} has shipped`,
+    heading: (n) => `Order #${n} has shipped`,
+    lead: (n) => `Good news — <strong>order #${n}</strong> is on its way.`,
+    preview: "Your order is on its way.",
+  });
+}
+
+export function renderOrderOutForDeliveryEmail(payload: Record<string, unknown>): Rendered {
+  return renderShipmentEmail(payload, {
+    subject: (n) => `Your order #${n} is out for delivery`,
+    heading: (n) => `Order #${n} is out for delivery`,
+    lead: (n) => `<strong>Order #${n}</strong> is out for delivery today. Please keep your phone handy for the delivery agent.`,
+    preview: "Your order is out for delivery.",
+  });
+}
+
+export function renderOrderReturnedToOriginEmail(payload: Record<string, unknown>): Rendered {
+  const orderNumber = str(payload.orderNumber) ?? "";
+  const name = str(payload.contactName);
+  const href = storefrontUrl("/account/orders");
+  const bodyHtml = `
+    <p style="margin:0 0 12px">${esc(greeting(name))}</p>
+    <p style="margin:0 0 12px">We couldn't deliver <strong>order #${esc(orderNumber)}</strong> and the parcel has come back to us.</p>
+    <p style="margin:0">Our team will be in touch about the next step, including any refund that applies. You can also reach us at ${esc(env.SUPPORT_EMAIL)}.</p>`;
+  return {
+    subject: `Order #${orderNumber} could not be delivered`,
+    html: renderLayout({ heading: `Order #${orderNumber} could not be delivered`, bodyHtml, previewText: "Your parcel was returned to us.", ctaLabel: "View your orders", ctaHref: href }),
+    text: renderTextLayout({
+      heading: `Order #${orderNumber} could not be delivered`,
+      bodyText: `${greeting(name)}\n\nWe couldn't deliver order #${orderNumber} and the parcel has come back to us. Our team will be in touch about the next step, including any refund that applies. You can also reach us at ${env.SUPPORT_EMAIL}.`,
+      ctaLabel: "View your orders",
+      ctaHref: href,
+    }),
   };
 }
 
