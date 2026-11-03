@@ -39,6 +39,8 @@ const emailField = z.string().trim().toLowerCase().email("Enter a valid email ad
  */
 export const registerStartSchema = registerSchema;
 export type RegisterStartInput = z.infer<typeof registerStartSchema>;
+/** Form-side (pre-parse) shape, for react-hook-form's first generic. */
+export type RegisterStartFormValues = z.input<typeof registerStartSchema>;
 
 /** Number of digits in the registration OTP. Single source for the schema, the web input, and the API generator/policy. */
 export const OTP_CODE_LENGTH = 4;

@@ -41,6 +41,6 @@ export const checkoutSchema = z.object({
   // alongside Razorpay's webhook-verified confirmation — Day 4 only needs
   // the method captured as part of the order's payment snapshot (Order.paymentMethod
   // is a required, non-nullable column).
-  paymentMethod: z.enum(["RAZORPAY", "COD"], { errorMap: () => ({ message: "Choose a payment method" }) }),
+  paymentMethod: z.enum(["RAZORPAY", "COD"], { error: "Choose a payment method" }),
 });
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
