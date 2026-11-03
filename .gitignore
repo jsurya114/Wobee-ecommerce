@@ -74,3 +74,6 @@ crash.log
 crash.*.log
 # Local scratch space for plan output (the safe place to write `terraform plan -out=...`)
 /.tfplan-scratch/
+
+# Local Redis snapshot (redis-server writes it to its working directory)
+dump.rdb
