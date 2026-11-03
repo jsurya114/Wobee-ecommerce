@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createAddressSchema, type CreateAddressInput } from "@woobe/validation";
+import { createAddressSchema, type CreateAddressFormValues, type CreateAddressInput } from "@woobe/validation";
 import { Button, FormField } from "@woobe/ui";
 import { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
@@ -37,7 +37,7 @@ export function AddressForm({
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<CreateAddressInput>({
+  } = useForm<CreateAddressFormValues, unknown, CreateAddressInput>({
     resolver: zodResolver(createAddressSchema),
     defaultValues: existing
       ? {

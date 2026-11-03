@@ -47,6 +47,8 @@ export const createAddressSchema = z.object({
   isDefault: z.boolean().optional().default(false),
 });
 export type CreateAddressInput = z.infer<typeof createAddressSchema>;
+/** Form-side (pre-parse) shape, for react-hook-form's first generic. */
+export type CreateAddressFormValues = z.input<typeof createAddressSchema>;
 
 // Partial — PATCH semantics, only the fields being changed need to be sent.
 // No `isDefault` here deliberately: week2 (1).md §7 lists "Set default
