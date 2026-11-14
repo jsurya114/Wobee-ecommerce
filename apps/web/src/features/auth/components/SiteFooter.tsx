@@ -23,8 +23,8 @@ function FacebookIcon(props: ComponentProps<"svg">) {
 /**
  * Storefront footer. Desktop/laptop only (`hidden md:block`) — on mobile the
  * fixed BottomNav already owns the bottom of the screen and would sit on top
- * of it. Internal links point only at routes that exist today; standalone
- * legal / help pages get linked in here when they're built.
+ * of it. Internal links point only at routes that exist today. On mobile the
+ * legal pages are reached from the nav drawer's "About Woobe" section instead.
  */
 const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] = [
   {
@@ -51,6 +51,12 @@ const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] =
       { label: "Shipping & delivery", href: "/account/help?topic=shipping" },
     ],
   },
+];
+
+const LEGAL_LINKS = [
+  { label: "Privacy Policy", href: "/privacy-policy" },
+  { label: "Terms of Use", href: "/terms" },
+  { label: "Cookie Policy", href: "/cookie-policy" },
 ];
 
 const SOCIAL = [
@@ -110,6 +116,13 @@ export function SiteFooter() {
 
         <div className="mt-12 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 font-body text-xs text-text-secondary">
           <p>© {new Date().getFullYear()} Woobe. All rights reserved.</p>
+          <nav aria-label="Legal" className="flex flex-wrap gap-x-4 gap-y-1">
+            {LEGAL_LINKS.map((link) => (
+              <Link key={link.href} href={link.href} className="transition-colors hover:text-primary">
+                {link.label}
+              </Link>
+            ))}
+          </nav>
           <p>Prices in INR · Secure checkout</p>
         </div>
       </div>
