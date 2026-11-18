@@ -12,7 +12,8 @@ export default function LoginPage() {
         aria-hidden="true"
         className="relative hidden flex-col justify-between overflow-hidden bg-primary p-12 text-white lg:flex"
       >
-        <span className="font-display text-2xl">Woobe</span>
+        {/* The logo is dark ink; brightness-0 + invert turns it white on the brand panel. */}
+        <img src="/Woobe_logo_no_crown.svg" alt="Woobe" width={90} height={80} className="h-20 w-auto brightness-0 invert" />
         <div className="max-w-sm">
           <p className="font-display text-4xl leading-tight">Run the store, calmly.</p>
           <p className="mt-4 font-body text-sm leading-relaxed text-white/80">
@@ -27,7 +28,10 @@ export default function LoginPage() {
       <section className="flex items-center justify-center px-4 py-12 sm:px-8">
         <div className="w-full max-w-sm">
           <div className="mb-8">
-            <span className="font-display text-xl text-primary lg:hidden">Woobe Admin</span>
+            <span className="inline-flex items-center gap-2 font-display text-xl text-primary lg:hidden">
+              <img src="/Woobe_logo_no_crown.svg" alt="Woobe" width={54} height={48} className="h-12 w-auto" />
+              Admin
+            </span>
             <h1 className="mt-6 font-display text-3xl text-text-primary lg:mt-0">Sign in</h1>
             <p className="mt-2 font-body text-sm text-text-secondary">Use your staff account to manage the store.</p>
           </div>

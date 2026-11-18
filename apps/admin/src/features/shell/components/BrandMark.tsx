@@ -3,7 +3,7 @@
 import { useAdminAuth } from "@/features/auth/hooks/useAdminAuth";
 
 /**
- * "Woobe Admin" wordmark, with a star badge appended when the signed-in
+ * Woobe logo + "Admin", with a star badge appended when the signed-in
  * user is the SUPER_ADMIN. The star replaces the old "· super admin" role
  * text everywhere the shell showed it (TopBar on desktop, the hamburger
  * bar on mobile) — one glanceable mark for the one unique role, no text.
@@ -14,7 +14,8 @@ export function BrandMark({ className }: { className?: string }) {
 
   return (
     <span className={`inline-flex items-center gap-1.5 font-display text-lg text-text-primary ${className ?? ""}`}>
-      Woobe Admin
+      <img src="/Woobe_logo_no_crown.svg" alt="Woobe" width={36} height={32} className="h-8 w-auto" />
+      Admin
       {isSuperAdmin && (
         <span
           role="img"

@@ -27,8 +27,7 @@ function BrandPanel({ src }: { src: string }) {
       />
       <div className="absolute inset-0 bg-gradient-to-t from-background/45 via-transparent to-background/25" />
       <div className="relative z-10 rounded-card bg-background/70 px-9 py-8 text-center shadow-card backdrop-blur-sm">
-        <p className="font-display text-4xl tracking-[0.15em] text-primary">WOOBE</p>
-        <p className="mt-2 font-body text-xs font-medium uppercase tracking-[0.35em] text-text-secondary">Women&apos;s Boutique</p>
+        <img src="/Woobe_logo_no_crown.svg" alt="Woobe" width={144} height={128} className="mx-auto h-32 w-auto" />
         <span className="my-7 flex items-center justify-center gap-3 text-primary">
           <span className="h-px w-10 bg-primary/40" />
           <Sparkles className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
