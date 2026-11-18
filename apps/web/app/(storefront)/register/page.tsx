@@ -20,6 +20,18 @@ export default function RegisterPage() {
 
       <RegisterForm />
 
+      <p className="mt-4 text-center font-body text-xs text-text-secondary">
+        By creating an account, you agree to our{" "}
+        <Link href="/terms" className="text-primary hover:underline">
+          Terms of Use
+        </Link>{" "}
+        and acknowledge our{" "}
+        <Link href="/privacy-policy" className="text-primary hover:underline">
+          Privacy Policy
+        </Link>
+        .
+      </p>
+
       <p className="mt-6 text-center font-body text-sm text-text-secondary">
         Already have an account?{" "}
         <Link href="/login" className="font-medium text-primary hover:underline">

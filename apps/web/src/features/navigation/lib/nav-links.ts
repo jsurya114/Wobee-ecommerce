@@ -38,4 +38,9 @@ export const HELP_LINKS: NavLink[] = [
   { label: "Contact Us", href: "/account/help?topic=contact" },
 ];
 
-export const ABOUT_LINKS: NavLink[] = [{ label: "How Woobe Works", href: "/how-it-works" }];
+export const ABOUT_LINKS: NavLink[] = [
+  { label: "How Woobe Works", href: "/how-it-works" },
+  { label: "Privacy Policy", href: "/privacy-policy" },
+  { label: "Terms of Use", href: "/terms" },
+  { label: "Cookie Policy", href: "/cookie-policy" },
+];
