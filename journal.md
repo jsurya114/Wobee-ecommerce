@@ -4918,3 +4918,11 @@ The frontend single-flight fix (`8ec6582`) was necessary but **not sufficient**.
 **Honest limit:** no courier's tracking deep link could be verified (their pages are JS/captcha-gated), so presets link to each courier's official tracking page and the email shows the tracking number prominently; the number is NOT pre-filled in the link. Anjani and Sri Maruti have no confirmed official page (link omitted). `deepLinkTemplate` exists on the preset for when someone tests one with a real consignment number. Courier "tips" are generic; no delay claims are asserted.
 
 **Not done / not verified:** API integration tests (need the test Postgres/Redis; not running here) — unit suites for orders, notifications, email templates and validation pass; the admin screen was typechecked, not clicked through; no real SMTP send. A customer-initiated cancel email from the plan does not exist because customers cannot cancel (admin cancel already emails).
+
+---
+
+## 2026-11-18 — New logo everywhere + "Continue with Google" fix
+
+**Logo:** `Woobe_logo_no_crown.svg` replaces the text wordmark in the storefront header (mobile + desktop), footer and auth side panel, and in admin (sidebar/top bar `BrandMark`, login page; white via `brightness-0 invert` on the rose panel). Also used as `app/icon.svg` in both apps (the storefront had no favicon: `/favicon.ico` 404'd). Emails still use a text heading (SVG isn't supported by Gmail/Outlook; would need a PNG on the CDN).
+
+**Google sign-in (live bug):** clicking "Continue with Google" did nothing. Reproduced on www.woobe.in with headless Chrome: GIS now renders its button inside a cross-origin iframe (FedCM), so our proxy click on `div[role="button"]` found nothing. Google's official button is now rendered visibly; our styled button is only the loading/busy placeholder. The server side is unchanged.

@@ -70,8 +70,8 @@ export function SiteFooter() {
       <div className="mx-auto max-w-6xl px-6 py-12">
         <div className="flex flex-wrap justify-between gap-12">
           <div className="max-w-sm">
-            <Link href="/" className="font-display text-xl text-primary">
-              Woobe
+            <Link href="/" aria-label="Woobe home" className="inline-block">
+              <img src="/Woobe_logo_no_crown.svg" alt="Woobe" width={72} height={64} className="h-16 w-auto" />
             </Link>
             <p className="mt-2 font-body text-sm text-text-secondary">
               Considered pieces for everyday wear — made in India.

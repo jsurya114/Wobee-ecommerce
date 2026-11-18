@@ -63,9 +63,8 @@ export function SiteHeader() {
       {/* Mobile — guaranteed-centered logo lockup. */}
       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-4 py-2.5 md:hidden">
         <HamburgerTrigger onClick={() => setDrawerOpen(true)} expanded={drawerOpen} className="justify-self-start" />
-        <Link href="/" className="flex flex-col items-center leading-none">
-          <span className="font-display text-lg text-primary">Woobe</span>
-          <span className="mt-0.5 font-body text-[10px] font-medium uppercase tracking-[0.16em] text-text-secondary">move freely</span>
+        <Link href="/" aria-label="Woobe home" className="flex items-center leading-none">
+          <img src="/Woobe_logo_no_crown.svg" alt="Woobe" width={41} height={36} className="h-9 w-auto" />
         </Link>
         <NewArrivalsControl className="justify-self-end" />
       </div>
@@ -73,8 +72,8 @@ export function SiteHeader() {
       {/* Desktop — unchanged full horizontal bar, plus the hamburger and the contextual New control. */}
       <div className="mx-auto hidden max-w-6xl items-center gap-3 px-6 py-2.5 md:flex md:gap-4 lg:gap-5">
         <HamburgerTrigger onClick={() => setDrawerOpen(true)} expanded={drawerOpen} className="shrink-0" />
-        <Link href="/" className="shrink-0 font-display text-xl text-primary">
-          Woobe
+        <Link href="/" aria-label="Woobe home" className="shrink-0">
+          <img src="/Woobe_logo_no_crown.svg" alt="Woobe" width={45} height={40} className="h-10 w-auto" />
         </Link>
 
         {/* Right cluster — New control + search (route-gated) + nav, right-aligned as a group. */}
