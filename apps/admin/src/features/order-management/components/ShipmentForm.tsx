@@ -18,12 +18,35 @@ interface Props {
   onSubmit: (values: ShipmentValues) => void;
 }
 
+type InitialShipment = NonNullable<Props["initial"]>;
+
+function initialCourierCode(initial?: InitialShipment): CourierCode {
+  const code = initial?.carrierCode ?? "";
+  return (COURIER_CODES as readonly string[]).includes(code) ? (code as CourierCode) : "OTHER";
+}
+
+/**
+ * The stored link is only a per-shipment override when it differs from what the preset would
+ * produce on its own; pre-fill just that, so re-saving keeps it and the preset default is not
+ * frozen into the field.
+ */
+function initialOverrideUrl(initial?: InitialShipment): string {
+  const stored = initial?.trackingUrl?.trim();
+  if (!stored) return "";
+  const code = initialCourierCode(initial);
+  if (code === "OTHER") return stored;
+  const preset = COURIERS[code];
+  const deepLink = preset.deepLinkTemplate?.replace("{trackingNumber}", encodeURIComponent((initial?.trackingNumber ?? "").trim()));
+  const presetDefault = deepLink ?? preset.trackingPageUrl;
+  return stored === presetDefault ? "" : stored;
+}
+
 /** Courier dropdown + tracking number (+ name/link for "Other"), with a preview of the link the customer will get. */
 export function ShipmentForm({ initial, submitLabel, busy, onSubmit }: Props) {
-  const [carrierCode, setCarrierCode] = useState<CourierCode>((COURIER_CODES as readonly string[]).includes(initial?.carrierCode ?? "") ? (initial!.carrierCode as CourierCode) : "OTHER");
-  const [carrier, setCarrier] = useState(initial?.carrierCode ? "" : (initial?.carrier ?? ""));
+  const [carrierCode, setCarrierCode] = useState<CourierCode>(() => initialCourierCode(initial));
+  const [carrier, setCarrier] = useState(() => (initialCourierCode(initial) === "OTHER" ? (initial?.carrier ?? "") : ""));
   const [trackingNumber, setTrackingNumber] = useState(initial?.trackingNumber ?? "");
-  const [trackingUrl, setTrackingUrl] = useState("");
+  const [trackingUrl, setTrackingUrl] = useState(() => initialOverrideUrl(initial));
   const preset = COURIERS[carrierCode];
   const isOther = carrierCode === "OTHER";
   const linkPreview = trackingUrl.trim() || preset.trackingPageUrl;
